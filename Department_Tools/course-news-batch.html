@@ -1,0 +1,1856 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Post News Batch
+  Writes one news item (announcement) and posts it into many courses at once.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Post News Batch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   Post News Batch
+   Same chassis as Copy Course Batch and the Department Tools pages: session
+   auth, runtime LP/LE version negotiation, myenrollments -> course
+   offerings -> terms. Posts one news item into many courses.
+   ========================================================================== */
+:root{
+  --blue:#006EB3;            /* primary blue */
+  --blue-dark:#0059a0;
+  --blue-deep:#1a3a5c;       /* panel headers */
+  --amber:#f5a81c;           /* accent amber — ADA-safe on blue */
+
+  --bg:#f0f4f8;
+  --card:#ffffff;
+  --surface:#f7f9fc;
+  --ink:#1a2940;
+  --muted:#607d8b;
+  --faint:#8a9bab;
+  --line:#dde3ec;
+  --line-soft:#eef2f7;
+
+  --ok:#2e7d32;      --ok-bg:#e8f5e9;   --ok-line:#b6ddb9;
+  --warn:#e65100;    --warn-bg:#fff3e6; --warn-line:#f7cfa6;
+  --bad:#c62828;     --bad-bg:#fdecec;  --bad-line:#f3bfbf;
+  --none:#607d8b;    --none-bg:#eef2f6; --none-line:#d8e0e8;
+  --info-bg:#e8f1f8; --info-line:#c4dbec;
+
+  --radius:12px;
+  --mono:'DM Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  --serif:'Playfair Display',Georgia,serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:auto}
+body{
+  font-family:var(--sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  padding:20px 16px 60px;
+}
+.wrap{max-width:1240px;margin:0 auto}
+[hidden]{display:none !important}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+/* ------------------------------- masthead ------------------------------- */
+.masthead{
+  background:var(--blue);color:#fff;border-radius:var(--radius) var(--radius) 0 0;
+  padding:18px 22px 16px;display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;
+}
+.masthead h1{font-family:var(--serif);font-size:22px;font-weight:700;line-height:1.15}
+.masthead p{font-size:12.5px;color:rgba(255,255,255,.82);margin-top:5px;max-width:70ch}
+.masthead .meta{text-align:right;font-size:11.5px;color:rgba(255,255,255,.78);line-height:1.7;flex:0 0 auto}
+.masthead .meta b{color:#fff;font-weight:600}
+.masthead .meta code{font-family:var(--mono);font-size:11px}
+.ribbon{
+  background:var(--blue-dark);color:rgba(255,255,255,.78);font-size:11px;
+  padding:6px 22px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.ribbon b{color:#fff;font-weight:600}
+
+/* --------------------------------- cards -------------------------------- */
+.card{background:var(--card);border:1px solid var(--line);border-top:0;padding:16px 18px}
+.card:last-of-type{border-radius:0 0 var(--radius) var(--radius)}
+.card-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-h h2{font-family:var(--serif);font-size:15px;font-weight:700}
+
+.banner{border-radius:9px;padding:11px 13px;margin-bottom:12px;font-size:12.5px;border:1px solid;line-height:1.5}
+.banner b{display:block;margin-bottom:2px;font-weight:600}
+.banner.info{background:var(--info-bg);border-color:var(--info-line);color:#0b4f7d}
+.banner .shout{display:block;margin-top:7px;font-weight:700;letter-spacing:.02em;color:var(--bad)}
+.banner.warn{background:var(--warn-bg);border-color:var(--warn-line);color:#8a4b00}
+.banner.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+
+/* ------------------------------- controls ------------------------------- */
+.row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.col{flex:1 1 330px;min-width:240px}
+.col.narrow{flex:1 1 240px}
+.field{margin-bottom:2px}
+.lab{display:block;font-size:12px;font-weight:600;margin-bottom:6px}
+.lab .req{color:var(--bad);margin-left:2px}
+.lab .opt{font-weight:400;color:var(--faint);margin-left:4px}
+.hint{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.5}
+
+.picker-btn{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  font:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--ink);
+}
+.picker-btn:hover:not(:disabled){border-color:#bcc9d8}
+.picker-btn:disabled{background:var(--surface);color:var(--faint);cursor:not-allowed}
+.picker-btn .chev{color:var(--faint);flex:0 0 auto}
+
+.menu{
+  position:fixed;z-index:9999;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 14px 38px rgba(16,32,52,.18);display:none;flex-direction:column;overflow:hidden;
+}
+.menu[data-open="1"]{display:flex}
+.menu-top{padding:9px;border-bottom:1px solid var(--line-soft);display:flex;gap:6px;align-items:center}
+.menu-top input{flex:1;min-width:0;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12.5px}
+.menu-top button{border:1px solid var(--line);background:var(--card);border-radius:6px;font:inherit;font-size:11.5px;padding:7px 9px;cursor:pointer;color:var(--muted);white-space:nowrap}
+.menu-top button:hover{background:var(--surface)}
+.menu-list{overflow-y:auto;max-height:300px;padding:5px}
+.menu-row{display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:12.5px}
+.menu-row:hover{background:var(--surface)}
+.menu-row input{margin:2px 0 0;flex:0 0 auto;accent-color:var(--blue)}
+.menu-row small{display:block;color:var(--faint);font-size:11px}
+.menu-foot{padding:9px;border-top:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--muted)}
+
+.picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.pick{display:inline-flex;align-items:center;gap:6px;background:var(--info-bg);border:1px solid var(--info-line);
+  color:#0b4f7d;border-radius:20px;padding:2px 7px 2px 10px;font-size:11.5px;font-weight:500}
+.pick button{border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;line-height:1;padding:2px;opacity:.65}
+.pick button:hover{opacity:1}
+
+select.sel,input.txt{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px;background:var(--card);color:var(--ink);width:100%}
+input.txt::placeholder{color:var(--faint)}
+input.txt:focus,select.sel:focus{border-color:var(--blue);outline:0;box-shadow:0 0 0 3px rgba(0,110,179,.13)}
+input.txt.err{border-color:var(--bad);background:var(--bad-bg)}
+input.txt:disabled{background:var(--surface);color:var(--faint)}
+.check{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;cursor:pointer}
+.check input{margin:2px 0 0;flex:0 0 auto;accent-color:var(--blue)}
+.date-row{display:flex;gap:6px;align-items:center}
+.date-row .btn{flex:0 0 auto}
+
+/* ---------------------------------- help -------------------------------- */
+.help{
+  display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+  border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  font-size:10px;font-weight:700;cursor:help;margin-left:5px;vertical-align:1px;
+}
+.help:hover,.help:focus{background:var(--blue);border-color:var(--blue);color:#fff}
+.help-pop{
+  position:fixed;z-index:10000;max-width:330px;background:var(--blue-deep);color:#fff;
+  border-radius:9px;padding:10px 12px;font-size:11.5px;line-height:1.55;
+  box-shadow:0 12px 30px rgba(16,32,52,.28);display:none;
+}
+.help-pop[data-open="1"]{display:block}
+.help-pop b{display:block;font-weight:600;margin-bottom:3px}
+.help-pop code{font-family:var(--mono);background:rgba(255,255,255,.14);padding:1px 4px;border-radius:4px}
+
+/* -------------------------------- buttons ------------------------------- */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
+  color:var(--ink);border-radius:8px;padding:9px 15px;font:inherit;font-size:12.5px;font-weight:600;
+  cursor:pointer;white-space:nowrap;transition:filter .15s,background .15s;
+}
+.btn:hover:not(:disabled){background:var(--surface)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover:not(:disabled){background:var(--blue-dark);filter:none}
+.btn.go{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.go:hover:not(:disabled){filter:brightness(1.1);background:var(--ok)}
+.btn.small{padding:6px 11px;font-size:11.5px;font-weight:500}
+.btn-row{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+
+/* ------------------------------- progress ------------------------------- */
+.bar{height:6px;background:var(--line-soft);border-radius:20px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+
+/* ---------------------------- results toolbar --------------------------- */
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar .grow{flex:1 1 220px;min-width:180px}
+.count-pill{
+  display:inline-flex;align-items:baseline;gap:6px;background:var(--surface);border:1px solid var(--line);
+  border-radius:20px;padding:5px 13px;font-size:12px;color:var(--muted);
+}
+.count-pill b{font-size:15px;font-weight:700;color:var(--blue);font-family:var(--mono)}
+
+/* ------------------------- department groupings ------------------------- */
+.depts{display:flex;flex-direction:column;gap:9px}
+.dept{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.dept-h{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 14px;background:var(--blue-deep);color:#fff;border:0;cursor:pointer;
+  font:inherit;text-align:left;transition:filter .15s;
+}
+.dept-h:hover{filter:brightness(1.14)}
+.dept-h:focus-visible{outline:2px solid var(--amber);outline-offset:-3px}
+.dept-h .dc{font-family:var(--serif);font-size:15px;font-weight:700;letter-spacing:.02em}
+.dept-h .dn{font-size:11.5px;color:rgba(255,255,255,.68);margin-left:10px}
+.dept-h .rt{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.dept-badge{border:1px solid rgba(255,255,255,.28);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:600;background:rgba(255,255,255,.12);white-space:nowrap}
+.dept-badge.on{background:rgba(245,168,28,.42);border-color:rgba(255,255,255,.4)}
+.dept-h .arrow{font-size:12px;opacity:.8;transition:transform .18s}
+.dept:not(.open) .dept-h .arrow{transform:rotate(-90deg)}
+.dept:not(.open) .dept-b{display:none}
+.dept-b{padding:0}
+
+table.gt{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+col.c-pick{width:38px}
+col.c-code{width:200px}
+col.c-stat{width:186px}
+table.gt th{
+  text-align:left;font-size:11px;font-weight:600;color:var(--muted);
+  padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface);white-space:nowrap;
+}
+table.gt td{padding:8px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+table.gt tbody tr:last-child td{border-bottom:0}
+table.gt tbody tr:hover{background:var(--surface)}
+table.gt tbody tr.sel{background:#eef6fc}
+table.gt tbody tr.sel:hover{background:#e5f0f9}
+td.pick-cell{padding-right:0}
+td.pick-cell input{accent-color:var(--blue);cursor:pointer;margin-top:2px}
+th.pick-cell input{accent-color:var(--blue);cursor:pointer}
+.cname{font-weight:500;line-height:1.4}
+.ccode{font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+.ou{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.empty-note{padding:26px 14px;text-align:center;color:var(--faint);font-size:12.5px}
+
+/* ----------------------------- post statuses ---------------------------- */
+td.stat-cell{white-space:normal}
+.pill{
+  display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600;
+  border:1px solid;background:var(--none-bg);border-color:var(--none-line);color:var(--none);
+}
+.pill.wait{background:var(--info-bg);border-color:var(--info-line);color:#0b4f7d}
+.pill.busy{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.pill.done{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.pill.fail{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+.stat-msg{display:block;font-size:10.5px;color:var(--faint);margin-top:3px;font-family:var(--mono);overflow-wrap:anywhere}
+
+.runstats{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.runstat{border:1px solid var(--line);border-radius:9px;padding:8px 14px;background:var(--surface);min-width:96px}
+.runstat .n{font-family:var(--mono);font-size:19px;font-weight:500;line-height:1.1}
+.runstat .k{font-size:11px;color:var(--muted);margin-top:2px}
+.runstat.done .n{color:var(--ok)}
+.runstat.fail .n{color:var(--bad)}
+.runstat.busy .n{color:var(--warn)}
+
+/* ------------------------------ html editor ----------------------------- */
+.ed-wrap{border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--card);position:relative}
+.ed-wrap:focus-within{border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,110,179,.13)}
+.ed-wrap.err{border-color:var(--bad);box-shadow:0 0 0 3px rgba(198,40,40,.12)}
+.tb{display:flex;flex-wrap:wrap;gap:2px;padding:6px;border-bottom:1px solid var(--line-soft);background:var(--surface);align-items:center}
+.tb button{
+  min-width:30px;height:30px;border:1px solid transparent;border-radius:6px;background:transparent;
+  cursor:pointer;color:var(--ink);font:inherit;font-size:13px;display:inline-flex;align-items:center;
+  justify-content:center;padding:0 7px;gap:5px;
+}
+.tb button:hover:not(:disabled){background:var(--card);border-color:var(--line)}
+.tb button[aria-pressed="true"]{background:var(--info-bg);border-color:var(--info-line);color:#0b4f7d}
+.tb button:disabled{opacity:.35;cursor:not-allowed}
+.tb svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tb .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.tb .grow{flex:1}
+.tb select{height:30px;border:1px solid var(--line);border-radius:6px;background:var(--card);font:inherit;font-size:12.5px;padding:0 6px;color:var(--ink)}
+.tb select:disabled{opacity:.35}
+.tb .clr{position:relative;min-width:30px;height:30px;border-radius:6px;display:inline-flex;flex-direction:column;
+  align-items:center;justify-content:center;cursor:pointer;font-weight:700;font-size:13px;line-height:1}
+.tb .clr:hover{background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
+.tb .clr i{display:block;width:16px;height:4px;border-radius:2px;margin-top:2px}
+.tb .clr input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;border:0;padding:0}
+.tb .clr.off{opacity:.35;pointer-events:none}
+.tb .src-btn{font-family:var(--mono);font-size:11.5px}
+
+.editor{
+  min-height:240px;max-height:560px;overflow:auto;padding:14px 16px;outline:0;
+  font-size:15px;line-height:1.55;color:#202122;resize:vertical;
+}
+.editor p{margin:0 0 .7em}
+.editor h2{font-size:1.45em;margin:.3em 0 .5em;line-height:1.25}
+.editor h3{font-size:1.2em;margin:.3em 0 .5em;line-height:1.3}
+.editor h4{font-size:1.05em;margin:.3em 0 .5em}
+.editor ul,.editor ol{margin:0 0 .7em;padding-left:1.6em}
+.editor blockquote{margin:0 0 .7em;padding:.3em 0 .3em 1em;border-left:4px solid var(--line);color:#4a5563}
+.editor a{color:var(--blue)}
+.editor hr{border:0;border-top:1px solid var(--line);margin:1em 0}
+.editor img{max-width:100%;height:auto}
+.editor[contenteditable="false"]{background:var(--surface);color:var(--muted)}
+.ed-ph{position:absolute;left:17px;top:58px;color:var(--faint);font-size:15px;pointer-events:none}
+textarea.source{
+  display:block;width:100%;min-height:240px;border:0;outline:0;padding:14px 16px;resize:vertical;
+  font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--ink);background:#fbfcfe;
+}
+.ed-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:6px 10px;
+  border-top:1px solid var(--line-soft);font-size:11px;color:var(--faint);background:var(--surface)}
+
+/* --------------------------- floating progress -------------------------- */
+.scrim{position:fixed;inset:0;z-index:10001;background:rgba(16,32,52,.42);display:flex;align-items:center;justify-content:center;padding:20px}
+.float{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 60px rgba(16,32,52,.32);padding:22px 26px;width:min(420px,100%);text-align:center}
+.float-h{font-family:var(--serif);font-size:17px;font-weight:700;margin-bottom:10px}
+.float-n{font-size:14px;color:var(--muted);margin-bottom:12px}
+.float-n b{font-family:var(--mono);font-size:22px;font-weight:500;color:var(--blue)}
+.float .bar{height:8px;margin-top:0}
+.float-sub{font-size:11.5px;color:var(--faint);margin-top:10px;min-height:1.4em}
+.float-warn{margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);font-size:11px;font-weight:700;color:var(--bad);letter-spacing:.02em;line-height:1.5}
+
+/* -------------------------------- footer -------------------------------- */
+.foot{font-size:11.5px;color:var(--faint);margin-top:14px;text-align:center}
+
+@media (max-width:640px){
+  body{padding:12px 8px 40px}
+  .masthead{padding:15px 16px 13px}
+  .masthead .meta{text-align:left}
+  .card{padding:14px 13px}
+  table.gt th,table.gt td{padding:7px 8px}
+  col.c-pick{width:30px}
+  col.c-code{width:118px}
+  col.c-stat{width:104px}
+  .pill{font-size:10px;padding:2px 7px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============================== masthead ============================== -->
+  <div class="masthead">
+    <div>
+      <h1>Post News Batch</h1>
+      <p>Pick the courses, write the news item once, then post it into every selected course.</p>
+    </div>
+    <div class="meta">
+      <div id="whoami">Checking your session…</div>
+      <div id="versions"></div>
+    </div>
+  </div>
+  <div class="ribbon">
+    <span id="mineCount">Reading your courses…</span>
+  </div>
+
+  <div id="banners"></div>
+
+  <!-- ============================ what to show ============================ -->
+  <div class="card">
+    <div class="card-h">
+      <h2>Which courses</h2>
+      <span class="hint" id="scanState" style="margin:0"></span>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <div class="field">
+          <label class="lab" for="termBtn">Terms</label>
+          <button type="button" class="picker-btn" id="termBtn" disabled aria-haspopup="listbox" aria-expanded="false">
+            <span id="termBtnLabel">Loading terms…</span>
+            <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="picks" id="picks"></div>
+        </div>
+      </div>
+      <div class="col"></div>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px">
+      <button type="button" class="btn primary" id="runBtn" disabled>Display courses</button>
+      <span class="note" id="runNote" style="margin:0"></span>
+    </div>
+    <div class="bar" id="barWrap" hidden><i id="bar"></i></div>
+  </div>
+
+  <!-- ============================== courses =============================== -->
+  <div class="card" id="resultsCard" hidden>
+    <div class="card-h">
+      <h2>Target courses</h2>
+      <span class="hint" id="resultState" style="margin:0"></span>
+    </div>
+
+    <div class="toolbar">
+      <div style="flex:0 0 auto">
+        <select class="sel" id="deptFilter" aria-label="Filter by department code" style="width:auto;min-width:190px">
+          <option value="">All departments</option>
+        </select>
+      </div>
+      <div class="grow"><input type="text" class="txt" id="search" placeholder="Search name, code, or term…"></div>
+      <button type="button" class="btn small" id="selAllBtn">Select all shown</button>
+      <button type="button" class="btn small" id="selNoneBtn">Clear selection</button>
+      <span class="count-pill"><b id="selCount">0</b> selected</span>
+    </div>
+
+    <div class="depts" id="depts"></div>
+    <div class="empty-note" id="noMatch" hidden>No courses match this filter.</div>
+  </div>
+
+  <!-- ============================= news item ============================= -->
+  <div class="card" id="newsCard" hidden>
+    <div class="card-h"><h2>News Item</h2></div>
+
+    <div class="banner warn">
+      <b>This posts into live courses</b>
+      Each selected course gets its own copy of the news item, visible to students as soon as the start date arrives.
+      There is no undo here — removing it later means deleting it from each course's Announcements tool.
+      <b class="shout">DO NOT LEAVE OR REFRESH THIS PAGE UNTIL ALL OF THE POSTS HAVE BEEN COMPLETED.</b>
+    </div>
+
+    <div class="row">
+      <div class="col narrow">
+        <div class="field">
+          <label class="lab" for="startDate">Start date<span class="opt">optional</span>
+            <span class="help" tabindex="0" role="button" aria-label="About the start date"
+              data-help-title="Start date"
+              data-help="Leave it blank to post right away. A future date schedules the item — it stays hidden from students until then. Times are in this computer's time zone.">?</span>
+          </label>
+          <div class="date-row">
+            <input type="datetime-local" class="txt" id="startDate">
+            <button type="button" class="btn small" data-clear-date="startDate" aria-label="Clear start date">&times;</button>
+          </div>
+          <div class="hint">Blank means post now.</div>
+        </div>
+      </div>
+      <div class="col narrow">
+        <div class="field">
+          <label class="lab" for="endDate">End date<span class="opt">optional</span>
+            <span class="help" tabindex="0" role="button" aria-label="About the end date"
+              data-help-title="End date"
+              data-help="After this date and time the item drops off the course's Announcements widget. Leave it blank to keep it up until someone removes it.">?</span>
+          </label>
+          <div class="date-row">
+            <input type="datetime-local" class="txt" id="endDate">
+            <button type="button" class="btn small" data-clear-date="endDate" aria-label="Clear end date">&times;</button>
+          </div>
+          <div class="hint">Blank means no end date.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <div class="col">
+        <div class="field">
+          <label class="lab" for="newsTitle">Title<span class="req" aria-hidden="true">*</span>
+            <span class="help" tabindex="0" role="button" aria-label="About the title"
+              data-help-title="Title"
+              data-help="Before posting, each course's Announcements are checked for a news item with this same title. Courses that already have one are skipped, so running the tool again never posts a duplicate.">?</span>
+          </label>
+          <input type="text" class="txt" id="newsTitle" maxlength="200" required aria-required="true" placeholder="Announcement title">
+          <label class="check" for="pinIt" style="margin-top:9px">
+            <input type="checkbox" id="pinIt" checked>
+            <span>Pin to the top of Announcements</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:16px">
+      <label class="lab" id="edLabel">Message<span class="req" aria-hidden="true">*</span></label>
+      <div class="ed-wrap" id="edWrap">
+        <div class="tb" id="tb" role="toolbar" aria-label="Formatting">
+          <select id="tbBlock" aria-label="Text style" title="Text style">
+            <option value="p">Paragraph</option>
+            <option value="h2">Heading 1</option>
+            <option value="h3">Heading 2</option>
+            <option value="h4">Heading 3</option>
+            <option value="blockquote">Quote</option>
+          </select>
+          <span class="sep"></span>
+          <button type="button" data-cmd="bold" title="Bold (Ctrl+B)" aria-pressed="false"><b>B</b></button>
+          <button type="button" data-cmd="italic" title="Italic (Ctrl+I)" aria-pressed="false"><i style="font-family:Georgia,serif">I</i></button>
+          <button type="button" data-cmd="underline" title="Underline (Ctrl+U)" aria-pressed="false"><u>U</u></button>
+          <button type="button" data-cmd="strikeThrough" title="Strikethrough" aria-pressed="false"><s>S</s></button>
+          <span class="sep"></span>
+          <label class="clr" title="Text color" id="foreWrap">A<i id="foreSwatch" style="background:#006eb3"></i>
+            <input type="color" id="foreColor" value="#006eb3" aria-label="Text color">
+          </label>
+          <label class="clr" title="Highlight color" id="backWrap">
+            <svg viewBox="0 0 24 24" style="width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+            <i id="backSwatch" style="background:#fff3b0"></i>
+            <input type="color" id="backColor" value="#fff3b0" aria-label="Highlight color">
+          </label>
+          <span class="sep"></span>
+          <button type="button" data-cmd="insertUnorderedList" title="Bulleted list" aria-pressed="false">
+            <svg viewBox="0 0 24 24"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg></button>
+          <button type="button" data-cmd="insertOrderedList" title="Numbered list" aria-pressed="false">
+            <svg viewBox="0 0 24 24"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></svg></button>
+          <span class="sep"></span>
+          <button type="button" data-cmd="justifyLeft" title="Align left" aria-pressed="false">
+            <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg></button>
+          <button type="button" data-cmd="justifyCenter" title="Center" aria-pressed="false">
+            <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
+          <button type="button" data-cmd="justifyRight" title="Align right" aria-pressed="false">
+            <svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg></button>
+          <span class="sep"></span>
+          <button type="button" data-act="link" title="Insert link">
+            <svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></button>
+          <button type="button" data-cmd="unlink" title="Remove link">
+            <svg viewBox="0 0 24 24"><path d="M18.8 13.2 20.5 11.5a5 5 0 0 0-7-7L11.8 6.2"/><path d="M5.2 10.8 3.5 12.5a5 5 0 0 0 7 7l1.7-1.7"/><line x1="4" y1="4" x2="20" y2="20"/></svg></button>
+          <button type="button" data-cmd="insertHorizontalRule" title="Divider line">
+            <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/></svg></button>
+          <span class="sep"></span>
+          <button type="button" data-act="clear" title="Clear formatting">
+            <svg viewBox="0 0 24 24"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4 8 20"/><line x1="15" y1="14" x2="21" y2="20"/><line x1="21" y1="14" x2="15" y2="20"/></svg></button>
+          <button type="button" data-cmd="undo" title="Undo (Ctrl+Z)">
+            <svg viewBox="0 0 24 24"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/></svg></button>
+          <button type="button" data-cmd="redo" title="Redo (Ctrl+Y)">
+            <svg viewBox="0 0 24 24"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 15-6.7L21 13"/></svg></button>
+          <span class="grow"></span>
+          <button type="button" data-act="source" id="srcBtn" class="src-btn" title="Edit the HTML directly" aria-pressed="false">&lt;/&gt; HTML</button>
+        </div>
+        <div class="editor" id="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="edLabel" spellcheck="true"><p><br></p></div>
+        <div class="ed-ph" id="edPh">Type the news item here. Use the toolbar to style it the way it should look in the course.</div>
+        <textarea class="source" id="source" hidden spellcheck="false" aria-label="HTML source"></textarea>
+        <div class="ed-foot">
+          <span id="edMode">What you see here is how it will look in the course.</span>
+          <span id="edCount"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row" style="margin-top:18px">
+      <button type="button" class="btn go" id="postBtn">Post to Courses</button>
+      <button type="button" class="btn" id="clearBtn">Clear</button>
+      <button type="button" class="btn small" id="failedBtn" hidden>Select failed courses only</button>
+      <span class="note" id="postNote" style="margin:0"></span>
+    </div>
+
+    <div id="runBox" hidden style="margin-top:16px">
+      <div class="bar"><i id="runBar"></i></div>
+      <div class="runstats" id="runStats"></div>
+      <div class="note" id="runFoot"></div>
+    </div>
+  </div>
+
+  <div class="foot">Leaving the page stops the posting, so wait for every course to finish.</div>
+</div>
+
+<div class="menu" id="termMenu" role="listbox" aria-multiselectable="true">
+  <div class="menu-top">
+    <input type="text" id="termSearch" placeholder="Find a term…">
+    <button type="button" id="termAll">All</button>
+    <button type="button" id="termNone">None</button>
+  </div>
+  <div class="menu-list" id="termList"></div>
+  <div class="menu-foot"><span id="termFoot">Newest terms first</span><button type="button" class="btn small" id="termDone">Done</button></div>
+</div>
+
+<div class="help-pop" id="helpPop"></div>
+
+<div class="scrim" id="scrim" hidden>
+  <div class="float" role="status" aria-live="polite">
+    <div class="float-h" id="floatTitle">Posting news</div>
+    <div class="float-n"><b id="floatDone">0</b> of <b id="floatTotal">0</b> courses processed</div>
+    <div class="bar"><i id="floatBar"></i></div>
+    <div class="float-sub" id="floatSub"></div>
+    <div class="float-warn">DO NOT LEAVE OR REFRESH THIS PAGE UNTIL ALL OF THE POSTS HAVE BEEN COMPLETED.</div>
+  </div>
+</div>
+<script>
+(function () {
+'use strict';
+
+/* ============================== configuration ==============================
+   Everything tenant-specific lives here.
+   ========================================================================= */
+var CONFIG = {
+  build: '2026-09-30a',
+  host: '',                       // same origin — the page runs inside Brightspace
+  fallbackLP: '1.28',             // used only if /d2l/api/versions/ can't be read
+  fallbackLE: '1.97',
+  courseOfferingTypeId: 3,
+  readConcurrency: 12,            // reading course details at load
+  postConcurrency: 4,             // news POSTs
+  requestTimeoutMs: 30000,
+  maxRetries: 3,
+  retryBaseMs: 700,
+};
+
+/* ================================= helpers ================================ */
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
+
+function banner(kind, title, body) {
+  var d = document.createElement('div');
+  d.className = 'banner ' + kind;
+  d.innerHTML = (title ? '<b>' + esc(title) + '</b>' : '') + body;
+  $('banners').appendChild(d);
+  return d;
+}
+
+/* ============================== fetch chassis =============================
+   Session authentication — the signed-in user's own Brightspace session is the
+   credential, so there are no API keys anywhere in this file.
+
+     * this tenant does not send usable X-Rate-Limit-* headers on session
+       calls, so only a real 429 is treated as exhaustion.
+     * every call gets an AbortController timeout and a bounded retry.
+     * opts.noRetry: a POST that timed out may still have gone through, so
+       retrying it could post the news item twice. POSTs only retry on 429,
+       which means Brightspace refused it without doing anything.
+   ========================================================================= */
+function xsrf() {
+  try { return localStorage.getItem('XSRF.Token') || ''; } catch (e) { return ''; }
+}
+
+function rlFetch(url, opts) {
+  opts = opts || {};
+  var attempt = 0;
+
+  function go() {
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, CONFIG.requestTimeoutMs);
+    var headers = Object.assign({ 'Accept': 'application/json' }, opts.headers || {});
+    var tok = xsrf();
+    if (tok) headers['X-Csrf-Token'] = tok;
+
+    return fetch(CONFIG.host + url, {
+      method: opts.method || 'GET',
+      credentials: 'same-origin',
+      headers: headers,
+      body: opts.body,
+      signal: ctl.signal
+    }).then(function (res) {
+      clearTimeout(timer);
+      if (res.status === 429) {
+        var ra = parseFloat(res.headers.get('Retry-After'));
+        var wait = (isFinite(ra) && ra > 0) ? ra * 1000 : CONFIG.retryBaseMs * Math.pow(2, attempt);
+        if (attempt++ < CONFIG.maxRetries) return sleep(Math.min(wait, 15000)).then(go);
+        var e429 = new Error('Brightspace is rate limiting this account. Wait a minute and try again.');
+        e429.final = true;
+        throw e429;
+      }
+      return res;
+    }).catch(function (err) {
+      clearTimeout(timer);
+      if (err && err.final) throw err;
+      var aborted = err && (err.name === 'AbortError');
+      if (opts.noRetry) {
+        var e = new Error(aborted
+          ? 'No response from Brightspace — it may have gone through. Posting again is safe: the title check will skip this course if it did.'
+          : 'Network error — posting again is safe: the title check will skip this course if it went through.');
+        e.final = true;
+        throw e;
+      }
+      if (attempt++ < CONFIG.maxRetries) {
+        return sleep(CONFIG.retryBaseMs * Math.pow(2, attempt)).then(go);
+      }
+      if (aborted) throw new Error("Brightspace didn't respond. Wait a moment, then reload the page.");
+      throw err;
+    });
+  }
+  return Promise.resolve().then(go);
+}
+
+function getJSON(url) {
+  return rlFetch(url).then(function (res) {
+    if (!res.ok) {
+      var e = new Error('HTTP ' + res.status + ' on ' + url);
+      e.status = res.status;
+      throw e;
+    }
+    return res.json();
+  });
+}
+
+/* Run `worker` over `items`, `n` in flight at a time. */
+function runPool(items, n, worker, onTick) {
+  var i = 0, done = 0, out = new Array(items.length);
+  n = Math.max(1, Math.min(n, items.length || 1));
+
+  function next() {
+    if (i >= items.length) return Promise.resolve();
+    var idx = i++;
+    return Promise.resolve(worker(items[idx], idx)).then(function (v) {
+      out[idx] = v;
+    }).catch(function () {
+      out[idx] = null;
+    }).then(function () {
+      done++;
+      if (onTick) onTick(done, items.length);
+      return next();
+    });
+  }
+  var runners = [];
+  for (var k = 0; k < n; k++) runners.push(next());
+  return Promise.all(runners).then(function () { return out; });
+}
+
+/* ================================== state ================================= */
+var state = {
+  demo: false,
+  lp: CONFIG.fallbackLP,
+  le: CONFIG.fallbackLE,
+  running: false,
+  status: {},           // ou -> {key, msg}
+  courses: [],          // {ou, name, code, dept, termId, termName, offeringName}
+  terms: [],            // {id, name, count}
+  pickedTerms: {},      // termId -> true
+  shown: [],            // courses currently displayed (term-filtered)
+  selected: {},         // ou -> true   (survives filtering)
+  openDepts: {}         // deptCode -> false when collapsed
+};
+
+/* ============================= department code ============================
+   CPT_101_I01_2026FA -> CPT.
+   ========================================================================= */
+function deptOf(code, fallbackName) {
+  var c = String(code || '').trim();
+  if (c) {
+    var first = c.split(/[_\-\s]/)[0];
+    if (first && /^[A-Za-z]{2,6}$/.test(first)) return first.toUpperCase();
+    var m = c.match(/^([A-Za-z]{2,6})/);
+    if (m) return m[1].toUpperCase();
+  }
+  return (fallbackName || 'Other').toUpperCase();
+}
+
+/* ================================== boot ================================== */
+function boot() {
+  detectSession()
+    .then(function (live) {
+      state.demo = !live;
+      if (state.demo) return loadDemo();
+      return loadVersions().then(loadWhoami).then(loadCourses);
+    })
+    .then(buildTerms)
+    .catch(function (err) {
+      $('scanState').textContent = '';
+      $('mineCount').textContent = 'Could not read your courses';
+      banner('bad', "Couldn't read your courses",
+        esc(err && err.message ? err.message : String(err)) +
+        ' Make sure you are signed in to Brightspace in this browser, then reload.');
+    });
+}
+
+function detectSession() {
+  return getJSON('/d2l/api/versions/').then(function () { return true; })
+    .catch(function () { return false; });
+}
+
+function loadVersions() {
+  return getJSON('/d2l/api/versions/').then(function (list) {
+    (list || []).forEach(function (p) {
+      if (p.ProductCode === 'lp' && p.LatestVersion) state.lp = p.LatestVersion;
+      if (p.ProductCode === 'le' && p.LatestVersion) state.le = p.LatestVersion;
+    });
+    paintVersions();
+  }).catch(paintVersions);
+}
+
+function paintVersions() {
+  $('versions').innerHTML = 'LP <code>' + esc(state.lp) + '</code> &middot; LE <code>' + esc(state.le) + '</code>';
+}
+
+function loadWhoami() {
+  return getJSON('/d2l/api/lp/' + state.lp + '/users/whoami').then(function (me) {
+    var nm = [me.FirstName, me.LastName].filter(Boolean).join(' ') || me.UniqueName || 'Signed in';
+    $('whoami').innerHTML = 'Signed in as <b>' + esc(nm) + '</b>';
+  }).catch(function () {
+    $('whoami').textContent = 'Signed in';
+  });
+}
+
+/* enrollments -> the account's own course offerings -> each offering's term */
+function loadCourses() {
+  $('scanState').textContent = 'Reading your enrollments…';
+  return readEnrollments().then(function (offerings) {
+    if (!offerings.length) {
+      $('mineCount').textContent = 'No course offerings found on your account';
+      return [];
+    }
+    $('barWrap').hidden = false;
+
+    return runPool(offerings, CONFIG.readConcurrency, function (o) {
+      return getJSON('/d2l/api/lp/' + state.lp + '/courses/' + o.Id)
+        .then(function (c) { return { ou: o.Id, raw: c, fallbackName: o.Name, fallbackCode: o.Code }; })
+        .catch(function () { return null; });
+    }, function (done, total) {
+      $('bar').style.width = Math.round((done / total) * 100) + '%';
+      $('scanState').textContent = 'Reading course details… ' + done + ' of ' + total;
+    }).then(function (rows) {
+      var kept = [], inactive = 0, unread = 0;
+
+      rows.forEach(function (r) {
+        if (!r || !r.raw) { unread++; return; }
+        var c = r.raw;
+        if (c.IsActive === false) { inactive++; return; }
+        var termName = (c.Semester && c.Semester.Name) || '';
+        var termId = (c.Semester && (c.Semester.Identifier != null ? c.Semester.Identifier : c.Semester.Id));
+        var code = c.Code || r.fallbackCode || '';
+        var name = c.Name || r.fallbackName || '';
+        kept.push({
+          ou: String(r.ou),
+          name: name,
+          code: code,
+          dept: deptOf(code, c.Department && c.Department.Name),
+          termId: termId != null ? String(termId) : '0',
+          termName: termName || 'No term',
+          offeringName: String(name || '').trim()
+        });
+      });
+
+      state.courses = kept;
+      $('barWrap').hidden = true;
+      $('scanState').textContent = '';
+      $('mineCount').textContent =
+        plural(kept.length, 'active course offering') +
+        (inactive ? ' · ' + inactive + ' inactive skipped' : '') +
+        (unread ? ' · ' + unread + " couldn't be read" : '');
+      return kept;
+    });
+  });
+}
+
+function readEnrollments() {
+  var out = [], bookmark = null, guard = 0;
+
+  function page() {
+    var url = '/d2l/api/lp/' + state.lp + '/enrollments/myenrollments/?orgUnitTypeId=' +
+      CONFIG.courseOfferingTypeId + (bookmark ? '&bookmark=' + encodeURIComponent(bookmark) : '');
+    return getJSON(url).then(function (res) {
+      (res.Items || []).forEach(function (it) {
+        var ou = it.OrgUnit || {};
+        if (ou.Id != null) out.push({ Id: ou.Id, Name: ou.Name, Code: ou.Code });
+      });
+      $('scanState').textContent = 'Reading your enrollments… ' + out.length + ' found';
+      var pi = res.PagingInfo || {};
+      if (pi.HasMoreItems && pi.Bookmark && guard++ < 200) {
+        bookmark = pi.Bookmark;
+        return page();
+      }
+      return out;
+    });
+  }
+  return page();
+}
+
+/* ================================== terms ================================= */
+function buildTerms() {
+  var map = {};
+  state.courses.forEach(function (c) {
+    if (!map[c.termId]) map[c.termId] = { id: c.termId, name: c.termName, count: 0 };
+    map[c.termId].count++;
+  });
+  // larger org unit id = newer term
+  state.terms = Object.keys(map).map(function (k) { return map[k]; })
+    .sort(function (a, b) { return (parseInt(b.id, 10) || 0) - (parseInt(a.id, 10) || 0); });
+
+  renderTermList();
+  $('termBtn').disabled = state.terms.length === 0;
+  $('termBtnLabel').textContent = state.terms.length ? 'Pick one or more terms' : 'No terms found';
+  $('termFoot').textContent = plural(state.terms.length, 'term') + ', newest first';
+  syncRunBtn();
+}
+
+function renderTermList() {
+  var q = ($('termSearch').value || '').trim().toLowerCase();
+  $('termList').innerHTML = state.terms.filter(function (t) {
+    return !q || t.name.toLowerCase().indexOf(q) !== -1;
+  }).map(function (t) {
+    return '<label class="menu-row"><input type="checkbox" data-term="' + esc(t.id) + '"' +
+      (state.pickedTerms[t.id] ? ' checked' : '') + '>' +
+      '<span>' + esc(t.name) + '<small>' + plural(t.count, 'course') + '</small></span></label>';
+  }).join('') || '<div class="empty-note" style="padding:16px">No terms match.</div>';
+}
+
+$('termList').addEventListener('change', function (e) {
+  var cb = e.target.closest('input[data-term]');
+  if (!cb) return;
+  var id = cb.getAttribute('data-term');
+  if (cb.checked) state.pickedTerms[id] = true; else delete state.pickedTerms[id];
+  renderPicks();
+  syncRunBtn();
+});
+
+function renderPicks() {
+  var ids = Object.keys(state.pickedTerms);
+  $('picks').innerHTML = ids.map(function (id) {
+    var t = state.terms.filter(function (x) { return x.id === id; })[0];
+    return '<span class="pick">' + esc(t ? t.name : id) +
+      '<button type="button" data-drop="' + esc(id) + '" aria-label="Remove">&times;</button></span>';
+  }).join('');
+  $('termBtnLabel').textContent = ids.length
+    ? plural(ids.length, 'term') + ' selected'
+    : (state.terms.length ? 'Pick one or more terms' : 'No terms found');
+}
+
+$('picks').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-drop]');
+  if (!b) return;
+  delete state.pickedTerms[b.getAttribute('data-drop')];
+  renderPicks();
+  renderTermList();
+  syncRunBtn();
+});
+
+function openMenu(open) {
+  var m = $('termMenu'), btn = $('termBtn');
+  if (open) {
+    var r = btn.getBoundingClientRect();
+    m.style.left = r.left + 'px';
+    m.style.top = (r.bottom + 6) + 'px';
+    m.style.width = Math.max(r.width, 280) + 'px';
+    m.setAttribute('data-open', '1');
+    btn.setAttribute('aria-expanded', 'true');
+    $('termSearch').focus();
+  } else {
+    m.removeAttribute('data-open');
+    btn.setAttribute('aria-expanded', 'false');
+  }
+}
+$('termBtn').addEventListener('click', function () {
+  openMenu($('termMenu').getAttribute('data-open') !== '1');
+});
+$('termDone').addEventListener('click', function () { openMenu(false); });
+$('termSearch').addEventListener('input', renderTermList);
+$('termAll').addEventListener('click', function () {
+  state.terms.forEach(function (t) { state.pickedTerms[t.id] = true; });
+  renderTermList(); renderPicks(); syncRunBtn();
+});
+$('termNone').addEventListener('click', function () {
+  state.pickedTerms = {};
+  renderTermList(); renderPicks(); syncRunBtn();
+});
+document.addEventListener('mousedown', function (e) {
+  if ($('termMenu').getAttribute('data-open') !== '1') return;
+  if (e.target.closest('#termMenu') || e.target.closest('#termBtn')) return;
+  openMenu(false);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { openMenu(false); hideHelp(); }
+});
+window.addEventListener('resize', function () { openMenu(false); hideHelp(); });
+
+function syncRunBtn() {
+  var n = Object.keys(state.pickedTerms).length;
+  $('runBtn').disabled = state.running || n === 0 || state.courses.length === 0;
+  $('runNote').textContent = n === 0 ? 'Pick at least one term.' : '';
+}
+
+/* ============================ floating progress ========================== */
+function floatOpen(title, total) {
+  $('floatTitle').textContent = title;
+  $('floatTotal').textContent = total;
+  $('floatDone').textContent = '0';
+  $('floatBar').style.width = '0';
+  $('floatSub').textContent = '';
+  $('scrim').hidden = false;
+}
+function floatSet(done, total, sub) {
+  $('floatDone').textContent = done;
+  $('floatTotal').textContent = total;
+  $('floatBar').style.width = total ? Math.round((done / total) * 100) + '%' : '0';
+  if (sub != null) $('floatSub').textContent = sub;
+}
+function floatClose() { $('scrim').hidden = true; }
+
+/* ============================= display courses ============================
+   No content scan here — a news item doesn't touch course content, so every
+   active offering in the picked terms is listed.
+   ========================================================================= */
+$('runBtn').addEventListener('click', function () {
+  if (state.running) return;
+  var inTerms = state.courses.filter(function (c) { return state.pickedTerms[c.termId]; });
+  show(inTerms, Object.keys(state.pickedTerms).length);
+});
+
+function show(list, termCount) {
+  state.shown = list.slice().sort(function (a, b) {
+    return a.dept.localeCompare(b.dept) ||
+      (a.code || '').localeCompare(b.code || '') ||
+      (a.name || '').localeCompare(b.name || '');
+  });
+
+  // drop selections for courses no longer on screen
+  Object.keys(state.selected).forEach(function (ou) {
+    if (!state.shown.some(function (c) { return c.ou === ou; })) delete state.selected[ou];
+  });
+
+  buildDeptFilter();
+  $('resultsCard').hidden = false;
+  $('newsCard').hidden = false;
+  $('resultState').textContent = plural(state.shown.length, 'course') + ' in ' + plural(termCount, 'term');
+  $('noMatch').textContent = state.shown.length ? 'No courses match this filter.' : 'No courses in those terms.';
+  renderDepts();
+  $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function buildDeptFilter() {
+  var seen = {}, list = [];
+  state.shown.forEach(function (c) { if (!seen[c.dept]) { seen[c.dept] = 1; list.push(c.dept); } });
+  list.sort();
+  var cur = $('deptFilter').value;
+  $('deptFilter').innerHTML = '<option value="">All departments</option>' +
+    list.map(function (d) { return '<option value="' + esc(d) + '">' + esc(d) + '</option>'; }).join('');
+  if (list.indexOf(cur) !== -1) $('deptFilter').value = cur;
+}
+
+function visibleCourses() {
+  var dept = $('deptFilter').value;
+  var q = ($('search').value || '').trim().toLowerCase();
+  return state.shown.filter(function (c) {
+    if (dept && c.dept !== dept) return false;
+    if (!q) return true;
+    return (c.offeringName + ' ' + c.code + ' ' + c.termName + ' ' + c.ou).toLowerCase().indexOf(q) !== -1;
+  });
+}
+
+function renderDepts() {
+  var rows = visibleCourses();
+  var groups = [], byDept = {};
+  rows.forEach(function (c) {
+    if (!byDept[c.dept]) { byDept[c.dept] = { dept: c.dept, courses: [] }; groups.push(byDept[c.dept]); }
+    byDept[c.dept].courses.push(c);
+  });
+
+  $('noMatch').hidden = rows.length > 0;
+  $('depts').innerHTML = groups.map(function (g) {
+    var picked = g.courses.filter(function (c) { return state.selected[c.ou]; }).length;
+    var allOn = picked === g.courses.length && picked > 0;
+    var open = state.openDepts[g.dept] !== false;
+
+    var body = g.courses.map(function (c) {
+      var on = !!state.selected[c.ou];
+      return '<tr class="' + (on ? 'sel' : '') + '" data-ou="' + esc(c.ou) + '">' +
+        '<td class="pick-cell"><input type="checkbox" data-pick="' + esc(c.ou) + '"' + (on ? ' checked' : '') +
+          (state.running ? ' disabled' : '') +
+          ' aria-label="Select ' + esc(c.offeringName) + '"></td>' +
+        '<td><div class="cname">' + esc(c.offeringName) + '</div>' +
+          '<div class="ou">Org unit ' + esc(c.ou) + '</div></td>' +
+        '<td class="ccode">' + esc(c.code || '—') + '</td>' +
+        '<td class="stat-cell" data-stat="' + esc(c.ou) + '">' + statusHTML(c.ou) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    return '<div class="dept' + (open ? ' open' : '') + '" data-dept="' + esc(g.dept) + '">' +
+      '<button type="button" class="dept-h" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+        '<span><span class="dc">' + esc(g.dept) + '</span>' +
+          '<span class="dn">' + plural(g.courses.length, 'course') + '</span></span>' +
+        '<span class="rt">' +
+          (picked ? '<span class="dept-badge on">' + picked + ' selected</span>' : '<span class="dept-badge">none selected</span>') +
+          '<span class="arrow">&#9662;</span>' +
+        '</span>' +
+      '</button>' +
+      '<div class="dept-b"><table class="gt">' +
+        '<colgroup><col class="c-pick"><col class="c-name"><col class="c-code"><col class="c-stat"></colgroup>' +
+        '<thead><tr>' +
+        '<th class="pick-cell"><input type="checkbox" data-pickall="' + esc(g.dept) + '"' + (allOn ? ' checked' : '') +
+          (state.running ? ' disabled' : '') +
+          ' aria-label="Select every ' + esc(g.dept) + ' course shown"></th>' +
+        '<th>Course Offering Name</th><th>Course Offering Code</th><th>Post status</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+    '</div>';
+  }).join('');
+
+  updateSelCount();
+}
+
+$('depts').addEventListener('click', function (e) {
+  var head = e.target.closest('.dept-h');
+  if (head && !e.target.closest('input')) {
+    var panel = head.closest('.dept');
+    var d = panel.getAttribute('data-dept');
+    var open = !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    head.setAttribute('aria-expanded', String(open));
+    state.openDepts[d] = open;
+  }
+});
+
+$('depts').addEventListener('change', function (e) {
+  var one = e.target.closest('[data-pick]');
+  if (one) {
+    var ou = one.getAttribute('data-pick');
+    if (one.checked) state.selected[ou] = true; else delete state.selected[ou];
+    syncSelection();
+    return;
+  }
+  var all = e.target.closest('[data-pickall]');
+  if (all) {
+    var dept = all.getAttribute('data-pickall');
+    var on = all.checked;
+    visibleCourses().forEach(function (c) {
+      if (c.dept !== dept) return;
+      if (on) state.selected[c.ou] = true; else delete state.selected[c.ou];
+    });
+    syncSelection();
+  }
+});
+
+/* Selection changes update the existing table in place. */
+function syncSelection() {
+  if (state.running) return;
+  Array.prototype.forEach.call($('depts').querySelectorAll('.dept'), function (panel) {
+    var rows = panel.querySelectorAll('tbody tr[data-ou]');
+    var picked = 0;
+    Array.prototype.forEach.call(rows, function (tr) {
+      var on = !!state.selected[tr.getAttribute('data-ou')];
+      if (on) picked++;
+      tr.classList.toggle('sel', on);
+      var cb = tr.querySelector('[data-pick]');
+      if (cb && cb.checked !== on) cb.checked = on;
+    });
+    var badge = panel.querySelector('.dept-badge');
+    if (badge) {
+      badge.className = 'dept-badge' + (picked ? ' on' : '');
+      badge.textContent = picked ? picked + ' selected' : 'none selected';
+    }
+    var head = panel.querySelector('[data-pickall]');
+    if (head) head.checked = picked > 0 && picked === rows.length;
+  });
+  updateSelCount();
+}
+
+function updateSelCount() {
+  $('selCount').textContent = Object.keys(state.selected).length;
+}
+
+$('deptFilter').addEventListener('change', renderDepts);
+$('search').addEventListener('input', renderDepts);
+$('selAllBtn').addEventListener('click', function () {
+  visibleCourses().forEach(function (c) { state.selected[c.ou] = true; });
+  syncSelection();
+});
+$('selNoneBtn').addEventListener('click', function () {
+  state.selected = {};
+  syncSelection();
+});
+
+function selectedCourses() {
+  return state.shown.filter(function (c) { return state.selected[c.ou]; });
+}
+
+/* ================================ html editor =============================
+   A small contenteditable editor. styleWithCSS is on, so colours and
+   alignment are written as inline styles — Brightspace keeps those, where a
+   class name would render as nothing in the course.
+   ========================================================================= */
+var ed = $('editor'), src = $('source');
+var srcMode = false, savedRange = null;
+
+try { document.execCommand('defaultParagraphSeparator', false, 'p'); } catch (e) {}
+
+document.addEventListener('selectionchange', function () {
+  var s = window.getSelection();
+  if (s.rangeCount && ed.contains(s.anchorNode)) {
+    savedRange = s.getRangeAt(0).cloneRange();
+    syncToolbar();
+  }
+});
+
+function restoreRange() {
+  ed.focus();
+  if (savedRange && ed.contains(savedRange.startContainer)) {
+    var s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(savedRange);
+  }
+}
+
+function cmd(name, val) {
+  if (srcMode || state.running) return;
+  restoreRange();
+  try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+  document.execCommand(name, false, val == null ? null : val);
+  normalizeEditor();
+  syncToolbar();
+}
+
+function normalizeEditor() {
+  var h = ed.innerHTML.trim();
+  if (h === '' || h === '<br>') {
+    ed.innerHTML = '<p><br></p>';
+    var r = document.createRange();
+    r.setStart(ed.firstChild, 0);
+    r.collapse(true);
+    var s = window.getSelection();
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+  ed.querySelectorAll('a[href]').forEach(function (a) {
+    if (!a.getAttribute('target')) { a.setAttribute('target', '_blank'); a.setAttribute('rel', 'noopener'); }
+  });
+  updateEditorMeta();
+}
+
+var PRESSABLE = ['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList',
+  'insertOrderedList', 'justifyLeft', 'justifyCenter', 'justifyRight'];
+
+function syncToolbar() {
+  if (srcMode) return;
+  PRESSABLE.forEach(function (c) {
+    var b = document.querySelector('#tb [data-cmd="' + c + '"]');
+    var on = false;
+    try { on = document.queryCommandState(c); } catch (e) {}
+    if (b) b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var blk = '';
+  try { blk = String(document.queryCommandValue('formatBlock') || '').toLowerCase().replace(/[<>]/g, ''); } catch (e) {}
+  var sel = $('tbBlock');
+  sel.value = Array.prototype.some.call(sel.options, function (o) { return o.value === blk; }) ? blk : 'p';
+}
+
+/* keep the editor's selection when a toolbar button is pressed */
+$('tb').addEventListener('mousedown', function (e) {
+  if (e.target.closest('button')) e.preventDefault();
+});
+
+$('tb').addEventListener('click', function (e) {
+  var b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  var c = b.getAttribute('data-cmd');
+  var act = b.getAttribute('data-act');
+  if (c) return cmd(c);
+  if (act === 'source') return toggleSource();
+  if (act === 'clear') {
+    cmd('removeFormat');
+    cmd('unlink');
+    cmd('formatBlock', '<p>');
+    return;
+  }
+  if (act === 'link') {
+    if (srcMode) return;
+    var url = window.prompt('Link address', 'https://');
+    if (!url || url === 'https://') return;
+    url = url.trim();
+    if (/^\s*javascript:/i.test(url)) return;
+    if (!/^(https?:|mailto:|tel:|\/|#)/i.test(url)) url = 'https://' + url;
+    restoreRange();
+    var s = window.getSelection();
+    if (s.isCollapsed) {
+      // nothing selected: insert the address itself as the link text
+      cmd('insertHTML', '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a>');
+    } else {
+      cmd('createLink', url);
+    }
+  }
+});
+
+$('tbBlock').addEventListener('change', function () {
+  cmd('formatBlock', '<' + this.value + '>');
+});
+
+$('foreColor').addEventListener('input', function () {
+  $('foreSwatch').style.background = this.value;
+  cmd('foreColor', this.value);
+});
+$('backColor').addEventListener('input', function () {
+  $('backSwatch').style.background = this.value;
+  var v = this.value;
+  if (srcMode || state.running) return;
+  restoreRange();
+  try { document.execCommand('styleWithCSS', false, true); } catch (e) {}
+  if (!document.execCommand('hiliteColor', false, v)) document.execCommand('backColor', false, v);
+  syncToolbar();
+});
+
+ed.addEventListener('input', normalizeEditor);
+ed.addEventListener('keyup', syncToolbar);
+ed.addEventListener('mouseup', syncToolbar);
+
+/* Pasting from Word or a web page brings a lot of junk along with it —
+   mso-* styles, class names, conditional comments. Keep the look, drop the rest. */
+ed.addEventListener('paste', function (e) {
+  var cd = e.clipboardData;
+  if (!cd) return;
+  var html = cd.getData('text/html');
+  if (!html) return;          // plain text: let the browser handle it
+  e.preventDefault();
+  document.execCommand('insertHTML', false, cleanHTML(html, true));
+  normalizeEditor();
+});
+
+function toggleSource() {
+  if (state.running) return;
+  srcMode = !srcMode;
+  if (srcMode) {
+    src.value = prettyHTML(cleanHTML(ed.innerHTML, false));
+    ed.hidden = true;
+    src.hidden = false;
+    src.focus();
+  } else {
+    ed.innerHTML = cleanHTML(src.value, false) || '<p><br></p>';
+    src.hidden = true;
+    ed.hidden = false;
+    normalizeEditor();
+    ed.focus();
+  }
+  $('srcBtn').setAttribute('aria-pressed', srcMode ? 'true' : 'false');
+  $('srcBtn').innerHTML = srcMode ? '&#10003; Done editing HTML' : '&lt;/&gt; HTML';
+  Array.prototype.forEach.call($('tb').querySelectorAll('button:not(#srcBtn), select'), function (el) {
+    el.disabled = srcMode;
+  });
+  $('foreWrap').classList.toggle('off', srcMode);
+  $('backWrap').classList.toggle('off', srcMode);
+  $('edMode').textContent = srcMode
+    ? 'Editing the raw HTML. Switch back to see how it will look.'
+    : 'What you see here is how it will look in the course.';
+  updateEditorMeta();
+}
+src.addEventListener('input', updateEditorMeta);
+
+var DROP_TAGS = 'script,style,meta,link,title,head,xml,object,embed,form,input,button,select,textarea,base';
+
+/* Parsed in a <template>, so nothing in the pasted markup (an img onerror,
+   say) can run while it is being cleaned. */
+function cleanHTML(html, fromPaste) {
+  var t = document.createElement('template');
+  t.innerHTML = String(html || '');
+  var root = t.content;
+
+  var walker = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+  var comments = [];
+  while (walker.nextNode()) comments.push(walker.currentNode);
+  comments.forEach(function (n) { n.parentNode.removeChild(n); });
+
+  Array.prototype.forEach.call(root.querySelectorAll(DROP_TAGS), function (n) {
+    n.parentNode.removeChild(n);
+  });
+
+  Array.prototype.slice.call(root.querySelectorAll('*')).forEach(function (el) {
+    if (el.tagName.indexOf(':') !== -1) {                // Word's <o:p> and friends
+      while (el.firstChild) el.parentNode.insertBefore(el.firstChild, el);
+      el.parentNode.removeChild(el);
+      return;
+    }
+    Array.prototype.slice.call(el.attributes).forEach(function (a) {
+      var n = a.name.toLowerCase();
+      if (n.indexOf('on') === 0) el.removeAttribute(a.name);
+      else if ((n === 'href' || n === 'src') && /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+      else if (fromPaste && (n === 'class' || n === 'id' || n === 'lang' || n.indexOf('data-') === 0)) el.removeAttribute(a.name);
+    });
+    if (fromPaste && el.hasAttribute('style')) {
+      var st = el.getAttribute('style').split(';').filter(function (p) {
+        return p.trim() && !/^\s*mso-/i.test(p);
+      }).join(';');
+      if (st) el.setAttribute('style', st); else el.removeAttribute('style');
+    }
+    if (el.tagName === 'A' && el.getAttribute('href') && !el.getAttribute('target')) {
+      el.setAttribute('target', '_blank');
+      el.setAttribute('rel', 'noopener');
+    }
+  });
+
+  var d = document.createElement('div');
+  d.appendChild(root);
+  return d.innerHTML.trim();
+}
+
+function prettyHTML(html) {
+  return String(html || '')
+    .replace(/(<\/(p|h[1-6]|ul|ol|li|blockquote|div|table|tr|thead|tbody)>|<hr[^>]*>)/gi, '$1\n')
+    .replace(/(<(ul|ol|table|tbody|thead)[^>]*>)/gi, '$1\n')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
+function rawEditorHTML() { return srcMode ? src.value : ed.innerHTML; }
+
+/* The HTML that actually gets posted: cleaned, with trailing empty
+   paragraphs trimmed off. */
+function bodyHTML() {
+  var h = cleanHTML(rawEditorHTML(), false);
+  h = h.replace(/(\s*<p>(\s|&nbsp;|<br\s*\/?>)*<\/p>\s*)+$/i, '');
+  return h.trim();
+}
+
+function plainOf(html) {
+  var t = document.createElement('template');
+  t.innerHTML = String(html || '');
+  return { text: (t.content.textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim(), root: t.content };
+}
+
+function isEmptyHTML(html) {
+  var p = plainOf(html);
+  return !p.text && !p.root.querySelector('img,iframe,video,audio,hr,table');
+}
+
+function updateEditorMeta() {
+  var h = rawEditorHTML();
+  var p = plainOf(h);
+  $('edPh').hidden = srcMode || !isEmptyHTML(h);
+  var words = p.text ? p.text.split(' ').length : 0;
+  $('edCount').textContent = words ? plural(words, 'word') : '';
+  if (!isEmptyHTML(h)) $('edWrap').classList.remove('err');
+}
+
+/* First line of the message, used when the Title box is left blank. */
+function deriveTitle(html) {
+  var t = document.createElement('template');
+  t.innerHTML = html;
+  var blocks = t.content.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,blockquote,div');
+  var line = '';
+  for (var i = 0; i < blocks.length && !line; i++) {
+    line = (blocks[i].textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  if (!line) line = plainOf(html).text;
+  if (!line) return 'Announcement';
+  if (line.length > 100) {
+    line = line.slice(0, 100);
+    var cut = line.lastIndexOf(' ');
+    if (cut > 60) line = line.slice(0, cut);
+    line += '…';
+  }
+  return line;
+}
+
+updateEditorMeta();
+
+/* ================================== dates ================================= */
+Array.prototype.forEach.call(document.querySelectorAll('[data-clear-date]'), function (b) {
+  b.addEventListener('click', function () {
+    var inp = $(b.getAttribute('data-clear-date'));
+    inp.value = '';
+    inp.classList.remove('err');
+  });
+});
+
+function readDate(id) {
+  var v = ($(id).value || '').trim();
+  if (!v) return null;
+  var d = new Date(v);        // datetime-local is read as this computer's local time
+  return isNaN(d.getTime()) ? 'bad' : d;
+}
+
+function fmtDate(d) {
+  try { return d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch (e) { return d.toLocaleString(); }
+}
+
+/* ============================== post statuses ============================= */
+var STATUS = {
+  wait: { cls: 'wait', label: 'Queued' },
+  busy: { cls: 'busy', label: 'Posting' },
+  done: { cls: 'done', label: 'Posted' },
+  skip: { cls: 'wait', label: 'Already posted' },
+  fail: { cls: 'fail', label: 'Failed' }
+};
+
+function setStatus(ou, key, msg) {
+  state.status[ou] = { key: key, msg: msg || '' };
+  var cell = $('depts').querySelector('td.stat-cell[data-stat="' + ou + '"]');
+  if (cell) cell.innerHTML = statusHTML(ou);
+  paintRunStats();
+}
+
+function statusHTML(ou) {
+  var st = state.status[ou];
+  if (!st) return '<span style="color:var(--faint)">—</span>';
+  var def = STATUS[st.key] || STATUS.wait;
+  return '<span class="pill ' + def.cls + '">' + esc(def.label) + '</span>' +
+    (st.msg ? '<span class="stat-msg">' + esc(st.msg) + '</span>' : '');
+}
+
+function paintRunStats() {
+  var counts = { wait: 0, busy: 0, done: 0, skip: 0, fail: 0 };
+  Object.keys(state.status).forEach(function (ou) {
+    var k = state.status[ou].key;
+    if (counts[k] != null) counts[k]++;
+  });
+  var total = Object.keys(state.status).length;
+  var finished = counts.done + counts.skip + counts.fail;
+
+  $('runStats').innerHTML =
+    '<div class="runstat"><div class="n">' + total + '</div><div class="k">Courses</div></div>' +
+    '<div class="runstat busy"><div class="n">' + (counts.wait + counts.busy) + '</div><div class="k">In progress</div></div>' +
+    '<div class="runstat done"><div class="n">' + counts.done + '</div><div class="k">Posted</div></div>' +
+    '<div class="runstat"><div class="n">' + counts.skip + '</div><div class="k">Already posted</div></div>' +
+    '<div class="runstat fail"><div class="n">' + counts.fail + '</div><div class="k">Failed</div></div>';
+
+  $('runBar').style.width = total ? Math.round((finished / total) * 100) + '%' : '0';
+}
+
+/* ================================ the run ================================= */
+function problems() {
+  var errs = [];
+  $('startDate').classList.remove('err');
+  $('endDate').classList.remove('err');
+  $('newsTitle').classList.remove('err');
+  $('edWrap').classList.remove('err');
+
+  if (!selectedCourses().length) errs.push('Select at least one course.');
+
+  if (!($('newsTitle').value || '').trim()) {
+    errs.push('Enter a title for the news item.');
+    $('newsTitle').classList.add('err');
+  }
+
+  if (isEmptyHTML(bodyHTML())) {
+    errs.push('Type the news item in the message box.');
+    $('edWrap').classList.add('err');
+  }
+
+  var start = readDate('startDate'), end = readDate('endDate');
+  if (start === 'bad') { errs.push('The start date is not a valid date.'); $('startDate').classList.add('err'); }
+  if (end === 'bad') { errs.push('The end date is not a valid date.'); $('endDate').classList.add('err'); }
+  if (end && end !== 'bad') {
+    var from = (start && start !== 'bad') ? start : new Date();
+    if (end <= from) {
+      errs.push(start ? 'The end date has to be after the start date.' : 'The end date is already in the past.');
+      $('endDate').classList.add('err');
+    }
+  }
+  return errs;
+}
+
+function showProblems(errs) {
+  $('postNote').innerHTML = '<span style="color:var(--bad)">' + errs.map(esc).join(' ') + '</span>';
+}
+
+function setRunning(on) {
+  state.running = on;
+  $('postBtn').disabled = on;
+  $('postBtn').textContent = on ? 'Posting…' : 'Post to Courses';
+  $('clearBtn').disabled = on;
+  $('failedBtn').disabled = on;
+  $('selAllBtn').disabled = on;
+  $('selNoneBtn').disabled = on;
+  ['startDate', 'endDate', 'newsTitle', 'pinIt'].forEach(function (id) { $(id).disabled = on; });
+  ed.setAttribute('contenteditable', on ? 'false' : 'true');
+  src.disabled = on;
+  Array.prototype.forEach.call($('tb').querySelectorAll('button, select, input'), function (el) {
+    el.disabled = on || (srcMode && el.id !== 'srcBtn');
+  });
+  Array.prototype.forEach.call($('depts').querySelectorAll('input[type=checkbox]'), function (cb) {
+    cb.disabled = on;
+  });
+  syncRunBtn();
+}
+
+$('postBtn').addEventListener('click', function () {
+  if (state.running) return;
+  var errs = problems();
+  if (errs.length) return showProblems(errs);
+
+  var targets = selectedCourses();
+  var html = bodyHTML();
+  var title = ($('newsTitle').value || '').trim();
+  var start = readDate('startDate') || new Date();
+  var end = readDate('endDate');
+  var pinned = $('pinIt').checked;
+
+  if (!confirm(
+    'Post "' + title + '" to ' + plural(targets.length, 'course') + '?\n\n' +
+    'Shows from: ' + (readDate('startDate') ? fmtDate(start) : 'right away') + '\n' +
+    'Shows until: ' + (end ? fmtDate(end) : 'no end date') + '\n' +
+    (pinned ? 'Pinned to the top of Announcements.\n' : '') + '\n' +
+    'Each course is checked first — any course that already has a news item titled "' + title + '" is skipped.\n' +
+    'Each course gets its own copy. Removing it later means deleting it in each course\'s Announcements tool.\n\n' +
+    'DO NOT LEAVE OR REFRESH THIS PAGE UNTIL ALL OF THE POSTS HAVE BEEN COMPLETED.')) return;
+
+  /* NewsItemData, per the Valence News docs. Body is a RichText block
+     ({Text, Html}) — not the {Content, Type} RichTextInput shape other routes
+     take, which is what Brightspace rejected with "invalid parameters". */
+  var payload = {
+    Title: title,
+    Body: { Text: plainOf(html).text, Html: html },
+    StartDate: start.toISOString(),
+    EndDate: end ? end.toISOString() : null,
+    IsGlobal: false,
+    IsPublished: true,
+    ShowOnlyInCourseOfferings: false,
+    IsAuthorInfoShown: true,
+    IsPinned: pinned
+  };
+  if (leAtLeast('1.75')) {
+    payload.IsStartDateShown = true;
+    payload.SortOrder = null;
+  }
+
+  $('postNote').textContent = '';
+  $('failedBtn').hidden = true;
+  $('runBox').hidden = false;
+  state.status = {};
+  targets.forEach(function (c) { state.status[c.ou] = { key: 'wait', msg: '' }; });
+  renderDepts();
+  setRunning(true);
+  $('runFoot').textContent = 'Posting…';
+  floatOpen('Posting news', targets.length);
+  floatSet(0, targets.length, 'Starting…');
+
+  runPool(targets, CONFIG.postConcurrency, function (c) {
+    return postOne(c, payload);
+  }, function (done, total) {
+    floatSet(done, total, done === total ? 'Finishing up…' : 'Posting into each course');
+  }).then(function () {
+    floatClose();
+    setRunning(false);
+    var c = { done: 0, skip: 0, fail: 0 };
+    Object.keys(state.status).forEach(function (ou) {
+      var k = state.status[ou].key;
+      if (k === 'done') c.done++; else if (k === 'skip') c.skip++; else c.fail++;
+    });
+    $('runFoot').textContent = 'Finished — ' + c.done + ' posted' +
+      (c.skip ? ', ' + c.skip + ' skipped because the title already exists' : '') +
+      (c.fail ? ', ' + c.fail + ' failed' : '') + '.';
+    $('failedBtn').hidden = c.fail === 0;
+  });
+});
+
+/* Titles are compared ignoring case, extra spaces and non-breaking spaces. */
+function normTitle(t) {
+  return String(t || '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/* Reads the course's news items and looks for one with the same title.
+   Resolves to the matching item, or null when there isn't one. If the
+   course can't be read the promise rejects, and the course is NOT posted —
+   posting blind is exactly how a duplicate would get in. */
+function findExisting(ou, title) {
+  var want = normTitle(title);
+  return rlFetch('/d2l/api/le/' + state.le + '/' + ou + '/news/').then(function (res) {
+    if (res.status === 404) return null;            // no news items in this course yet
+    if (!res.ok) {
+      var e = new Error('HTTP ' + res.status + ' — couldn\'t read this course\'s Announcements to check for a duplicate, so nothing was posted.');
+      e.final = true;
+      throw e;
+    }
+    return res.json().then(function (items) {
+      var list = Array.isArray(items) ? items : ((items && items.Objects) || []);
+      for (var i = 0; i < list.length; i++) {
+        if (normTitle(list[i] && list[i].Title) === want) return list[i];
+      }
+      return null;
+    });
+  });
+}
+
+/* One target course: check for the title, then post only if it isn't there.
+   The POST is never retried after a timeout or network error (see rlFetch). */
+function postOne(course, payload) {
+  var ou = course.ou;
+  setStatus(ou, 'busy', 'checking for this title');
+
+  if (state.demo) {
+    return sleep(350 + Math.random() * 700).then(function () {
+      if (Number(ou) % 7 === 0) setStatus(ou, 'skip', 'preview — sample course already has this title');
+      else if (Number(ou) % 11 === 0) setStatus(ou, 'fail', 'HTTP 403 — sample failure in preview mode');
+      else setStatus(ou, 'done', 'preview — nothing was posted');
+    });
+  }
+
+  return findExisting(ou, payload.Title).then(function (hit) {
+    if (hit) {
+      setStatus(ou, 'skip', 'title already exists' + (hit.Id != null ? ' — news item ' + hit.Id : ''));
+      return;
+    }
+    setStatus(ou, 'busy', 'posting');
+    return sendNews(ou, payload);
+  }).catch(function (err) {
+    setStatus(ou, 'fail', (err && err.message) ? err.message : 'request failed');
+  });
+}
+
+function leAtLeast(v) {
+  var a = String(state.le).split('.').map(Number), b = String(v).split('.').map(Number);
+  for (var i = 0; i < Math.max(a.length, b.length); i++) {
+    var x = a[i] || 0, y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
+/* The News route documents a multipart/mixed body: the first part is the
+   NewsItemData JSON, later parts would be attachments. We send just the one part. */
+function sendNews(ou, payload) {
+  var boundary = 'd2lnews' + Date.now().toString(36) + Math.random().toString(36).slice(2);
+  var body =
+    '--' + boundary + '\r\n' +
+    'Content-Type: application/json\r\n\r\n' +
+    JSON.stringify(payload) + '\r\n' +
+    '--' + boundary + '--\r\n';
+
+  return rlFetch('/d2l/api/le/' + state.le + '/' + ou + '/news/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'multipart/mixed; boundary=' + boundary },
+    body: body,
+    noRetry: true
+  }).then(function (res) {
+    if (res.ok) {
+      return res.json().catch(function () { return {}; }).then(function (j) {
+        setStatus(ou, 'done', j && j.Id != null ? 'news item ' + j.Id : '');
+      });
+    }
+    return res.text().catch(function () { return ''; }).then(function (text) {
+      if (window.console) console.warn('News POST failed for org unit ' + ou, res.status, text, payload);
+      setStatus(ou, 'fail', explainPostError(res.status, text));
+    });
+  }).catch(function (err) {
+    setStatus(ou, 'fail', (err && err.message) ? err.message : 'request failed');
+  });
+}
+
+/* Brightspace answers validation errors with a problem-details JSON body
+   ({type, title, detail, errors}). Show the parts that name the bad field
+   instead of cutting the raw text off after 90 characters. */
+function problemText(body) {
+  var raw = String(body || '');
+  try {
+    var j = JSON.parse(raw);
+    var bits = [];
+    if (j.title) bits.push(j.title);
+    if (j.detail) bits.push(j.detail);
+    if (j.errors && typeof j.errors === 'object') {
+      Object.keys(j.errors).forEach(function (k) {
+        var v = j.errors[k];
+        bits.push(k + ': ' + (Array.isArray(v) ? v.join('; ') : String(v)));
+      });
+    }
+    if (bits.length) return bits.join(' — ').slice(0, 400);
+  } catch (e) {}
+  return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400);
+}
+
+function explainPostError(status, body) {
+  var detail = problemText(body);
+  if (status === 400) return 'HTTP 400 — Brightspace rejected the news item. ' + detail;
+  if (status === 401) return 'HTTP 401 — your session expired. Reload the page and sign in again.';
+  if (status === 403) return 'HTTP 403 — your account cannot post news in this course.';
+  if (status === 404) return 'HTTP 404 — course not found, or its Announcements tool is off.';
+  return 'HTTP ' + status + (detail ? ' — ' + detail : '');
+}
+
+$('failedBtn').addEventListener('click', function () {
+  if (state.running) return;
+  state.selected = {};
+  Object.keys(state.status).forEach(function (ou) {
+    if (state.status[ou].key === 'fail') state.selected[ou] = true;
+  });
+  syncSelection();
+  $('postNote').textContent = 'Only the failed courses are selected now. Fix the cause, then post again.';
+});
+
+$('clearBtn').addEventListener('click', function () {
+  if (state.running) return;
+  var dirty = Object.keys(state.selected).length || !isEmptyHTML(rawEditorHTML()) ||
+    $('newsTitle').value || $('startDate').value || $('endDate').value;
+  if (dirty && !confirm('Clear the selected courses and the news item?')) return;
+  state.selected = {};
+  state.status = {};
+  if (srcMode) toggleSource();
+  ed.innerHTML = '<p><br></p>';
+  src.value = '';
+  $('newsTitle').value = '';
+  $('startDate').value = '';
+  $('endDate').value = '';
+  $('pinIt').checked = true;
+  ['startDate', 'endDate', 'newsTitle'].forEach(function (id) { $(id).classList.remove('err'); });
+  $('edWrap').classList.remove('err');
+  $('postNote').textContent = '';
+  $('failedBtn').hidden = true;
+  $('runBox').hidden = true;
+  updateEditorMeta();
+  renderDepts();
+});
+
+/* ================================== help ================================== */
+function hideHelp() { $('helpPop').removeAttribute('data-open'); }
+
+function showHelp(el) {
+  var pop = $('helpPop');
+  pop.innerHTML = '<b>' + esc(el.getAttribute('data-help-title') || 'Where to find it') + '</b>' +
+    el.getAttribute('data-help');
+  pop.setAttribute('data-open', '1');
+  var r = el.getBoundingClientRect();
+  var w = pop.offsetWidth;
+  var left = Math.min(Math.max(8, r.left - 8), window.innerWidth - w - 8);
+  var top = r.bottom + 8;
+  if (top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - pop.offsetHeight - 8);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+document.addEventListener('mouseover', function (e) {
+  var h = e.target.closest('.help');
+  if (h) showHelp(h);
+});
+document.addEventListener('mouseout', function (e) {
+  if (!e.target.closest('.help')) return;
+  var to = e.relatedTarget;
+  if (to && to.closest && to.closest('.help-pop')) return;
+  hideHelp();
+});
+document.addEventListener('focusin', function (e) {
+  var h = e.target.closest('.help');
+  if (h) showHelp(h); else if (!e.target.closest('.help-pop')) hideHelp();
+});
+document.addEventListener('click', function (e) {
+  var h = e.target.closest('.help');
+  if (h) { e.preventDefault(); showHelp(h); }
+});
+
+/* ================================ demo mode ===============================
+   Opened outside a Brightspace session the page runs on sample data and
+   simulates the posting, so it can be reviewed before it goes into Manage Files.
+   ========================================================================= */
+function loadDemo() {
+  banner('warn', 'Preview mode',
+    'No Brightspace session was found, so this page is showing sample courses and pretends to post. ' +
+    'Nothing is sent anywhere. Put the file in Manage Files and open it from inside Brightspace for real data.');
+
+  var terms = [
+    { id: '996612', name: 'Fall 2026-FULL Semester', tag: '2026FA' },
+    { id: '994310', name: 'Summer 2026-7 Wk Session', tag: '2026SU' }
+  ];
+  var seeds = [
+    ['CPT', '101', 'Intro to Computers'], ['CPT', '168', 'Programming Logic'],
+    ['ENG', '101', 'English Composition I'], ['ENG', '102', 'English Composition II'],
+    ['PSY', '201', 'General Psychology'], ['PSY', '203', 'Human Growth & Develop'],
+    ['MAT', '110', 'College Algebra'], ['BIO', '210', 'Anatomy & Physiology I'],
+    ['ACC', '101', 'Accounting Principles I'], ['IST', '200', 'Cisco LAN']
+  ];
+  var sections = ['I01', 'A1Y', 'B02'];
+  var ou = 1200000, list = [];
+
+  terms.forEach(function (t) {
+    seeds.forEach(function (s, si) {
+      sections.slice(0, (si % 3) + 1).forEach(function (sec) {
+        var code = s[0] + '_' + s[1] + '_' + sec + '_' + t.tag;
+        var name = s[2] + ' (' + s[0] + '-' + s[1] + '-' + sec + ') ' + t.name;
+        list.push({
+          ou: String(ou++), name: name, code: code, dept: s[0],
+          termId: t.id, termName: t.name, offeringName: name
+        });
+      });
+    });
+  });
+
+  state.courses = list;
+  state.lp = '1.62';
+  state.le = '1.97';
+  $('whoami').innerHTML = 'Preview — <b>not signed in</b>';
+  paintVersions();
+  $('mineCount').textContent = plural(list.length, 'sample course offering');
+  $('scanState').textContent = '';
+  return Promise.resolve(list);
+}
+
+boot();
+})();
+</script>
+</body>
+</html>

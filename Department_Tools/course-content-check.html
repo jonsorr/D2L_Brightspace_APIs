@@ -1,0 +1,1950 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Course Readiness Audit
+  Finds course sections that have nothing in the Content tool.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Course Content Check — Brightspace</title>
+<style>
+/* ==========================================================================
+   Course Content Check — visual system
+   Palette : ink / slate / cool paper, cobalt for action, crimson for empty,
+             teal for ready, amber for unreadable. Deliberately cool-toned so
+             it sits inside Brightspace without imitating it.
+   Type    : system sans for voice, system mono for every number, ID and label.
+             The mono is the point — this is an inventory audit, not a dashboard.
+   ========================================================================== */
+:root{
+  --ink:#14202C; --slate:#5E6E7C; --mute:#8B98A5;
+  --line:#DEE4EA; --line-soft:#EDF1F5;
+  --paper:#F1F4F7; --surface:#FFFFFF;
+  --cobalt:#2347C9; --cobalt-soft:#E9EEFC;
+  --alarm:#C31F4B; --alarm-soft:#FCECF1;
+  --ready:#0E7C6B; --ready-soft:#E4F3F0;
+  --amber:#A2600F; --amber-soft:#FBF1E1;
+  --r:6px;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper); color:var(--ink); font-family:var(--sans);
+  font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 20px 40px}
+
+/* ---------- shared bits ---------- */
+.eyebrow{font:600 10px/1.4 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  position:relative;margin-bottom:14px;
+}
+/* Only the cards that need to clip do. The controls card must not — the term
+   panel drops out of it, and overflow:hidden here made the list invisible. */
+.card.clip{overflow:hidden}
+#controlsCard{z-index:20}
+.card-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:12px 16px;border-bottom:1px solid var(--line-soft)}
+.card-bd{padding:16px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button{font-family:inherit}
+a{color:var(--cobalt)}
+:focus-visible{outline:2px solid var(--cobalt);outline-offset:2px;border-radius:3px}
+
+/* ---------- masthead ---------- */
+.masthead{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;
+  flex-wrap:wrap;padding:6px 2px 14px;border-bottom:2px solid var(--ink);margin-bottom:18px}
+.masthead h1{margin:6px 0 4px;font-size:27px;font-weight:800;letter-spacing:-.025em;line-height:1.1}
+.masthead p{margin:0;color:var(--slate);max-width:52ch}
+.meta{display:flex;flex-direction:column;align-items:flex-end;gap:6px;text-align:right}
+.chips{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.vchip{
+  font:600 10px/1 var(--mono);letter-spacing:.04em;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:3px;padding:5px 7px;white-space:nowrap;
+}
+.vchip b{color:var(--cobalt);font-weight:700}
+.vchip.guess{border-style:dashed;color:var(--slate)}
+.who{font:500 11px/1 var(--mono);color:var(--mute)}
+.who b{color:var(--slate);font-weight:600}
+
+/* ---------- banner ---------- */
+.banner{display:flex;gap:12px;align-items:flex-start;padding:11px 14px;border-radius:var(--r);
+  font-size:13px;line-height:1.55;margin-bottom:14px;border:1px solid transparent}
+.banner.warn{background:var(--amber-soft);border-color:#EBD5AE;color:#6B430C}
+.banner.bad{background:var(--alarm-soft);border-color:#F2C9D4;color:#8A1637}
+.banner.info{background:var(--cobalt-soft);border-color:#C7D4F5;color:#1C3894}
+/* One continuous line that wraps. `b` stays inline — a block `b` here also hit
+   the bolded counts inside the body and snapped each onto its own line. */
+.banner p{margin:0;flex:1 1 auto;min-width:0}
+.banner b{font-weight:700}
+.banner .bx{margin-left:auto;flex:none;border:0;background:none;cursor:pointer;color:inherit;
+  font-size:18px;line-height:1;opacity:.5;padding:0 2px}
+.banner .bx:hover{opacity:1}
+.banner code{font-family:var(--mono);font-size:12px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:3px}
+
+/* ---------- controls ---------- */
+.ctl-row{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.ctl-col{flex:1 1 340px;min-width:280px}
+.ctl-side{display:flex;flex-direction:column;gap:10px;padding-top:22px}
+
+/* term picker */
+.picker{position:relative}
+.picker-btn{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:10px 12px;font-size:14px;color:var(--ink);cursor:pointer;text-align:left;
+}
+.picker-btn:hover{border-color:var(--slate)}
+.picker-btn[aria-expanded="true"]{border-color:var(--cobalt);box-shadow:0 0 0 3px var(--cobalt-soft)}
+.picker-btn .caret{color:var(--mute);flex:none;transition:transform .15s}
+.picker-btn[aria-expanded="true"] .caret{transform:rotate(180deg)}
+.picker-btn .count{font:600 11px/1 var(--mono);background:var(--cobalt);color:#fff;border-radius:10px;padding:4px 7px}
+/* position:fixed — the panel escapes every ancestor's overflow and stacking
+   context, so it floats above the page instead of being trapped in the card.
+   Coordinates are set in positionPanel(). */
+.panel{
+  position:fixed;z-index:9999;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:0 14px 40px rgba(20,32,44,.22);overflow:hidden;
+}
+.panel-top{padding:9px;border-bottom:1px solid var(--line-soft)}
+.panel-top input{
+  width:100%;border:1px solid var(--line);border-radius:4px;padding:7px 9px;font:inherit;font-size:13px;
+}
+.panel-top input:focus{outline:none;border-color:var(--cobalt);box-shadow:0 0 0 3px var(--cobalt-soft)}
+.panel-acts{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 10px;
+  border-bottom:1px solid var(--line-soft);background:#FAFBFC}
+.panel-acts .hint{font:500 10px/1.3 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.linkbtn{background:none;border:0;padding:2px 4px;color:var(--cobalt);font:600 12px/1 var(--sans);cursor:pointer}
+.linkbtn:hover{text-decoration:underline}
+.opts{max-height:290px;overflow:auto;padding:4px}
+.opt{display:flex;gap:10px;align-items:center;padding:8px 9px;border-radius:4px;cursor:pointer;user-select:none}
+.opt[aria-selected="true"]{background:#F3F7FF}
+.opt:hover{background:var(--cobalt-soft)}
+.opt:focus-visible{outline:2px solid var(--cobalt);outline-offset:-2px}
+.opt .box{flex:none;width:16px;height:16px;border:1.5px solid #C3CDD8;border-radius:3px;background:#fff;position:relative}
+.opt[aria-selected="true"] .box{background:var(--cobalt);border-color:var(--cobalt)}
+.opt[aria-selected="true"] .box::after{content:"";position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.opt .nm{font-weight:600;font-size:13px;line-height:1.3}
+.opt .sub{font:500 11px/1.4 var(--mono);color:var(--mute)}
+.opt .sub em{font-style:normal;color:var(--slate)}
+.opts .none{padding:16px 10px;text-align:center;color:var(--mute);font-size:13px;line-height:1.5}
+.termnote{margin-top:9px;font:500 11px/1.5 var(--mono);color:var(--mute)}
+.termnote b{color:var(--slate);font-weight:700}
+.termnote.bad{color:var(--alarm)}
+.col-hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px;flex-wrap:wrap}
+
+/* selected chips */
+.picks{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.pick{display:inline-flex;align-items:center;gap:7px;background:var(--cobalt-soft);color:#16307F;
+  border:1px solid #C9D6F7;border-radius:20px;padding:4px 6px 4px 11px;font-size:12px;font-weight:600}
+.pick .x{border:0;background:none;cursor:pointer;color:#5570C9;font-size:15px;line-height:1;padding:0 3px;border-radius:50%}
+.pick .x:hover{background:#fff;color:var(--alarm)}
+
+/* toggles */
+.tgl{display:flex;gap:9px;align-items:flex-start;cursor:pointer;user-select:none}
+.tgl input{margin:1px 0 0;width:15px;height:15px;accent-color:var(--cobalt);flex:none}
+.tgl .t{font-size:13px;font-weight:600;line-height:1.3}
+.tgl .d{font-size:11.5px;color:var(--mute);line-height:1.35}
+
+/* run button */
+.run{
+  width:100%;background:var(--ink);color:#fff;border:0;border-radius:var(--r);
+  padding:12px 18px;font-size:14px;font-weight:700;letter-spacing:-.01em;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.run:hover:not(:disabled){background:#22384C}
+.run:disabled{background:#C3CDD6;cursor:not-allowed}
+.run.stop{background:var(--alarm)}
+.run.stop:hover{background:#A81840}
+
+/* ---------- scan strip ---------- */
+.scan{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:12px 16px}
+.scan .st{font:600 12px/1 var(--mono);color:var(--ink);flex:1 1 220px}
+.scan .st span{color:var(--mute);font-weight:500}
+.bar{flex:2 1 260px;height:4px;background:var(--line-soft);border-radius:2px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--cobalt);border-radius:2px;transition:width .25s ease}
+.credit{display:flex;align-items:center;gap:7px;font:600 11px/1 var(--mono);color:var(--slate)}
+.credit .dot{width:7px;height:7px;border-radius:50%;background:var(--ready)}
+.credit.mid .dot{background:var(--amber)}
+.credit.low .dot{background:var(--alarm)}
+
+/* ---------- the shelf (signature) ---------- */
+.card.scanning::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--cobalt),transparent);animation:sweep 1.5s linear infinite}
+@keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.shelf{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(5px,1fr));
+  gap:1px 1px;grid-auto-rows:24px;align-items:end;padding:4px 0 2px;min-height:28px;
+}
+.tick{border-radius:1px 1px 0 0;cursor:pointer;animation:pop .18s ease-out both}
+@keyframes pop{from{transform:scaleY(.2);opacity:0}to{transform:scaleY(1);opacity:1}}
+.tick{transform-origin:bottom}
+.tick.ok{height:11px;background:#C6D2DC}
+.tick.ok:hover{background:var(--ready)}
+.tick.empty{height:24px;background:var(--alarm)}
+.tick.err{height:16px;background:var(--amber)}
+.tick:hover{outline:2px solid var(--ink);outline-offset:1px}
+.shelf-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  margin-top:12px;padding-top:11px;border-top:1px solid var(--line-soft)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font:500 11px/1 var(--mono);color:var(--slate)}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:1px;margin-right:5px;vertical-align:baseline}
+.byterm{display:grid;gap:5px;margin-top:12px}
+.byterm .r{display:grid;grid-template-columns:1fr 90px 130px;gap:12px;align-items:center;
+  font:500 11.5px/1.4 var(--mono);color:var(--slate)}
+.byterm .r b{color:var(--ink);font-weight:600}
+.byterm .mini{height:5px;background:var(--line-soft);border-radius:3px;overflow:hidden}
+.byterm .mini i{display:block;height:100%;background:var(--alarm)}
+.tip{position:fixed;z-index:60;pointer-events:none;background:var(--ink);color:#fff;
+  padding:6px 9px;border-radius:4px;font:500 11.5px/1.45 var(--mono);max-width:280px;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.tip b{display:block;font-weight:700;font-size:12px}
+
+/* ---------- stats ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));border-bottom:1px solid var(--line-soft)}
+.stat{padding:14px 16px;border-right:1px solid var(--line-soft)}
+.stat:last-child{border-right:0}
+.stat .v{font:800 22px/1.15 var(--mono);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat .k{font:600 10px/1.4 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--mute);margin-top:3px}
+.stat.alarm .v{color:var(--alarm)}
+.stat.ready .v{color:var(--ready)}
+.stat.amber .v{color:var(--amber)}
+
+/* ---------- results toolbar ---------- */
+.tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:11px 14px;border-bottom:1px solid var(--line-soft)}
+.seg{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.seg button{background:var(--surface);border:0;border-right:1px solid var(--line);padding:7px 11px;
+  font:600 12px/1 var(--sans);color:var(--slate);cursor:pointer;display:flex;gap:6px;align-items:center}
+.seg button:last-child{border-right:0}
+.seg button:hover{background:var(--paper)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.seg button .n{font-family:var(--mono);font-size:11px;opacity:.75}
+.search{flex:1 1 180px;min-width:150px;position:relative}
+.search input{width:100%;border:1px solid var(--line);border-radius:5px;padding:7px 10px;font:inherit;font-size:13px}
+.search input:focus{outline:none;border-color:var(--cobalt);box-shadow:0 0 0 3px var(--cobalt-soft)}
+.dl{display:flex;gap:7px;align-items:center}
+.btn{background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:7px 11px;
+  font:600 12px/1 var(--sans);color:var(--ink);cursor:pointer;display:flex;gap:6px;align-items:center}
+.btn:hover{border-color:var(--slate);background:var(--paper)}
+.btn.primary{background:var(--cobalt);border-color:var(--cobalt);color:#fff}
+.btn.primary:hover{background:#1B3AAD;border-color:#1B3AAD}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.dlnote{font:500 10px/1.3 var(--mono);color:var(--mute);padding:0 14px 10px;margin-top:-2px}
+
+/* ---------- table ---------- */
+.tbl-wrap{max-height:60vh;overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:860px}
+thead th{
+  position:sticky;top:0;z-index:2;background:var(--surface);
+  text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);
+  font:600 10px/1.4 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--mute);
+  cursor:pointer;white-space:nowrap;user-select:none;
+}
+thead th:hover{color:var(--ink)}
+thead th .ar{opacity:0;margin-left:4px}
+thead th[aria-sort] .ar{opacity:1;color:var(--cobalt)}
+tbody td{padding:10px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+tbody tr:hover{background:#FAFBFD}
+tbody tr.hit{background:var(--cobalt-soft)}
+.flag{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:3px;
+  font:700 10px/1.5 var(--mono);letter-spacing:.05em;text-transform:uppercase;white-space:nowrap}
+.flag.empty{background:var(--alarm-soft);color:var(--alarm)}
+.flag.ok{background:var(--ready-soft);color:var(--ready)}
+.flag.err{background:var(--amber-soft);color:var(--amber)}
+td.name{max-width:420px}
+td.name .cn{font-weight:600;color:var(--ink);text-decoration:none}
+td.name .cn:hover{color:var(--cobalt);text-decoration:underline}
+td.name .go{display:inline-block;margin-left:8px;font:600 11px/1 var(--sans);color:var(--cobalt);text-decoration:none;white-space:nowrap}
+td.name .go:hover{text-decoration:underline}
+td.name .er{display:block;margin-top:3px;font:500 11px/1.4 var(--mono);color:var(--amber)}
+td.term{color:var(--slate);font-size:12.5px;max-width:190px}
+td .m{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12.5px}
+td .z{color:var(--alarm);font-weight:700}
+.empty-state{padding:44px 20px;text-align:center;color:var(--mute)}
+.empty-state .big{font:600 14px/1.5 var(--sans);color:var(--slate);margin-bottom:4px}
+.empty-state .sm{font:500 11.5px/1.5 var(--mono)}
+
+footer{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);
+  display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap;
+  font:500 11px/1.6 var(--mono);color:var(--mute)}
+footer a{color:var(--slate)}
+
+@media (max-width:720px){
+  .wrap{padding:14px 12px 30px}
+  .masthead h1{font-size:22px}
+  .meta{align-items:flex-start;text-align:left}
+  .ctl-side{padding-top:0}
+  .byterm .r{grid-template-columns:1fr 80px}
+  .byterm .mini{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+  .card.scanning::before{opacity:.5}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============================ MASTHEAD ============================ -->
+  <header class="masthead">
+    <div>
+      <div class="eyebrow" id="orgLabel">Brightspace · content audit</div>
+      <h1>Course Content Check</h1>
+      <p>Your courses, checked for sections with nothing in Content — before students find them.</p>
+    </div>
+    <div class="meta">
+      <div class="chips" id="verChips">
+        <span class="vchip">Detecting API versions…</span>
+      </div>
+      <div class="who" id="whoami"></div>
+    </div>
+  </header>
+
+  <div id="banner" hidden></div>
+
+  <!-- ============================ CONTROLS ============================ -->
+  <section class="card" id="controlsCard">
+    <div class="card-bd">
+      <div class="ctl-row">
+
+        <div class="ctl-col">
+          <div class="col-hd">
+            <div class="eyebrow">Terms to check</div>
+            <div class="eyebrow">from your courses</div>
+          </div>
+          <div class="picker">
+            <button type="button" class="picker-btn" id="termBtn" aria-haspopup="listbox" aria-expanded="false" disabled>
+              <span id="termBtnLabel">Loading terms…</span>
+              <span class="count" id="termCount" hidden>0</span>
+              <svg class="caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+
+            <div class="panel" id="termPanel" hidden>
+              <div class="panel-top">
+                <input type="text" id="termSearch" placeholder="Filter terms…" autocomplete="off" aria-label="Filter terms">
+              </div>
+              <div class="panel-acts">
+                <span class="hint" id="termHint">Newest first · by org unit ID</span>
+                <span>
+                  <button type="button" class="linkbtn" id="selAll">Select all</button>
+                  <button type="button" class="linkbtn" id="selNone">Clear</button>
+                </span>
+              </div>
+              <div class="opts" id="termOpts" role="listbox" aria-multiselectable="true"></div>
+            </div>
+          </div>
+          <div class="picks" id="picks"></div>
+          <div class="termnote" id="termNote">Reading the org structure…</div>
+        </div>
+
+        <div class="ctl-side" style="flex:0 1 250px">
+          <label class="tgl">
+            <input type="checkbox" id="activeOnly" checked>
+            <span>
+              <span class="t">Active sections only</span>
+              <span class="d">Skip offerings Brightspace marks inactive</span>
+            </span>
+          </label>
+          <label class="tgl">
+            <input type="checkbox" id="requireTopics">
+            <span>
+              <span class="t">Require at least one topic</span>
+              <span class="d">Count a course with empty modules as empty</span>
+            </span>
+          </label>
+        </div>
+
+        <div class="ctl-side" style="flex:0 1 170px">
+          <button type="button" class="run" id="runBtn" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16" y2="16"/></svg>
+            <span id="runLabel">Run check</span>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ SCAN STRIP ============================ -->
+  <section class="card clip" id="scanCard" hidden>
+    <div class="scan">
+      <div class="st" id="scanStatus" role="status" aria-live="polite">Starting…</div>
+      <div class="bar"><i id="scanBar"></i></div>
+      <div class="credit" id="credit" hidden><span class="dot"></span><span id="creditTxt"></span></div>
+    </div>
+  </section>
+
+  <!-- ============================ SHELF ============================ -->
+  <section class="card clip" id="shelfCard" hidden>
+    <div class="card-hd">
+      <div class="eyebrow">Section shelf — one mark per section</div>
+      <div class="eyebrow" id="shelfCensus"></div>
+    </div>
+    <div class="card-bd">
+      <div class="shelf" id="shelf"></div>
+      <div class="shelf-foot">
+        <div class="legend">
+          <span><i style="background:var(--alarm)"></i>no content</span>
+          <span><i style="background:#C6D2DC"></i>has content</span>
+          <span><i style="background:var(--amber)"></i>couldn't read</span>
+        </div>
+        <div class="eyebrow">Click a mark to find it in the table</div>
+      </div>
+      <div class="byterm" id="byTerm"></div>
+    </div>
+  </section>
+
+  <!-- ============================ RESULTS ============================ -->
+  <section class="card clip" id="resultsCard" hidden>
+    <div class="stats">
+      <div class="stat"><div class="v num" id="sTotal">0</div><div class="k">Sections checked</div></div>
+      <div class="stat alarm"><div class="v num" id="sEmpty">0</div><div class="k">No content</div></div>
+      <div class="stat ready"><div class="v num" id="sOk">0</div><div class="k">Has content</div></div>
+      <div class="stat"><div class="v num" id="sInactive">0</div><div class="k">Inactive skipped</div></div>
+      <div class="stat amber"><div class="v num" id="sErr">0</div><div class="k">Couldn't read</div></div>
+    </div>
+
+    <div class="tools">
+      <div class="seg" role="group" aria-label="Filter results">
+        <button type="button" data-filter="empty" aria-pressed="true">No content <span class="n" id="fEmpty">0</span></button>
+        <button type="button" data-filter="ok" aria-pressed="false">Has content <span class="n" id="fOk">0</span></button>
+        <button type="button" data-filter="err" aria-pressed="false">Errors <span class="n" id="fErr">0</span></button>
+        <button type="button" data-filter="all" aria-pressed="false">All <span class="n" id="fAll">0</span></button>
+      </div>
+      <div class="search">
+        <input type="text" id="q" placeholder="Search code, name, or org unit ID…" autocomplete="off" aria-label="Search results">
+      </div>
+      <div class="dl">
+        <button type="button" class="btn primary" id="dlXlsx">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download Excel
+        </button>
+        <button type="button" class="btn" id="dlCsv">Download CSV</button>
+      </div>
+    </div>
+    <div class="dlnote" id="dlNote"></div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="flag" scope="col">Status<span class="ar">↓</span></th>
+            <th data-sort="term" scope="col">Term<span class="ar">↓</span></th>
+            <th data-sort="code" scope="col">Code<span class="ar">↓</span></th>
+            <th data-sort="name" scope="col">Course<span class="ar">↓</span></th>
+            <th data-sort="ou"   scope="col">Org unit<span class="ar">↓</span></th>
+            <th data-sort="mod"  scope="col">Modules<span class="ar">↓</span></th>
+            <th data-sort="top"  scope="col">Topics<span class="ar">↓</span></th>
+            <th data-sort="start" scope="col">Starts<span class="ar">↓</span></th>
+            <th data-sort="end"  scope="col">Ends<span class="ar">↓</span></th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="tableEmpty" hidden>
+      <div class="big" id="tableEmptyBig">Nothing matches this filter.</div>
+      <div class="sm" id="tableEmptySm">Try another filter or clear the search.</div>
+    </div>
+  </section>
+
+  <!-- ============================ IDLE ============================ -->
+  <section class="card clip" id="idleCard">
+    <div class="empty-state">
+      <div class="big">Pick one or more terms, then run the check.</div>
+      <div class="sm">Every active course you're attached to in those terms is read through the Content API and marked empty or built.</div>
+    </div>
+  </section>
+
+  <footer>
+    <span id="footLeft">Runs on your Brightspace session — no API key, no keys stored in this file.</span>
+    <span id="footRight"></span>
+  </footer>
+</div>
+
+<div class="tip" id="tip" hidden></div>
+
+<script>
+/* ==========================================================================
+   Course Content Check — Brightspace widget
+   Session-authenticated. Every call is a same-origin GET carrying the signed-in
+   user's cookies, so the report is scoped to whatever that user may already see.
+   ========================================================================== */
+
+/* ------------------------------- CONFIG -------------------------------- */
+const CONFIG = {
+  // 'auto' = use live API when reachable, otherwise render sample data so the
+  // page still demonstrates itself outside Brightspace. true / false to force.
+  demoMode: 'auto',
+
+  courseOfferingTypeId: 3,
+
+  // Only used when /d2l/api/versions/ doesn't advertise one. (No Data Hub here:
+  // this tool never calls a Data Hub endpoint, so it never needs its version.)
+  fallbackVersions: { lp: '1.52', le: '1.86' },
+
+  concurrency: 12,       // parallel course reads — matches the template audit
+  maxRetries: 4,         // on 429 / 503 — this is the real rate-limit guard
+  lowCredits: 12,        // only honoured when the tenant reports a quota we can trust
+
+  debug: false
+};
+
+const ORIGIN = window.location.origin;
+const HEADERS = ['SemesterName','SemesterOrgUnitId','CourseName','CourseCode','CourseOrgUnitId',
+  'CourseURL','IsActive','StartDate','EndDate','ContentModuleCount','ContentTopicCount',
+  'HasContent','Flag','Note'];
+
+const state = {
+  live: false,
+  versions: { lp: null, le: null },
+  verSource: {},
+
+  // One scope, one code path: the course offerings this account is attached to.
+  // Nothing here touches the org structure, so nothing here can 403 on it.
+  byTerm: new Map(),        // term id -> [{ id, co, ou, error }]
+  courseCount: 0,
+  unreadable: 0,
+  loadingTerms: false,
+
+  terms: [],
+  selected: new Set(),
+  rows: [],
+  stats: { checked: 0, empty: 0, ok: 0, err: 0, inactive: 0, total: 0 },
+  running: false,
+  cancelled: false,
+  abort: null,
+  filter: 'empty',
+  query: '',
+  sort: { key: 'flag', dir: 'asc' }
+};
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const fmt = n => Number(n || 0).toLocaleString('en-US');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const dbg = (...a) => { if (CONFIG.debug) console.log('[content-check]', ...a); };
+
+/* --------------------------- RATE-LIMITED FETCH ------------------------- */
+/* Mirrors the throttle used in the notification tool: read D2L's credit
+   headers, back off before we run out, honour Retry-After on a 429.          */
+const rate = { limit: null, remaining: null, reset: null, trusted: false };
+
+class ApiError extends Error {
+  constructor(status, message, path) { super(message); this.status = status; this.path = path; }
+}
+
+const finite = (v) => {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/* This tenant doesn't return usable X-Rate-Limit-* headers on session-
+   authenticated calls, so the quota is only believed when it parses as a real
+   number — and a "0 remaining" on a *successful* response is treated as a
+   placeholder, not an emergency. A genuine exhaustion answers 429, never a 200.
+   Trusting those values meant sleeping before every single call. */
+function readRateHeaders(res) {
+  const rem = finite(res.headers.get('X-Rate-Limit-Remaining'));
+  const lim = finite(res.headers.get('X-Rate-Limit-Limit'));
+  const rst = finite(res.headers.get('X-Rate-Limit-Reset'));
+
+  if (rem == null || (rem === 0 && res.ok)) {
+    rate.trusted = false;
+    rate.remaining = null;
+    paintCredits();
+    return;
+  }
+  rate.trusted = true;
+  rate.remaining = rem;
+  if (lim != null) rate.limit = lim;
+  if (rst != null) rate.reset = rst;
+  paintCredits();
+}
+
+/* How long to wait before the next bulk request. When the tenant reports no
+   usable quota — which is the case here — run flat out: the 429 backoff is the
+   real guard, and a blanket delay only made the scan slower than the template
+   audit for no protection at all. */
+function pace() {
+  if (!state.live || !rate.trusted) return 0;
+  const rem = rate.remaining;
+  if (rate.limit) {
+    const frac = rem / rate.limit;
+    if (frac > 0.50) return 0;
+    if (frac > 0.25) return 50;
+    if (frac > 0.10) return 250;
+    return 700;
+  }
+  if (rem > 500) return 0;
+  if (rem > 100) return 50;
+  if (rem > 30) return 250;
+  return 700;
+}
+
+async function rlFetch(url) {
+  for (let attempt = 0; attempt <= CONFIG.maxRetries; attempt++) {
+    if (state.cancelled) throw new ApiError(0, 'Cancelled', url);
+
+    if (rate.trusted && rate.remaining != null && rate.remaining <= CONFIG.lowCredits) {
+      const waitMs = Math.min(15000, Math.max(1200, (rate.reset || 3) * 1000));
+      dbg('low credits, pausing', waitMs, 'ms');
+      await sleep(waitMs);
+      rate.trusted = false;
+      rate.remaining = null;
+    }
+
+    const res = await fetch(url, {
+      credentials: 'include',
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
+      signal: state.abort ? state.abort.signal : undefined
+    });
+    readRateHeaders(res);
+
+    if (res.status === 429 || res.status === 503) {
+      const ra = parseFloat(res.headers.get('Retry-After') || '');
+      const backoff = Number.isFinite(ra) ? ra * 1000 : Math.min(8000, 1000 * Math.pow(2, attempt));
+      dbg('throttled', res.status, 'waiting', backoff);
+      await sleep(backoff);
+      continue;
+    }
+    return res;
+  }
+  throw new ApiError(429, 'Rate limited — gave up after ' + CONFIG.maxRetries + ' retries', url);
+}
+
+async function getJSON(path, opts) {
+  const o = opts || {};
+  const url = path.startsWith('http') ? path : ORIGIN + path;
+  const res = await rlFetch(url);
+
+  if (res.status === 404 && 'ok404' in o) return o.ok404;
+  if (!res.ok) {
+    let body = '';
+    try { body = (await res.text()).slice(0, 160); } catch (e) {}
+    throw new ApiError(res.status, res.status + ' ' + res.statusText + (body ? ' — ' + body : ''), path);
+  }
+  const text = await res.text();
+  if (!text.trim()) return ('ok404' in o) ? o.ok404 : null;
+  return JSON.parse(text);
+}
+
+/* Walks a D2L paged result set (PagingInfo/Items) or a plain array. */
+async function getPaged(path) {
+  const items = [];
+  let bookmark = null, guard = 0;
+  do {
+    const sep = path.indexOf('?') >= 0 ? '&' : '?';
+    const url = path + (bookmark ? sep + 'bookmark=' + encodeURIComponent(bookmark) : '');
+    const data = await getJSON(url);
+    if (Array.isArray(data)) { items.push.apply(items, data); break; }
+    const batch = (data && Array.isArray(data.Items)) ? data.Items : [];
+    items.push.apply(items, batch);
+    const pi = (data && data.PagingInfo) || {};
+    bookmark = pi.HasMoreItems ? pi.Bookmark : null;
+  } while (bookmark && ++guard < 400);
+  return items;
+}
+
+/* ---------------------------- VERSION LOOKUP ---------------------------- */
+/* Same pattern as the department grade widget: ask the tenant what it runs
+   instead of pinning versions in the file. `list` is the /d2l/api/versions/
+   document already fetched during boot — no second round trip for it.
+   Only LP and LE: this tool makes no Data Hub calls, so it needs no Data Hub
+   version, and probing for one meant a string of 404s that bought nothing. */
+async function resolveVersions(list) {
+  const found = {}, source = {};
+
+  const pick = (code) => {
+    if (!Array.isArray(list)) return null;
+    const hit = list.find(x => x && String(x.ProductCode || '').toLowerCase() === code);
+    return hit ? (hit.LatestVersion || hit.Version || null) : null;
+  };
+
+  for (const key of ['lp', 'le']) {
+    let v = pick(key);
+    if (v) { found[key] = v; source[key] = 'versions'; continue; }
+
+    // Only if the tenant didn't advertise it: ask the product directly.
+    try {
+      const p = await getJSON('/d2l/api/' + key + '/versions/');
+      v = p && (p.LatestVersion || p.Version || (Array.isArray(p) && p[0] && p[0].LatestVersion));
+    } catch (e) { dbg(key + ' version probe failed', e.message); }
+
+    if (v) { found[key] = v; source[key] = 'product'; }
+    else   { found[key] = CONFIG.fallbackVersions[key]; source[key] = 'fallback'; }
+  }
+
+  state.versions = found;
+  state.verSource = source;
+  return found;
+}
+
+function paintVersions() {
+  const chips = [];
+  const label = { lp: 'LP', le: 'LE' };
+  for (const k of ['lp', 'le']) {
+    const guess = state.verSource[k] === 'fallback';
+    const title = guess
+      ? 'Not advertised by this tenant — using the configured fallback'
+      : 'Detected from ' + (state.verSource[k] === 'versions' ? '/d2l/api/versions/' : '/d2l/api/' + k + '/versions/');
+    chips.push('<span class="vchip' + (guess ? ' guess' : '') + '" title="' + esc(title) + '">' +
+      label[k] + ' <b>' + esc(state.versions[k]) + '</b></span>');
+  }
+  $('verChips').innerHTML = chips.join('');
+}
+
+/* --------------------------- TERMS FROM COURSES -------------------------- */
+/* myenrollments returns only what this account is explicitly attached to, so no
+   org structure permission is involved anywhere in this tool. It carries no
+   parent term and D2L offers no batch route for one, so each offering is read
+   once to pick up its Semester — that is the floor, not waste: the same read
+   also supplies IsActive and the dates, so the scan itself then costs ONE call
+   per section. Terms are published as they resolve, so the picker is usable
+   almost immediately.                                                        */
+async function buildTerms(raw, onProgress) {
+  const lp = state.versions.lp;
+
+  const seen = new Set(), stubs = [];
+  for (const m of (raw || [])) {
+    const ou = (m && m.OrgUnit) ? m.OrgUnit : m;
+    const id = Number(ou && (ou.Id != null ? ou.Id : ou.Identifier));
+    if (!Number.isFinite(id) || seen.has(id)) continue;
+    // Some tenants ignore orgUnitTypeId — keep course offerings only.
+    if (ou.Type && Number(ou.Type.Id) !== CONFIG.courseOfferingTypeId) continue;
+    seen.add(id);
+    stubs.push({ id: id, ou: ou });
+  }
+  state.courseCount = stubs.length;
+  state.unreadable = 0;
+
+  const byTerm = new Map();
+  let done = 0;
+
+  const fold = (e) => {
+    const sem = e.co && e.co.Semester;
+    const id = (sem && sem.Identifier != null) ? Number(sem.Identifier) : 0;
+    if (!byTerm.has(id)) {
+      byTerm.set(id, {
+        id: id,
+        name: (sem && sem.Name) || 'No term assigned',
+        code: (sem && sem.Code) || '',
+        offerings: []
+      });
+    }
+    byTerm.get(id).offerings.push(e);
+  };
+
+  const publish = () => {
+    // Larger org unit id = newer term.
+    const terms = Array.from(byTerm.values()).sort((a, b) => b.id - a.id);
+    state.byTerm = new Map(terms.map(t => [t.id, t.offerings]));
+    state.terms = terms.map(t => ({ id: t.id, name: t.name, code: t.code, count: t.offerings.length }));
+    $('termBtn').disabled = state.terms.length === 0;   // usable as soon as one term lands
+    renderTermOptions();
+    renderPicks();
+  };
+
+  await pool(stubs, async (s) => {
+    try {
+      const co = state.live
+        ? await getJSON('/d2l/api/lp/' + lp + '/courses/' + s.id)
+        : demoCourseById(s.id);
+      if (!co) throw new ApiError(0, 'empty response', '/courses/' + s.id);
+      fold({ id: s.id, co: co, ou: s.ou, error: null });
+    } catch (e) {
+      state.unreadable++;
+      fold({ id: s.id, co: null, ou: s.ou, error: e.message });
+    }
+    done++;
+    if (onProgress) onProgress(done, stubs.length);
+    if (done % 4 === 0) publish();
+  }, CONFIG.concurrency);
+
+  publish();
+}
+
+/* Sections in a term — already in hand, no call. */
+function listOfferings(term) {
+  return (state.byTerm.get(term.id) || []).map(e => ({
+    Identifier: e.id,
+    Name: (e.co && e.co.Name) || (e.ou && e.ou.Name) || ('Org unit ' + e.id),
+    Code: (e.co && e.co.Code) || (e.ou && e.ou.Code) || '',
+    _co: e.co,            // already fetched — the scan skips a call
+    _err: e.error || null
+  }));
+}
+
+/* ----------------------------- CONTENT COUNT ---------------------------- */
+/* Modules are counted through the whole tree (the Colab script only counted
+   the top level). Topics were always recursive. The empty/built verdict is
+   unchanged either way.                                                     */
+function countToc(toc) {
+  let modules = 0, topics = 0;
+  const walk = (list) => {
+    for (const m of (list || [])) {
+      modules++;
+      topics += ((m.Topics || []).length);
+      walk(m.Modules);
+    }
+  };
+  walk(toc && toc.Modules);
+  return { modules, topics };
+}
+
+const estFmt = new Intl.DateTimeFormat('en-US', {
+  timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, month: '2-digit', day: '2-digit', year: 'numeric'
+});
+function estDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return estFmt.format(d);
+}
+
+/* =========================== THE SCAN ================================== */
+async function runCheck() {
+  if (state.running) { cancelCheck(); return; }
+
+  state.running = true;
+  state.cancelled = false;
+  state.abort = new AbortController();
+  state.rows = [];
+  state.stats = { checked: 0, empty: 0, ok: 0, err: 0, inactive: 0, total: 0 };
+  state.filter = 'empty';
+  state.query = '';
+  $('q').value = '';
+
+  $('idleCard').hidden = true;
+  $('scanCard').hidden = false;
+  $('shelfCard').hidden = false;
+  $('resultsCard').hidden = true;
+  $('shelf').innerHTML = '';
+  $('byTerm').innerHTML = '';
+  $('shelfCensus').textContent = '';
+  $('shelfCard').classList.add('scanning');
+  $('runBtn').classList.add('stop');
+  $('runLabel').textContent = 'Stop';
+  $('termBtn').disabled = true;
+  setBanner(null);
+
+  const activeOnly = $('activeOnly').checked;
+  const requireTopics = $('requireTopics').checked;
+  const terms = state.terms.filter(t => state.selected.has(t.id));
+
+  try {
+    // Phase 1 — the sections are already in hand from the term build, so this
+    // costs nothing and can't be denied.
+    const work = [];
+    for (const term of terms) {
+      for (const o of listOfferings(term)) work.push({ term: term, stub: o });
+    }
+    state.stats.total = work.length;
+
+    if (!work.length) {
+      finishScan('No course sections found in the selected terms.');
+      return;
+    }
+
+    // Phase 2 — read each section's content.
+    setScan('Reading content…', 0, work.length);
+    await pool(work, async (unit) => {
+      const row = state.live
+        ? await checkCourseLive(unit, activeOnly, requireTopics)
+        : await checkCourseDemo(unit, activeOnly, requireTopics);
+      if (row) { state.rows.push(row); queueTick(row); }
+      state.stats.checked++;
+    }, CONFIG.concurrency);
+
+    finishScan(null);
+
+  } catch (err) {
+    console.error(err);
+    finishScan(null);
+    setBanner('bad', 'The check stopped early', esc(err.message || String(err)) +
+      ' — anything already collected is still shown below.');
+  }
+}
+
+function cancelCheck() {
+  state.cancelled = true;
+  if (state.abort) { try { state.abort.abort(); } catch (e) {} }
+  setScan('Stopping…', state.stats.checked, state.stats.total);
+}
+
+/* Bounded-concurrency worker pool. */
+function pool(items, worker, limit) {
+  return new Promise((resolve) => {
+    let i = 0, active = 0, done = 0;
+    const n = items.length;
+
+    const step = () => {
+      if (state.cancelled && active === 0) return resolve();
+      while (!state.cancelled && active < limit && i < n) {
+        const item = items[i++];
+        active++;
+        Promise.resolve()
+          .then(() => { const d = pace(); return d ? sleep(d) : null; })
+          .then(() => worker(item))
+          .catch(() => {})
+          .then(() => {
+            active--; done++;
+            onProgress();
+            if (done === n || (state.cancelled && active === 0)) resolve();
+            else step();
+          });
+      }
+      if (active === 0 && (i >= n || state.cancelled)) resolve();
+    };
+    if (!n) resolve(); else step();
+  });
+}
+
+let lastPaint = 0;
+function onProgress() {
+  const now = Date.now();
+  if (now - lastPaint < 120 && state.stats.checked < state.stats.total) return;
+  lastPaint = now;
+  setScan(null, state.stats.checked, state.stats.total);
+  $('shelfCensus').textContent =
+    'EMPTY ' + state.stats.empty + ' · BUILT ' + state.stats.ok +
+    (state.stats.err ? ' · UNREADABLE ' + state.stats.err : '');
+}
+
+async function checkCourseLive(unit, activeOnly, requireTopics) {
+  const stub = unit.stub;
+  const id = Number(stub.Identifier);
+  const term = unit.term;
+
+  // The offering was already read while building the term list — no second call.
+  const co = stub._co;
+  if (!co) {
+    state.stats.err++;
+    return errorRow(term, id, stub, 'Course offering unreadable: ' + (stub._err || 'unknown'));
+  }
+
+  const isActive = !!co.IsActive;
+  if (activeOnly && !isActive) { state.stats.inactive++; return null; }
+
+  let toc = {};
+  try {
+    toc = (await getJSON('/d2l/api/le/' + state.versions.le + '/' + id + '/content/toc', { ok404: {} })) || {};
+  } catch (e) {
+    if (state.cancelled) return null;
+    state.stats.err++;
+    return errorRow(term, id, co, 'Content unreadable: ' + e.message);
+  }
+
+  const c = countToc(toc);
+  return makeRow(term, id, co, isActive, c.modules, c.topics, requireTopics);
+}
+
+function makeRow(term, id, co, isActive, modules, topics, requireTopics) {
+  const hasContent = requireTopics ? topics > 0 : (modules + topics) > 0;
+  if (hasContent) state.stats.ok++; else state.stats.empty++;
+  return {
+    termName: term.name, termId: term.id,
+    name: String(co.Name || ''), code: String(co.Code || ''),
+    ouId: id,
+    url: ORIGIN + '/d2l/home/' + id,
+    contentUrl: ORIGIN + '/d2l/le/content/' + id + '/Home',
+    isActive: isActive,
+    startRaw: co.StartDate || '', endRaw: co.EndDate || '',
+    start: estDate(co.StartDate), end: estDate(co.EndDate),
+    modules: modules, topics: topics,
+    hasContent: hasContent,
+    flag: hasContent ? 'OK' : 'No Content',
+    note: ''
+  };
+}
+
+function errorRow(term, id, src, msg) {
+  return {
+    termName: term.name, termId: term.id,
+    name: String((src && src.Name) || ('Org unit ' + id)), code: String((src && src.Code) || ''),
+    ouId: id,
+    url: ORIGIN + '/d2l/home/' + id,
+    contentUrl: ORIGIN + '/d2l/le/content/' + id + '/Home',
+    isActive: '',
+    startRaw: '', endRaw: '', start: '', end: '',
+    modules: '', topics: '',
+    hasContent: '',
+    flag: 'Error',
+    note: msg
+  };
+}
+
+/* ------------------------------ SHELF PAINT ----------------------------- */
+let tickQueue = [], tickRaf = 0;
+function queueTick(row) {
+  tickQueue.push(row);
+  if (tickRaf) return;
+  tickRaf = requestAnimationFrame(() => {
+    tickRaf = 0;
+    if (!tickQueue.length) return;
+    const frag = document.createDocumentFragment();
+    for (const r of tickQueue) frag.appendChild(makeTick(r));
+    $('shelf').appendChild(frag);
+    tickQueue = [];
+  });
+}
+function makeTick(row) {
+  const d = document.createElement('div');
+  d.className = 'tick ' + (row.flag === 'Error' ? 'err' : (row.hasContent ? 'ok' : 'empty'));
+  d.dataset.ou = row.ouId;
+  d.setAttribute('role', 'img');
+  d.setAttribute('aria-label', (row.code || row.name) + ' — ' +
+    (row.flag === 'Error' ? 'could not read' : (row.hasContent ? 'has content' : 'no content')));
+  return d;
+}
+function repaintShelf() {
+  // Drop any frame still queued from the live fill, or it repaints on top.
+  if (tickRaf) { cancelAnimationFrame(tickRaf); tickRaf = 0; }
+  tickQueue = [];
+
+  const sorted = state.rows.slice().sort((a, b) =>
+    cmpFlag(a, b) || String(a.termName).localeCompare(b.termName) ||
+    String(a.code).localeCompare(String(b.code)) || String(a.name).localeCompare(String(b.name)));
+  const frag = document.createDocumentFragment();
+  for (const r of sorted) frag.appendChild(makeTick(r));
+  const shelf = $('shelf');
+  shelf.innerHTML = '';
+  shelf.appendChild(frag);
+}
+
+/* Shelf tooltip + click-to-find, via delegation (one listener for N marks). */
+(function shelfInteractions() {
+  const tip = $('tip');
+  const shelf = $('shelf');
+  shelf.addEventListener('mousemove', (e) => {
+    const t = e.target.closest('.tick');
+    if (!t) { tip.hidden = true; return; }
+    const row = state.rows.find(r => String(r.ouId) === t.dataset.ou);
+    if (!row) { tip.hidden = true; return; }
+    tip.innerHTML = '<b>' + esc(row.code || row.name) + '</b>' + esc(row.name) +
+      '<br>' + (row.flag === 'Error' ? 'could not read' :
+        (row.hasContent ? row.modules + ' modules · ' + row.topics + ' topics' : 'no content')) +
+      '<br>OU ' + row.ouId;
+    tip.hidden = false;
+    const pad = 14;
+    const x = Math.min(e.clientX + pad, window.innerWidth - tip.offsetWidth - 8);
+    const y = Math.max(8, e.clientY - tip.offsetHeight - pad);
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  });
+  shelf.addEventListener('mouseleave', () => { tip.hidden = true; });
+  shelf.addEventListener('click', (e) => {
+    const t = e.target.closest('.tick');
+    if (!t) return;
+    const row = state.rows.find(r => String(r.ouId) === t.dataset.ou);
+    if (!row) return;
+    state.filter = 'all';
+    document.querySelectorAll('.seg button').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.dataset.filter === 'all')));
+    state.query = String(row.ouId);
+    $('q').value = state.query;
+    renderTable();
+    const hit = document.querySelector('tbody tr[data-ou="' + row.ouId + '"]');
+    if (hit) { hit.classList.add('hit'); hit.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  });
+})();
+
+/* ------------------------------ SCAN CHROME ----------------------------- */
+function setScan(msg, done, total) {
+  if (msg) $('scanStatus').innerHTML = esc(msg);
+  else if (total) {
+    $('scanStatus').innerHTML = 'Checked <b class="num">' + fmt(done) + '</b> <span>of ' + fmt(total) + ' sections</span>';
+  }
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  $('scanBar').style.width = pct + '%';
+}
+
+function paintCredits() {
+  const el = $('credit');
+  if (!rate.trusted || rate.remaining == null) { el.hidden = true; return; }
+  el.hidden = false;
+  const pct = rate.limit ? rate.remaining / rate.limit : 1;
+  el.className = 'credit' + (rate.remaining <= CONFIG.lowCredits ? ' low' : (pct < .35 ? ' mid' : ''));
+  $('creditTxt').textContent = fmt(Math.round(rate.remaining)) + ' API credits left';
+}
+
+function finishScan(message) {
+  state.running = false;
+  $('shelfCard').classList.remove('scanning');
+  $('runBtn').classList.remove('stop');
+  $('runLabel').textContent = 'Run check';
+  $('termBtn').disabled = false;
+  $('scanCard').hidden = true;
+
+  repaintShelf();
+  renderByTerm();
+  renderStats();
+  renderTable();
+  $('resultsCard').hidden = false;
+
+  if (message) {
+    setBanner('warn', 'Nothing to report', message);
+  } else if (state.cancelled) {
+    setBanner('warn', 'Stopped early',
+      'Showing the ' + fmt(state.rows.length) + ' sections checked before you stopped.');
+  } else if (state.stats.err) {
+    setBanner('warn', fmt(state.stats.err) + ' section' + (state.stats.err === 1 ? '' : 's') + " couldn't be read",
+      "Your account is attached to them but can't read their content. Open the Errors filter to see which ones and why.");
+  } else {
+    contextBanner();
+  }
+
+  $('shelfCensus').textContent =
+    'EMPTY ' + state.stats.empty + ' · BUILT ' + state.stats.ok +
+    (state.stats.err ? ' · UNREADABLE ' + state.stats.err : '');
+}
+
+/* The banner that belongs on screen when nothing has gone wrong. */
+function contextBanner() {
+  if (!state.live) {
+    setBanner('warn', 'Demo data',
+      'Not connected to Brightspace. Upload this file to Manage Files and open it from your Brightspace domain and it will read live data through your session instead. Everything below is sample output.');
+    return;
+  }
+  scopeBanner();
+}
+
+/* What this report does and doesn't cover. Not a warning — a fact worth keeping
+   on screen, so nobody reads "0 empty" as "0 empty in the whole term". */
+function scopeBanner() {
+  if (!state.courseCount) {
+    setBanner('warn', 'Nothing to check',
+      "Your account isn't attached to any course offerings, so there's nothing to read.");
+    return;
+  }
+  const n = state.terms.length;
+  setBanner('info', 'This covers your own courses',
+    'The <b>' + fmt(state.courseCount) + '</b> course offering' + (state.courseCount === 1 ? '' : 's') +
+    ' your account is attached to, grouped into ' + n + ' term' + (n === 1 ? '' : 's') +
+    ". Other sections in those terms aren't included." +
+    (state.unreadable
+      ? ' <b>' + fmt(state.unreadable) + '</b> course offering' + (state.unreadable === 1 ? '' : 's') +
+        " couldn't be read."
+      : ''), true);
+}
+
+function setBanner(kind, title, body, dismissible) {
+  const b = $('banner');
+  if (!kind) { b.hidden = true; b.innerHTML = ''; return; }
+  b.hidden = false;
+  b.className = 'banner ' + kind;
+  b.innerHTML = '<p><b>' + title + '</b>' + (body ? ' — ' + body : '') + '</p>' +
+    (dismissible ? '<button type="button" class="bx" aria-label="Dismiss">&times;</button>' : '');
+}
+
+/* ------------------------------- RENDERING ------------------------------ */
+function renderStats() {
+  $('sTotal').textContent = fmt(state.rows.length);
+  $('sEmpty').textContent = fmt(state.stats.empty);
+  $('sOk').textContent = fmt(state.stats.ok);
+  $('sInactive').textContent = fmt(state.stats.inactive);
+  $('sErr').textContent = fmt(state.stats.err);
+  $('fEmpty').textContent = fmt(state.stats.empty);
+  $('fOk').textContent = fmt(state.stats.ok);
+  $('fErr').textContent = fmt(state.stats.err);
+  $('fAll').textContent = fmt(state.rows.length);
+}
+
+function renderByTerm() {
+  const terms = state.terms.filter(t => state.selected.has(t.id));
+  if (terms.length < 2) { $('byTerm').innerHTML = ''; return; }
+  const html = terms.map(t => {
+    const rows = state.rows.filter(r => r.termId === t.id);
+    const empty = rows.filter(r => r.flag === 'No Content').length;
+    const pct = rows.length ? (empty / rows.length) * 100 : 0;
+    return '<div class="r"><span><b>' + esc(t.name) + '</b></span>' +
+      '<span>' + empty + ' / ' + rows.length + ' empty</span>' +
+      '<span class="mini"><i style="width:' + pct.toFixed(1) + '%"></i></span></div>';
+  }).join('');
+  $('byTerm').innerHTML = html;
+}
+
+const FLAG_RANK = { 'No Content': 0, 'Error': 1, 'OK': 2 };
+const cmpFlag = (a, b) => (FLAG_RANK[a.flag] - FLAG_RANK[b.flag]);
+
+function visibleRows() {
+  const q = state.query.trim().toLowerCase();
+  return state.rows.filter(r => {
+    if (state.filter === 'empty' && r.flag !== 'No Content') return false;
+    if (state.filter === 'ok' && r.flag !== 'OK') return false;
+    if (state.filter === 'err' && r.flag !== 'Error') return false;
+    if (!q) return true;
+    return (r.code + ' ' + r.name + ' ' + r.ouId + ' ' + r.termName).toLowerCase().indexOf(q) >= 0;
+  }).sort(sorter());
+}
+
+function sorter() {
+  const { key, dir } = state.sort;
+  const s = dir === 'asc' ? 1 : -1;
+  const txt = (v) => String(v == null ? '' : v).toLowerCase();
+  return (a, b) => {
+    let d = 0;
+    switch (key) {
+      case 'flag':  d = cmpFlag(a, b) || txt(a.termName).localeCompare(txt(b.termName)) ||
+                        txt(a.code).localeCompare(txt(b.code)); break;
+      case 'term':  d = txt(a.termName).localeCompare(txt(b.termName)) || txt(a.code).localeCompare(txt(b.code)); break;
+      case 'code':  d = txt(a.code).localeCompare(txt(b.code)); break;
+      case 'name':  d = txt(a.name).localeCompare(txt(b.name)); break;
+      case 'ou':    d = a.ouId - b.ouId; break;
+      case 'mod':   d = (a.modules === '' ? -1 : a.modules) - (b.modules === '' ? -1 : b.modules); break;
+      case 'top':   d = (a.topics === '' ? -1 : a.topics) - (b.topics === '' ? -1 : b.topics); break;
+      case 'start': d = String(a.startRaw).localeCompare(String(b.startRaw)); break;
+      case 'end':   d = String(a.endRaw).localeCompare(String(b.endRaw)); break;
+    }
+    return d * s;
+  };
+}
+
+function renderTable() {
+  const rows = visibleRows();
+  const tb = $('tbody');
+
+  $('dlNote').textContent = 'Downloads include the ' + fmt(rows.length) +
+    ' row' + (rows.length === 1 ? '' : 's') + ' shown here.';
+  $('dlCsv').disabled = $('dlXlsx').disabled = rows.length === 0;
+
+  if (!rows.length) {
+    tb.innerHTML = '';
+    $('tableEmpty').hidden = false;
+    if (state.filter === 'empty' && !state.query && state.rows.length) {
+      $('tableEmptyBig').textContent = 'Every active section in these terms has content.';
+      $('tableEmptySm').textContent = 'Switch the filter to see the full list.';
+    } else {
+      $('tableEmptyBig').textContent = 'Nothing matches this filter.';
+      $('tableEmptySm').textContent = 'Try another filter or clear the search.';
+    }
+    return;
+  }
+  $('tableEmpty').hidden = true;
+
+  const out = [];
+  for (const r of rows) {
+    const cls = r.flag === 'Error' ? 'err' : (r.hasContent ? 'ok' : 'empty');
+    const label = r.flag === 'Error' ? 'Error' : (r.hasContent ? 'Has content' : 'No content');
+    out.push(
+      '<tr data-ou="' + r.ouId + '">' +
+        '<td><span class="flag ' + cls + '">' + label + '</span></td>' +
+        '<td class="term">' + esc(r.termName) + '</td>' +
+        '<td><span class="m">' + esc(r.code) + '</span></td>' +
+        '<td class="name">' +
+          '<a class="cn" href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a>' +
+          '<a class="go" href="' + esc(r.contentUrl) + '" target="_blank" rel="noopener">Content ↗</a>' +
+          (r.note ? '<span class="er">' + esc(r.note) + '</span>' : '') +
+        '</td>' +
+        '<td><span class="m">' + r.ouId + '</span></td>' +
+        '<td><span class="m ' + (r.modules === 0 ? 'z' : '') + '">' + (r.modules === '' ? '—' : r.modules) + '</span></td>' +
+        '<td><span class="m ' + (r.topics === 0 ? 'z' : '') + '">' + (r.topics === '' ? '—' : r.topics) + '</span></td>' +
+        '<td><span class="m">' + esc(r.start || '—') + '</span></td>' +
+        '<td><span class="m">' + esc(r.end || '—') + '</span></td>' +
+      '</tr>');
+  }
+  tb.innerHTML = out.join('');
+}
+
+/* ------------------------------ TERM PICKER ----------------------------- */
+function renderTermOptions() {
+  const raw = $('termSearch').value.trim();
+  const q = raw.toLowerCase();
+  const list = state.terms.filter(t =>
+    !q || (t.name + ' ' + t.code + ' ' + t.id).toLowerCase().indexOf(q) >= 0);
+
+  $('termHint').textContent = state.terms.length
+    ? (q ? list.length + ' of ' + state.terms.length + ' terms' : state.terms.length + ' terms') + ' · newest first'
+    : 'no terms found';
+
+  if (!state.terms.length) {
+    $('termOpts').innerHTML = '<div class="none">You aren\'t attached to any course offerings.</div>';
+    return;
+  }
+  if (!list.length) {
+    $('termOpts').innerHTML = '<div class="none">No term matches “' + esc(raw) + '”.</div>';
+    return;
+  }
+
+  // A real listbox — no <label>/<input>, which double-fire and cancel their own
+  // selection. The box is drawn in CSS off aria-selected.
+  const keepScroll = $('termOpts').scrollTop;
+  $('termOpts').innerHTML = list.map(t =>
+    '<div class="opt" role="option" tabindex="0" aria-selected="' + state.selected.has(t.id) + '" data-id="' + t.id + '">' +
+      '<span class="box" aria-hidden="true"></span>' +
+      '<span><span class="nm">' + esc(t.name) + '</span><br>' +
+      '<span class="sub">' + (t.code ? '<em>' + esc(t.code) + '</em> · ' : '') + 'OU ' + t.id +
+      (t.count != null ? ' · ' + t.count + ' course' + (t.count === 1 ? '' : 's') : '') + '</span></span>' +
+    '</div>').join('');
+  $('termOpts').scrollTop = keepScroll;
+}
+
+function renderPicks() {
+  const picked = state.terms.filter(t => state.selected.has(t.id));
+  $('picks').innerHTML = picked.map(t =>
+    '<span class="pick">' + esc(t.name) +
+    '<button type="button" class="x" data-id="' + t.id + '" aria-label="Remove ' + esc(t.name) + '">×</button></span>').join('');
+
+  const n = picked.length;
+  $('termCount').hidden = n === 0;
+  $('termCount').textContent = n;
+  $('termBtnLabel').textContent = n === 0
+    ? 'Select terms'
+    : (n === 1 ? picked[0].name : n + ' terms selected');
+  $('runBtn').disabled = n === 0 || state.running || state.loadingTerms;
+}
+
+function toggleTerm(id) {
+  if (state.selected.has(id)) state.selected.delete(id); else state.selected.add(id);
+  // Patch the one option in place, so keyboard focus and scroll position survive.
+  const opt = $('termOpts').querySelector('.opt[data-id="' + id + '"]');
+  if (opt) opt.setAttribute('aria-selected', String(state.selected.has(id)));
+  renderPicks();
+}
+
+function openPanel(open) {
+  $('termPanel').hidden = !open;
+  $('termBtn').setAttribute('aria-expanded', String(open));
+  if (!open) return;
+  $('termSearch').value = '';
+  renderTermOptions();
+  positionPanel();
+  $('termSearch').focus();
+}
+
+/* The panel is position:fixed, so it can't be clipped by the card. Anchor it to
+   the button, drop down or flip up depending on room, and cap the list to what
+   the viewport actually has — widget iframes can be short. */
+function positionPanel() {
+  const panel = $('termPanel'), opts = $('termOpts'), btn = $('termBtn');
+  const r = btn.getBoundingClientRect();
+  const vw = window.innerWidth || document.documentElement.clientWidth || 1000;
+  const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+  const GAP = 6, EDGE = 8, CHROME = 96, MIN = 130, MAX = 330;
+
+  const below = vh - r.bottom - GAP - EDGE;
+  const above = r.top - GAP - EDGE;
+  const flipUp = below < 190 && above > below;
+  const room = Math.max(120, flipUp ? above : below);
+
+  opts.style.maxHeight = Math.max(MIN, Math.min(MAX, room - CHROME)) + 'px';
+  panel.style.width = Math.max(240, Math.min(r.width || 320, vw - EDGE * 2)) + 'px';
+  panel.style.left = Math.max(EDGE, Math.min(r.left, vw - (panel.offsetWidth || 320) - EDGE)) + 'px';
+  panel.style.top = flipUp
+    ? Math.max(EDGE, r.top - GAP - (panel.offsetHeight || 0)) + 'px'
+    : (r.bottom + GAP) + 'px';
+}
+
+function setTermNote(text, bad) {
+  const el = $('termNote');
+  el.className = 'termnote' + (bad ? ' bad' : '');
+  el.innerHTML = text;
+}
+
+/* One line under the picker that says exactly what was found. */
+function describeTerms() {
+  if (!state.terms.length) {
+    setTermNote("You aren't attached to any course offerings, so there's nothing to check.", true);
+    $('termBtnLabel').textContent = 'No terms available';
+    return;
+  }
+  const n = state.terms.length;
+  setTermNote('<b>' + n + '</b> term' + (n === 1 ? '' : 's') + ' across <b>' + fmt(state.courseCount) +
+    '</b> course' + (state.courseCount === 1 ? '' : 's') + " you're attached to · newest first · OU " +
+    state.terms[0].id + ' → ' + state.terms[n - 1].id +
+    (state.unreadable ? ' · ' + state.unreadable + ' unreadable' : ''));
+}
+
+/* ------------------------------- EXPORTS -------------------------------- */
+function rowToArray(r) {
+  return [
+    r.termName, r.termId, r.name, r.code, r.ouId, r.url,
+    r.isActive === '' ? '' : (r.isActive ? 'Yes' : 'No'),
+    r.start, r.end, r.modules, r.topics,
+    r.hasContent === '' ? '' : (r.hasContent ? 'Yes' : 'No'),
+    r.flag, r.note
+  ];
+}
+const stamp = () => new Date().toISOString().slice(0, 10);
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+}
+
+function downloadCSV() {
+  const rows = visibleRows();
+  const q = v => {
+    const s = String(v == null ? '' : v);
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [HEADERS.map(q).join(',')];
+  for (const r of rows) lines.push(rowToArray(r).map(q).join(','));
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  saveBlob(blob, 'brightspace_no_content_report_' + stamp() + '.csv');
+}
+
+/* --- Minimal XLSX writer: real .xlsx, clickable links, no dependencies --- */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+const enc = new TextEncoder();
+
+function zipStore(files) {
+  const now = new Date();
+  const dosTime = ((now.getHours() & 31) << 11) | ((now.getMinutes() & 63) << 5) | ((now.getSeconds() / 2) & 31);
+  const dosDate = (((now.getFullYear() - 1980) & 127) << 9) | (((now.getMonth() + 1) & 15) << 5) | (now.getDate() & 31);
+
+  const local = [], central = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const data = enc.encode(f.data);
+    const crc = crc32(data);
+
+    const lh = new Uint8Array(30 + nameBytes.length);
+    const lv = new DataView(lh.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0x0800, true);
+    lv.setUint16(8, 0, true);
+    lv.setUint16(10, dosTime, true);
+    lv.setUint16(12, dosDate, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, data.length, true);
+    lv.setUint32(22, data.length, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    lh.set(nameBytes, 30);
+    local.push(lh, data);
+
+    const ch = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(ch.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0x0800, true);
+    cv.setUint16(10, 0, true);
+    cv.setUint16(12, dosTime, true);
+    cv.setUint16(14, dosDate, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, data.length, true);
+    cv.setUint32(24, data.length, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint32(42, offset, true);
+    ch.set(nameBytes, 46);
+    central.push(ch);
+
+    offset += lh.length + data.length;
+  }
+
+  const cdSize = central.reduce((a, b) => a + b.length, 0);
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(8, files.length, true);
+  ev.setUint16(10, files.length, true);
+  ev.setUint32(12, cdSize, true);
+  ev.setUint32(16, offset, true);
+
+  return new Blob(local.concat(central, [eocd]),
+    { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+
+const xesc = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+  // eslint-disable-next-line no-control-regex
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+
+function colLetter(n) { // 1 -> A
+  let s = '';
+  while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+function downloadXLSX() {
+  const rows = visibleRows();
+  const data = [HEADERS].concat(rows.map(rowToArray));
+  const NUMERIC = new Set([1, 4, 9, 10]);        // OU ids and counts
+  const LINK_COL = HEADERS.indexOf('CourseURL'); // 0-based
+  const nCols = HEADERS.length;
+  const lastRef = colLetter(nCols) + data.length;
+
+  const sheetRows = [], hyperlinks = [], rels = [];
+  for (let r = 0; r < data.length; r++) {
+    const cells = [];
+    for (let c = 0; c < nCols; c++) {
+      const ref = colLetter(c + 1) + (r + 1);
+      const v = data[r][c];
+      if (r === 0) {
+        cells.push('<c r="' + ref + '" s="1" t="inlineStr"><is><t>' + xesc(v) + '</t></is></c>');
+      } else if (v === '' || v == null) {
+        cells.push('<c r="' + ref + '" s="0"/>');
+      } else if (NUMERIC.has(c) && typeof v === 'number') {
+        cells.push('<c r="' + ref + '" s="0"><v>' + v + '</v></c>');
+      } else if (c === LINK_COL) {
+        const rid = 'rId' + (rels.length + 1);
+        rels.push('<Relationship Id="' + rid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="' + xesc(v) + '" TargetMode="External"/>');
+        hyperlinks.push('<hyperlink ref="' + ref + '" r:id="' + rid + '"/>');
+        cells.push('<c r="' + ref + '" s="2" t="inlineStr"><is><t>' + xesc(v) + '</t></is></c>');
+      } else {
+        cells.push('<c r="' + ref + '" s="0" t="inlineStr"><is><t>' + xesc(v) + '</t></is></c>');
+      }
+    }
+    sheetRows.push('<row r="' + (r + 1) + '">' + cells.join('') + '</row>');
+  }
+
+  // Column widths, capped at 60 like the openpyxl version.
+  const cols = [];
+  for (let c = 0; c < nCols; c++) {
+    let w = 0;
+    for (let r = 0; r < data.length; r++) w = Math.max(w, String(data[r][c] == null ? '' : data[r][c]).length);
+    cols.push('<col min="' + (c + 1) + '" max="' + (c + 1) + '" width="' + Math.min(w + 2, 60) + '" customWidth="1"/>');
+  }
+
+  const sheet =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<dimension ref="A1:' + lastRef + '"/>' +
+    '<sheetViews><sheetView tabSelected="1" workbookViewId="0">' +
+    '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+    '<sheetFormatPr defaultRowHeight="15"/>' +
+    '<cols>' + cols.join('') + '</cols>' +
+    '<sheetData>' + sheetRows.join('') + '</sheetData>' +
+    '<autoFilter ref="A1:' + lastRef + '"/>' +
+    (hyperlinks.length ? '<hyperlinks>' + hyperlinks.join('') + '</hyperlinks>' : '') +
+    '</worksheet>';
+
+  const styles =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<fonts count="3">' +
+    '<font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>' +
+    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font>' +
+    '<font><u/><sz val="11"/><color rgb="FF2347C9"/><name val="Calibri"/><family val="2"/></font>' +
+    '</fonts>' +
+    '<fills count="3">' +
+    '<fill><patternFill patternType="none"/></fill>' +
+    '<fill><patternFill patternType="gray125"/></fill>' +
+    '<fill><patternFill patternType="solid"><fgColor rgb="FF14202C"/><bgColor indexed="64"/></patternFill></fill>' +
+    '</fills>' +
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+    '<cellXfs count="3">' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>' +
+    '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+    '</cellXfs>' +
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+    '</styleSheet>';
+
+  const files = [
+    { name: '[Content_Types].xml', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      '</Types>' },
+    { name: '_rels/.rels', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/workbook.xml', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+      '</Relationships>' },
+    { name: 'xl/styles.xml', data: styles },
+    { name: 'xl/worksheets/sheet1.xml', data: sheet },
+    { name: 'xl/worksheets/_rels/sheet1.xml.rels', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rels.join('') + '</Relationships>' }
+  ];
+
+  saveBlob(zipStore(files), 'brightspace_no_content_report_' + stamp() + '.xlsx');
+}
+
+/* ================================ DEMO ================================== */
+/* Renders sample data when this file isn't running inside Brightspace, so the
+   page is reviewable anywhere. Live mode never touches this.                */
+const DEMO_TERMS = [
+  { id: 14012, name: 'Fall 2026 Full Term',           code: 'FA26' },
+  { id: 13991, name: 'Fall 2026-1st 8 Wk Session',    code: 'FA26A' },
+  { id: 13964, name: 'Summer 2026-FULL Semester',     code: 'SU26F' },
+  { id: 13963, name: 'Summer 2026-5 Wk Session II',   code: 'SU26B' },
+  { id: 13962, name: 'Summer 2026-5 Wk Session I',    code: 'SU26A' },
+  { id: 13871, name: 'Spring 2026 Full Term',         code: 'SP26' },
+  { id: 13742, name: 'Fall 2025 Full Term',           code: 'FA25' }
+];
+const SUBJ = ['ACC','BIO','BUS','CHM','CPT','ECO','ENG','HIS','MAT','MED','NUR','PSY','SPC','WLD'];
+const TITLES = {
+  ACC:'Principles of Accounting', BIO:'Anatomy & Physiology', BUS:'Introduction to Business',
+  CHM:'General Chemistry', CPT:'Programming Fundamentals', ECO:'Macroeconomics',
+  ENG:'English Composition', HIS:'American History', MAT:'College Algebra',
+  MED:'Medical Terminology', NUR:'Nursing Fundamentals', PSY:'General Psychology',
+  SPC:'Public Speaking', WLD:'Welding Technology'
+};
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const demoCache = new Map();
+const demoIndex = new Map();   // course id -> { offering, term }
+function demoOfferings(termId) {
+  if (demoCache.has(termId)) return demoCache.get(termId);
+  const rnd = mulberry32(termId);
+  const term = DEMO_TERMS.find(t => t.id === termId) || { id: termId, name: 'Term ' + termId, code: 'XX' };
+  const size = 60 + Math.floor(rnd() * 240);
+  // Newer terms are less built out — that's the whole reason this report exists.
+  const emptyRate = termId >= 13991 ? 0.24 : (termId >= 13962 ? 0.09 : 0.02);
+  const list = [];
+  for (let i = 0; i < size; i++) {
+    const s = SUBJ[Math.floor(rnd() * SUBJ.length)];
+    const num = 101 + Math.floor(rnd() * 160);
+    const sec = ['001','002','003','D01','D02','H01','W01'][Math.floor(rnd() * 7)];
+    const empty = rnd() < emptyRate;
+    const err = rnd() < 0.004;
+    const modules = empty ? 0 : 3 + Math.floor(rnd() * 12);
+    const o = {
+      Identifier: termId * 1000 + i,          // *1000: ids must not collide across terms
+      Name: TITLES[s] + ' ' + (num < 200 ? 'I' : 'II') + ' — ' + s + num + '-' + sec,
+      Code: term.code + '-' + s + num + '-' + sec,
+      IsActive: rnd() > 0.08,
+      StartDate: new Date(2026, 0, 12).toISOString(),
+      EndDate: new Date(2026, 4, 8).toISOString(),
+      _modules: modules,
+      _topics: empty ? 0 : modules * (2 + Math.floor(rnd() * 6)),
+      _err: err
+    };
+    list.push(o);
+    demoIndex.set(o.Identifier, { o: o, term: term });
+  }
+  demoCache.set(termId, list);
+  return list;
+}
+
+/* What myenrollments would return for an instructor: a handful of sections
+   across a few terms, and no semester org units at all. */
+function demoEnrollmentStubs() {
+  const out = [];
+  for (const t of [DEMO_TERMS[0], DEMO_TERMS[1], DEMO_TERMS[2], DEMO_TERMS[4]]) {
+    for (const o of demoOfferings(t.id).slice(0, 11 + (t.id % 7))) {
+      out.push({
+        OrgUnit: { Id: o.Identifier, Type: { Id: 3, Name: 'Course Offering' }, Name: o.Name, Code: o.Code },
+        Access: { IsActive: o.IsActive, CanAccess: true, ClasslistRoleName: 'Instructor' }
+      });
+    }
+  }
+  return out;
+}
+function demoCourseById(id) {
+  const hit = demoIndex.get(Number(id));
+  if (!hit) throw new ApiError(404, '404 Not Found', '/courses/' + id);
+  return Object.assign({}, hit.o, {
+    Semester: { Identifier: hit.term.id, Name: hit.term.name, Code: hit.term.code }
+  });
+}
+
+async function checkCourseDemo(unit, activeOnly, requireTopics) {
+  await sleep(1 + Math.random() * 4);
+  const stub = unit.stub;
+  const co = stub._co || stub;
+  const term = unit.term;
+  const id = Number(stub.Identifier);
+  if (co._err) { state.stats.err++; return errorRow(term, id, co, 'Content unreadable: 403 Not Authorized'); }
+  if (activeOnly && !co.IsActive) { state.stats.inactive++; return null; }
+  return makeRow(term, id, co, !!co.IsActive, co._modules, co._topics, requireTopics);
+}
+
+/* ================================ BOOT ================================== */
+async function boot() {
+  // Wire up everything that doesn't need the API first.
+  $('termBtn').addEventListener('click', () => openPanel($('termPanel').hidden));
+  $('termSearch').addEventListener('input', renderTermOptions);
+  $('termSearch').addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const first = $('termOpts').querySelector('.opt');
+      if (first) first.focus();
+    }
+  });
+  $('termOpts').addEventListener('click', (e) => {
+    const opt = e.target.closest('.opt');
+    if (opt) toggleTerm(Number(opt.dataset.id));
+  });
+  $('termOpts').addEventListener('keydown', (e) => {
+    const opt = e.target.closest('.opt');
+    if (!opt) return;
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      toggleTerm(Number(opt.dataset.id));
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const all = Array.from($('termOpts').querySelectorAll('.opt'));
+      const i = all.indexOf(opt);
+      const next = all[e.key === 'ArrowDown' ? Math.min(i + 1, all.length - 1) : Math.max(i - 1, 0)];
+      if (next) next.focus();
+    }
+  });
+  $('selAll').addEventListener('click', () => {
+    const q = $('termSearch').value.trim().toLowerCase();
+    state.terms.forEach(t => {
+      if (!q || (t.name + ' ' + t.code + ' ' + t.id).toLowerCase().indexOf(q) >= 0) state.selected.add(t.id);
+    });
+    renderTermOptions(); renderPicks();
+  });
+  $('selNone').addEventListener('click', () => { state.selected.clear(); renderTermOptions(); renderPicks(); });
+  $('picks').addEventListener('click', (e) => {
+    const x = e.target.closest('.x');
+    if (x) toggleTerm(Number(x.dataset.id));
+  });
+  $('banner').addEventListener('click', (e) => {
+    if (e.target.closest('.bx')) { $('banner').hidden = true; }
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.picker') && !$('termPanel').hidden) openPanel(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('termPanel').hidden) { openPanel(false); $('termBtn').focus(); }
+  });
+  const reflow = () => { if (!$('termPanel').hidden) positionPanel(); };
+  window.addEventListener('resize', reflow);
+  window.addEventListener('scroll', reflow, true);   // capture: catches scrolling ancestors too
+
+  $('runBtn').addEventListener('click', runCheck);
+  $('q').addEventListener('input', (e) => { state.query = e.target.value; renderTable(); });
+  document.querySelectorAll('.seg button').forEach(b => {
+    b.addEventListener('click', () => {
+      state.filter = b.dataset.filter;
+      document.querySelectorAll('.seg button').forEach(o =>
+        o.setAttribute('aria-pressed', String(o === b)));
+      renderTable();
+    });
+  });
+  document.querySelectorAll('thead th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      state.sort = (state.sort.key === key)
+        ? { key: key, dir: state.sort.dir === 'asc' ? 'desc' : 'asc' }
+        : { key: key, dir: 'asc' };
+      document.querySelectorAll('thead th').forEach(o => o.removeAttribute('aria-sort'));
+      th.setAttribute('aria-sort', state.sort.dir === 'asc' ? 'ascending' : 'descending');
+      th.querySelector('.ar').textContent = state.sort.dir === 'asc' ? '↓' : '↑';
+      renderTable();
+    });
+  });
+  $('dlCsv').addEventListener('click', downloadCSV);
+  $('dlXlsx').addEventListener('click', downloadXLSX);
+
+  // Live or demo? The one /d2l/api/versions/ call doubles as the reachability
+  // probe AND the version document — no reason to fetch it twice.
+  let versionsDoc = null;
+  if (CONFIG.demoMode !== true) {
+    try {
+      const probe = await fetch(ORIGIN + '/d2l/api/versions/', {
+        credentials: 'include', headers: { Accept: 'application/json' }, cache: 'no-store'
+      });
+      if (probe.ok) versionsDoc = await probe.json();
+    } catch (e) { dbg('not inside Brightspace', e.message); }
+  }
+  state.live = CONFIG.demoMode !== true && !!versionsDoc;
+
+  if (state.live) {
+    await resolveVersions(versionsDoc);
+  } else {
+    state.versions = Object.assign({}, CONFIG.fallbackVersions);
+    state.verSource = { lp: 'fallback', le: 'fallback' };
+    $('whoami').innerHTML = 'Signed in as <b>demo user</b>';
+    $('footRight').textContent = 'demo mode';
+  }
+  paintVersions();
+
+  const lp = state.versions.lp;
+
+  // whoami is cosmetic — it updates the header whenever it lands and never
+  // blocks the term list.
+  if (state.live) {
+    getJSON('/d2l/api/lp/' + lp + '/users/whoami').then(me => {
+      if (!me) return;
+      const name = [me.FirstName, me.LastName].filter(Boolean).join(' ') || me.UniqueName || ('user ' + me.Identifier);
+      $('whoami').innerHTML = 'Signed in as <b>' + esc(name) + '</b>';
+    }).catch(e => dbg('whoami failed', e.message));
+  }
+
+  // The only thing standing between boot and a usable picker: the list of
+  // courses this account is attached to, then one read each for their terms.
+  contextBanner();
+  state.loadingTerms = true;
+  $('termBtnLabel').textContent = 'Reading your courses…';
+  setTermNote('Reading the courses you\'re attached to…');
+
+  let enrolled;
+  try {
+    enrolled = state.live
+      ? await getPaged('/d2l/api/lp/' + lp + '/enrollments/myenrollments/?orgUnitTypeId=' + CONFIG.courseOfferingTypeId)
+      : demoEnrollmentStubs();
+  } catch (e) {
+    state.loadingTerms = false;
+    setBanner('bad', "Couldn't read your courses",
+      esc(e.message) + ' — this tool reads your enrollments to find your courses, so there is nothing else to try.');
+    setTermNote('Enrollment lookup failed — see the message above.', true);
+    $('termBtnLabel').textContent = 'No terms available';
+    return;
+  }
+
+  try {
+    await buildTerms(enrolled, (done, total) =>
+      setTermNote('Reading your courses… <b>' + done + '</b> / ' + total));
+  } catch (e) {
+    state.loadingTerms = false;
+    setTermNote('Could not read your courses: ' + esc(e.message), true);
+    return;
+  }
+
+  state.loadingTerms = false;
+  $('termBtn').disabled = state.terms.length === 0;
+  renderTermOptions();
+  renderPicks();
+  describeTerms();
+
+  contextBanner();
+
+  if (state.live) {
+    $('footRight').textContent = 'session auth · ' + state.terms.length + ' terms · ' +
+      fmt(state.courseCount) + ' courses';
+  } else if (state.terms.length) {
+    // Preselect the newest term so the demo has something to show.
+    state.selected.add(state.terms[0].id);
+    renderTermOptions();
+    renderPicks();
+  }
+}
+
+boot();
+</script>
+
+<!-- ===========================================================================
+     DEPLOY
+
+     1. Manage Files (org level, e.g. /shared/) → upload this single file.
+     2. Admin Tools → Homepage Management → Widgets → New Widget → Content:
+        set Release Conditions/roles as needed, then point the widget at the
+        file's URL (Custom Widget → URL), or simply link staff straight to the
+        uploaded file's URL. Either way it is served from your Brightspace
+        domain, which is what makes the session cookie authenticate the API
+        calls. The widget HTML editor strips script tags, so upload the file —
+        don't paste the source into the widget body.
+     3. If the widget iframe is sandboxed in your theme, add allow-downloads
+        so the Excel/CSV buttons work.
+
+     AUTH
+       Every request is a same-origin GET carrying the signed-in user's cookies.
+       No API key, no ID/Key signing, no XSRF token (that's only needed for
+       PUT/POST).
+
+     SCOPE — one path, no permission cliff
+       The report covers exactly the course offerings the signed-in account is
+       attached to. It reads them from
+
+         GET /d2l/api/lp/{lp}/enrollments/myenrollments/?orgUnitTypeId=3
+
+       which needs no org structure permission of any kind, so no account can
+       403 its way into a dead end. There is no whole-term / org-wide mode: the
+       tool never calls /orgstructure/, /organization/info, or /outypes/.
+
+       myenrollments carries no parent term and D2L has no batch route for one,
+       so each offering is read once (GET /courses/{ou}) to pick up its Semester
+       block — that's where the terms in the dropdown come from. Those reads are
+       kept, so the scan afterwards costs ONE call per section. Terms appear in
+       the picker as they resolve, not after the last one.
+
+       Consequence worth being explicit about: an admin running this sees their
+       OWN attached sections, not every section in the term. The banner says so
+       on screen, so "0 empty" is never misread as "0 empty across the term."
+
+     API SURFACE — all of it
+       GET /d2l/api/versions/                                    → LP + LE versions (also the "am I in Brightspace?" probe)
+       GET /d2l/api/lp/{lp}/users/whoami                         → cosmetic; never blocks
+       GET /d2l/api/lp/{lp}/enrollments/myenrollments/?orgUnitTypeId=3
+       GET /d2l/api/lp/{lp}/courses/{ou}                         → IsActive, dates, Semester
+       GET /d2l/api/le/{le}/{ou}/content/toc                     → modules + topics
+
+       Boot is 3 layers: versions → (whoami ‖ myenrollments) → one read per
+       enrolled course. No Data Hub: the tool never called a Data Hub endpoint,
+       so it doesn't detect a Data Hub version.
+
+     PACING
+       Requests run at full speed while the tenant reports plenty of API credits
+       and slow down as they drain (see pace()). A flat delay on every call just
+       made a long scan longer without adding protection the credit throttle and
+       429 backoff don't already provide.
+
+     NOTES
+       • Terms sort newest first by org unit id, per your rule that a larger OU
+         id means a newer term. The ids come from each offering's own Semester
+         block.
+       • A course whose offering can't be read at all lands under "No term
+         assigned" and shows in the Errors filter with the reason.
+       • The Content TOC reflects what the signed-in user may see.
+       • The term dropdown is position:fixed and placed by script, so no card,
+         widget, or overflow rule can clip it.
+       • Column parity with the Colab script is kept, plus a Note column for
+         unreadable sections. ContentModuleCount now counts nested modules too;
+         the empty/built verdict is identical either way.
+=========================================================================== -->
+</body>
+</html>

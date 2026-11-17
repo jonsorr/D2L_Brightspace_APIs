@@ -1,0 +1,1876 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Last Date Instructor Accessed
+  Reports when each instructor last accessed each course, grouped by days since last access.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instructor Last Access</title>
+<style>
+  :root{
+    --ink:#10151c;
+    --muted:#5b6673;
+    --faint:#8a94a1;
+    --line:#e2e6ec;
+    --line-soft:#eef1f5;
+    --bg:#ffffff;
+    --surface:#f7f8fa;
+    --accent:#1d4d7f;
+    --accent-soft:#e8eff6;
+    --ok:#146c43; --ok-bg:#e7f4ec; --ok-line:#b9dfc9;
+    --warn:#8a5200; --warn-bg:#fdf1de; --warn-line:#f0d3a0;
+    --none:#5b6673; --none-bg:#f0f2f5; --none-line:#dce0e6;
+    --bad:#a52a1f; --bad-bg:#fcebe9; --bad-line:#f2c2bc;
+    /* four-step recency scale: green -> yellow -> orange -> red */
+    --green:#146c43;  --green-bg:#e7f4ec;  --green-line:#b9dfc9;
+    --yellow:#7a6300; --yellow-bg:#fbf3cf; --yellow-line:#e9d98a;
+    --orange:#a2500a; --orange-bg:#fce7d5; --orange-line:#f3caa1;
+    --red:#a52a1f;    --red-bg:#fcebe9;    --red-line:#f2c2bc;
+    --radius:8px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:var(--sans);color:var(--ink);background:var(--surface);
+    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1240px;margin:0 auto;padding:20px 16px 56px}
+
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  .head h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+  .head h1 .mark{width:22px;height:22px;border-radius:5px;background:var(--accent);display:inline-flex;align-items:center;justify-content:center;color:#fff;flex:0 0 auto}
+  .head .sub{margin:4px 0 0 31px;color:var(--muted);font-size:12.5px;max-width:62ch}
+  .head .meta{text-align:right;font-size:11.5px;color:var(--faint);line-height:1.6}
+  .head .meta b{color:var(--ink);font-weight:600}
+  .head .meta code{font-family:var(--mono);font-size:11px}
+
+  .card{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:14px}
+  .card-h{padding:11px 14px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .card-h h2{margin:0;font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .card-b{padding:14px}
+
+  .banner{border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:13px;border:1px solid}
+  .banner b{display:block;margin-bottom:2px}
+  .banner.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+  .banner.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+  .banner.info{background:var(--accent-soft);border-color:#c7d8e8;color:var(--accent)}
+  .banner ul{margin:6px 0 0;padding-left:18px}
+  .banner code{font-family:var(--mono);font-size:11.5px}
+
+  .field{margin-bottom:16px}
+  .field:last-child{margin-bottom:0}
+  .lab{display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink)}
+  .hint{font-size:11.5px;color:var(--faint);margin-top:5px}
+
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .col{flex:1 1 320px;min-width:280px}
+
+  .picker{position:relative}
+  .picker-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--ink)}
+  .picker-btn:hover:not(:disabled){border-color:#c3ccd6}
+  .picker-btn:disabled{background:var(--surface);color:var(--faint);cursor:not-allowed}
+  .picker-btn .chev{color:var(--faint);flex:0 0 auto}
+  .menu{position:fixed;z-index:9999;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 12px 32px rgba(16,21,28,.16);display:none;flex-direction:column;overflow:hidden}
+  .menu[data-open="1"]{display:flex}
+  .menu-top{padding:8px;border-bottom:1px solid var(--line-soft);display:flex;gap:6px;align-items:center}
+  .menu-top input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font:inherit;font-size:12.5px}
+  .menu-top button{appearance:none;border:1px solid var(--line);background:var(--bg);border-radius:5px;font:inherit;font-size:11.5px;padding:6px 8px;cursor:pointer;color:var(--muted);white-space:nowrap}
+  .menu-top button:hover{background:var(--surface)}
+  .menu-list{overflow-y:auto;max-height:280px;padding:4px}
+  .menu-foot{padding:8px;border-top:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .menu-foot span{font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .menu-foot button{appearance:none;border:0;background:var(--accent);color:#fff;border-radius:5px;font:inherit;font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer}
+  .menu-foot button:hover{background:#17416c}
+  .opt{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:5px;cursor:pointer;font-size:13px;user-select:none}
+  .opt:hover,.opt.cursor{background:var(--surface)}
+  .opt .box{width:15px;height:15px;border:1.5px solid #c3ccd6;border-radius:4px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+  .opt[aria-selected="true"] .box{background:var(--accent);border-color:var(--accent)}
+  .opt[aria-selected="true"] .box::after{content:"";width:8px;height:4px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+  .opt .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .opt .id{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .menu-empty{padding:14px;text-align:center;color:var(--faint);font-size:12.5px}
+
+  .picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .pick{display:inline-flex;align-items:center;gap:5px;background:var(--accent-soft);color:var(--accent);border:1px solid #c7d8e8;border-radius:20px;padding:2px 6px 2px 9px;font-size:11.5px;font-weight:500}
+  .pick button{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;line-height:1;padding:2px;opacity:.65;border-radius:50%}
+  .pick button:hover{opacity:1;background:rgba(29,77,127,.12)}
+
+  .opts{display:flex;flex-direction:column;gap:8px}
+  select.sel{padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12.5px;background:var(--bg)}
+
+  .btn{appearance:none;font:inherit;font-size:13px;font-weight:600;border-radius:6px;cursor:pointer;padding:9px 16px;display:inline-flex;align-items:center;gap:7px;border:1px solid transparent}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover:not(:disabled){background:#17416c}
+  .btn-primary:disabled{background:#a9b6c4;cursor:not-allowed}
+  .btn-ghost{background:var(--bg);border-color:var(--line);color:var(--ink)}
+  .btn-ghost:hover:not(:disabled){background:var(--surface)}
+  .btn-ghost:disabled{opacity:.5;cursor:not-allowed}
+  .btn-sm{padding:6px 11px;font-size:12px}
+  .actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding-top:2px}
+
+  .bar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:3px;transition:width .18s linear}
+  .bar.credit i{background:var(--ok);transition:width .3s ease}
+  .bar.credit.low i{background:#c08a00}
+  .bar.credit.crit i{background:var(--bad)}
+  .prog-line{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;margin-bottom:6px;color:var(--muted)}
+  .prog-line b{color:var(--ink);font-weight:600}
+  .prog-sub{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:var(--faint);margin-top:6px;font-variant-numeric:tabular-nums}
+  .credit-line{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin:12px 0 5px}
+
+  /* clickable recency categories -- the summary row IS the filter */
+  .cats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:4px 0 14px}
+  .cat{appearance:none;text-align:left;cursor:pointer;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;transition:box-shadow .12s,border-color .12s,background .12s}
+  .cat:hover{border-color:#c3ccd6}
+  .cat .n{font-size:22px;font-weight:650;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+  .cat .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  .cat[aria-pressed="true"]{box-shadow:0 0 0 2px var(--accent) inset;border-color:var(--accent);background:var(--accent-soft)}
+  .cat.green  .n{color:var(--green)}
+  .cat.yellow .n{color:var(--yellow)}
+  .cat.orange .n{color:var(--orange)}
+  .cat.red    .n{color:var(--red)}
+  .cat.green[aria-pressed="true"]{box-shadow:0 0 0 2px var(--green) inset;border-color:var(--green);background:var(--green-bg)}
+  .cat.yellow[aria-pressed="true"]{box-shadow:0 0 0 2px var(--yellow-line) inset;border-color:var(--yellow);background:var(--yellow-bg)}
+  .cat.orange[aria-pressed="true"]{box-shadow:0 0 0 2px var(--orange) inset;border-color:var(--orange);background:var(--orange-bg)}
+  .cat.red[aria-pressed="true"]{box-shadow:0 0 0 2px var(--red) inset;border-color:var(--red);background:var(--red-bg)}
+  .cat .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
+  .cat.green .dot{background:var(--green)} .cat.yellow .dot{background:var(--yellow)}
+  .cat.orange .dot{background:var(--orange)} .cat.red .dot{background:var(--red)}
+
+  .search{padding:6px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12.5px;width:230px}
+
+  .tbl-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:650;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--bg);position:sticky;top:0;z-index:1}
+  td{padding:10px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  tbody tr:hover{background:var(--surface)}
+  tbody tr:last-child td{border-bottom:0}
+  tr.grp-first td{border-top:1px solid var(--line)}
+  tbody tr.grp-first:first-child td{border-top:0}
+  td.cgrp{background:var(--bg);vertical-align:top}
+  .cname{font-weight:600;line-height:1.3}
+  .cname a{color:var(--ink);text-decoration:none}
+  .cname a:hover{color:var(--accent);text-decoration:underline}
+  .ccode{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:2px}
+  .term{font-size:12px;color:var(--muted);white-space:nowrap}
+  .instr{font-weight:500}
+  .nums{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--muted);white-space:nowrap}
+  .never{color:var(--faint);font-style:italic}
+  .badge{display:inline-block;min-width:30px;text-align:center;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;border:1px solid}
+  .badge.green{background:var(--green-bg);border-color:var(--green-line);color:var(--green)}
+  .badge.yellow{background:var(--yellow-bg);border-color:var(--yellow-line);color:var(--yellow)}
+  .badge.orange{background:var(--orange-bg);border-color:var(--orange-line);color:var(--orange)}
+  .badge.red{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+  .badge.nofac{background:var(--none-bg);border-color:var(--none-line);color:var(--none);font-style:italic;font-weight:500}
+  .empty{padding:40px 20px;text-align:center;color:var(--faint);font-size:13px}
+
+  .foot{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:var(--faint);padding:4px 2px}
+  [hidden]{display:none !important}
+  @media (max-width:720px){ .head .meta{text-align:left} }
+  @media (prefers-reduced-motion:reduce){ *{transition:none !important;animation:none !important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>
+        <span class="mark" aria-hidden="true">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>
+        </span>
+        Instructor last access
+      </h1>
+      <p class="sub">For the sections you're attached to in Brightspace, reads each course's classlist and reports when every Faculty member last opened the course. No classlist is read until you press Run check.</p>
+    </div>
+    <div class="meta">
+      <div id="whoami">Checking your session…</div>
+      <div id="versions"></div>
+    </div>
+  </div>
+
+  <div class="banner info" id="scopeNote">
+    <b>What this report covers</b>
+    It reads the classlists of the <em>active</em> course sections your Brightspace account is attached to — nothing else. Your enrollments are read when the page loads and grouped into the terms they belong to; inactive sections are skipped, and only the sections in the terms you pick get their classlists scanned. Note: reading a classlist counts as <em>you</em> visiting that course, so your own Last Accessed reflects the last time this tool (or you) opened the course — other instructors' dates are unaffected. It does not enumerate every section in a term, so a section you aren't attached to won't appear here, administrator or not.
+  </div>
+
+  <div id="banners"></div>
+
+  <div class="card">
+    <div class="card-h">
+      <h2>What to scan</h2>
+      <span class="hint" id="mineCount" style="margin:0">Reading your courses…</span>
+    </div>
+    <div class="card-b">
+
+      <div class="row">
+        <div class="col">
+          <div class="field">
+            <label class="lab" for="termBtn">Terms</label>
+            <div class="picker">
+              <button type="button" class="picker-btn" id="termBtn" disabled aria-haspopup="listbox" aria-expanded="false">
+                <span id="termBtnLabel">Loading terms…</span>
+                <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+            </div>
+            <div class="picks" id="picks"></div>
+            <div class="hint" id="scopeHint">Newest terms first. Pick as many as you want, then Run check.</div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="field">
+            <label class="lab" for="speed">Speed</label>
+            <select class="sel" id="speed">
+              <option value="3">Gentle — 3 classlists at a time</option>
+              <option value="6" selected>Normal — 6 at a time</option>
+              <option value="12">Fast — 12 at a time</option>
+            </select>
+            <div class="hint">Classlist pages are larger than an API call, so Normal is a good default. Backs off on its own if Brightspace starts rate limiting.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top:16px">
+        <button class="btn btn-primary" id="runBtn" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run check
+        </button>
+        <button class="btn btn-ghost" id="refetchBtn" hidden>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Re-scan from Brightspace
+        </button>
+        <button class="btn btn-ghost" id="retryBtn" hidden>Reload my course list</button>
+        <button class="btn btn-ghost" id="cancelBtn" hidden>Stop</button>
+        <span class="hint" id="runHint" style="margin:0"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="progCard" hidden>
+    <div class="card-b">
+      <div class="prog-line">
+        <span id="scanMsg">Starting…</span>
+        <span id="scanCount"></span>
+      </div>
+      <div class="bar"><i id="scanBar"></i></div>
+      <div class="prog-sub">
+        <span id="scanRate"></span>
+        <span id="scanCalls"></span>
+      </div>
+      <div id="creditRow">
+        <div class="credit-line">
+          <span>API credits remaining</span>
+          <span id="creditTxt">—</span>
+        </div>
+        <div class="bar credit" id="creditBar"><i id="creditFill" style="width:100%"></i></div>
+      </div>
+      <div class="credit-line" id="creditNone" hidden>
+        <span>This tenant doesn't report an API quota — the scan only eases off if Brightspace pushes back.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="resCard" hidden>
+    <div class="card-h">
+      <h2>Results</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="search" id="search" type="search" placeholder="Filter by course, code, term, or instructor…">
+        <button class="btn btn-ghost btn-sm" id="csvBtn">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          CSV
+        </button>
+        <button class="btn btn-ghost btn-sm" id="xlsxBtn">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Excel
+        </button>
+      </div>
+    </div>
+
+    <div class="card-b" style="padding-bottom:0">
+      <div class="cats" id="cats"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:2px 0 12px">
+        <span class="hint" id="filterNote" style="margin:0"></span>
+        <span class="hint" id="skipNote" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="min-width:220px">Course</th>
+            <th>Term</th>
+            <th style="min-width:170px">Instructor</th>
+            <th style="min-width:150px">Last Accessed</th>
+            <th style="text-align:right;white-space:normal;min-width:96px">Total Days Since Last Accessed</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="emptyRow" hidden>Nothing matches that filter.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span id="footLeft"></span>
+    <span id="footRight"></span>
+  </div>
+</div>
+
+<div class="menu" id="termMenu" role="listbox" aria-multiselectable="true">
+  <div class="menu-top">
+    <input id="termSearch" type="search" placeholder="Search terms…" autocomplete="off">
+    <button type="button" id="selAll">All</button>
+    <button type="button" id="selNone">None</button>
+  </div>
+  <div class="menu-list" id="termList"></div>
+  <div class="menu-foot">
+    <span id="menuCount">None selected</span>
+    <button type="button" id="menuDone">Done</button>
+  </div>
+</div>
+<script>
+/* =====================================================================
+   Instructor Last Access — self-contained Brightspace widget.
+   Session-authenticated (no keys, no ID/Key signing).
+
+   Same chassis as the Course Template Audit: one path only — the account's
+   own enrollments. On load it reads the course list and groups it into terms
+   (the list, not the content). Nothing under /orgstructure/ is touched, so
+   there is no permission to lack and no 403 to handle.
+
+   No classlist is read until Run check is pressed. The scan then fetches each
+   selected course offering's classlist page in parallel, parses out the rows
+   whose Role is Faculty, and reads their Last Accessed date.
+   ===================================================================== */
+
+const CONFIG = {
+  courseOfferingTypeId: 3,              // D2L org unit type id for a course offering
+  fallbackVersions:     { lp:'1.52', le:'1.86' },
+
+  /* Which classlist roles count as "the instructor." Match is exact (case-
+     insensitive) against the Role column. EDIT to match your org; add others here
+     if some sections enrol their instructor under a different role, e.g.
+     ['Faculty', 'Course Coordinator']. */
+  instructorRoles: ['Instructor', 'Faculty'],
+
+  /* Reading a classlist registers as the signed-in user visiting that course,
+     which overwrites the signed-in user's OWN Last Accessed with the read time.
+     So YOUR OWN row's date reflects the last time the tool (or you) touched the
+     course, not necessarily your last real content visit. Included by default;
+     set true to drop your own row instead. */
+  excludeSelf: false,
+
+  timeZone:       Intl.DateTimeFormat().resolvedOptions().timeZone,   // the viewer's own time zone
+  concurrency:    6,                    // parallel classlist fetches during a scan
+  minConcurrency: 2,
+  maxConcurrency: 12,
+  maxClasslistPages: 40,                // safety cap when walking a paginated classlist
+  lowCredits:     15,
+  maxRetries:     5,
+  requestTimeoutMs: 30000,              // abort a stalled request after this, then retry
+  demoMode:       'auto',               // 'auto' | 'on' | 'off'
+  debug:          false,
+
+  /* Days-since-last-accessed buckets. Boundaries are half-open on the upper
+     end: green < 3, yellow 3-4, orange 5-7, red 8+ (and "never accessed").
+     Your labels "3 - 5" and "5 - 7" both name 5, so 5 is placed in Orange
+     (the more-urgent of the two). To move 5 into Yellow, change the yellow
+     bound below from 5 to 6 and the orange test won't see it. */
+  buckets: [
+    { key:'green',  label:'&lt; 3 Days',   test:d => d < 3 },
+    { key:'yellow', label:'3 – 5 Days',    test:d => d >= 3 && d < 5 },
+    { key:'orange', label:'5 – 7 Days',    test:d => d >= 5 && d <= 7 },
+    { key:'red',    label:'&gt; 7 Days',   test:d => d > 7 }
+  ]
+};
+
+const ORIGIN = location.origin;
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dbg = (...a) => { if (CONFIG.debug && window.console) console.log('[Instructor Access]', ...a); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const NO_TERM_ID = 0;   // enrolled courses that don't sit under any semester
+
+const state = {
+  demo:      false,
+  booted:    false,
+  versions:  { lp:null, le:null },
+  vsource:   {},
+  selfId:    '', selfFirst:'', selfLast:'', selfName:'',   // the signed-in user (for self-exclusion)
+  mine:      null,               // the signed-in user's own course records, read once
+  unread:    0,                  // enrolled courses Brightspace wouldn't hand over
+  terms:     [],
+  picked:    new Set(),
+  cached:    new Map(),          // term id -> { rows:[], unread:0, nofac:0 }
+  rows:      [],
+  counts:    { all:0, green:0, yellow:0, orange:0, red:0 },
+  nofacCount:0,
+  courseCount:0,
+  filter:    'all',
+  search:    '',
+  running:   false,
+  cancelled: false,
+  t0:        0,
+  stats:     { total:0, done:0 }
+};
+
+/* ======================= NETWORK: parallel + adaptive ======================= */
+const net = {
+  n:         CONFIG.concurrency,
+  gate:      0,
+  streak:    0,
+  inflight:  0,
+  peak:      0,
+  calls:     0,
+  quota:     'unknown',
+  limit:     null,
+  remaining: null
+};
+
+class ApiError extends Error {
+  constructor(status, msg, path) { super(msg); this.status = status; this.path = path; }
+}
+
+async function rlFetch(url, init) {
+  for (let attempt = 0; ; attempt++) {
+    const wait = net.gate - Date.now();
+    if (wait > 0) await sleep(wait);
+
+    net.inflight++; net.calls++;
+    if (net.inflight > net.peak) net.peak = net.inflight;
+
+    // Abort a request that stalls with no response, so it retries instead of hanging forever.
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, CONFIG.requestTimeoutMs) : null;
+
+    let res = null, err = null;
+    try {
+      const opts = Object.assign({ credentials:'same-origin', headers:{ Accept:'application/json' } }, init || {});
+      if (ctrl) opts.signal = ctrl.signal;
+      res = await fetch(url, opts);
+    } catch (e) { err = e; }
+    finally { if (timer) clearTimeout(timer); net.inflight--; }
+
+    if (err) {                                        // timeout / dropped connection
+      if (attempt >= CONFIG.maxRetries) {
+        throw new ApiError(0, (err.name === 'AbortError' ? 'request timed out' : 'network error') +
+          ' — Brightspace didn\'t respond', url);
+      }
+      net.streak = 0;
+      await sleep(Math.min(8000, 600 * Math.pow(2, attempt)));
+      if (attempt >= 1) note('Brightspace is slow to respond — retrying…');
+      continue;
+    }
+
+    readCredits(res);
+
+    if (res.status !== 429) {
+      if (++net.streak >= 40 && net.n < CONFIG.maxConcurrency) { net.n++; net.streak = 0; }
+      return res;
+    }
+    if (attempt >= CONFIG.maxRetries) return res;
+
+    const ra = Number(res.headers.get('Retry-After'));
+    const pause = (Number.isFinite(ra) && ra > 0) ? ra * 1000 : Math.min(8000, 500 * Math.pow(2, attempt));
+    net.gate = Math.max(net.gate, Date.now() + pause);
+    net.n = Math.max(CONFIG.minConcurrency, Math.floor(net.n / 2));
+    net.streak = 0;
+    note('Brightspace is rate limiting — easing back to ' + net.n + ' at a time…');
+  }
+}
+
+/* Session-authenticated calls often carry no API quota header, and some tenants
+   stamp a placeholder zero. Believe a number only when it is really a number,
+   and treat "0 remaining" on a 200 as the placeholder it is — a genuinely
+   exhausted quota answers 429, not 200. (Number(null) is 0, and
+   Number.isFinite(0) is true: reading the header straight into Number() is what
+   made the sibling tool throttle itself to a standstill.) */
+function quotaAbsent() {
+  if (net.quota === 'absent') return;
+  const spurious = net.quota === 'unknown';
+  net.quota = 'absent';
+  net.remaining = null;
+  net.limit = null;
+  if (spurious) net.gate = 0;
+  $('creditRow').hidden = true;
+  $('creditNone').hidden = false;
+  dbg('tenant reports no usable API quota — leaning on 429s alone');
+}
+
+function readCredits(res) {
+  const raw = res.headers.get('X-Rate-Limit-Remaining');
+  const rem = (raw == null || String(raw).trim() === '') ? NaN : Number(raw);
+
+  if (!Number.isFinite(rem) || (rem <= 0 && res.status !== 429)) { quotaAbsent(); return; }
+
+  if (net.quota !== 'live') {
+    net.quota = 'live';
+    $('creditRow').hidden = false;
+    $('creditNone').hidden = true;
+  }
+
+  net.remaining = rem;
+  const lim = Number(res.headers.get('X-Rate-Limit-Limit'));
+  if (Number.isFinite(lim) && lim > 0) net.limit = lim;
+
+  if (rem <= CONFIG.lowCredits) {
+    const rst = Number(res.headers.get('X-Rate-Limit-Reset'));
+    let until = Date.now() + 3000;
+    if (Number.isFinite(rst) && rst > 0) until = rst > 1e9 ? rst * 1000 : Date.now() + rst * 1000;
+    net.gate = Math.max(net.gate, Math.min(until, Date.now() + 65000));
+    note('Only ' + rem + ' API credits left — waiting for the reset…');
+  }
+
+  const lm = net.limit || Math.max(rem, 1);
+  const pct = Math.max(0, Math.min(100, (rem / lm) * 100));
+  $('creditFill').style.width = pct + '%';
+  $('creditTxt').textContent = rem + (net.limit ? ' / ' + net.limit : '');
+  const bar = $('creditBar');
+  bar.classList.toggle('low',  pct <= 30 && pct > 10);
+  bar.classList.toggle('crit', pct <= 10);
+}
+
+async function getJSON(path, o) {
+  o = o || {};
+  if (state.demo) return demoJSON(path);
+  const url = /^https?:/i.test(path) ? path : ORIGIN + path;
+  const res = await rlFetch(url);
+
+  if (res.status === 404 && 'ok404' in o) return o.ok404;
+  if (!res.ok) {
+    let body = '';
+    try { body = (await res.text()).slice(0, 160); } catch (e) {}
+    throw new ApiError(res.status, res.status + ' ' + res.statusText + (body ? ' — ' + body : ''), path);
+  }
+  const text = await res.text();
+  if (!text.trim()) return ('ok404' in o) ? o.ok404 : null;
+  return JSON.parse(text);
+}
+
+/* Same engine, but returns the page text — the classlist is HTML, not JSON. */
+async function getHTML(path, o) {
+  o = o || {};
+  if (state.demo) return demoHTML(path);
+  const url = /^https?:/i.test(path) ? path : ORIGIN + path;
+  const res = await rlFetch(url, { headers:{ Accept:'text/html,application/xhtml+xml' } });
+
+  if (res.status === 404 && 'ok404' in o) return o.ok404;
+  if (!res.ok) {
+    let body = '';
+    try { body = (await res.text()).slice(0, 160); } catch (e) {}
+    throw new ApiError(res.status, res.status + ' ' + res.statusText + (body ? ' — ' + body : ''), path);
+  }
+  return await res.text();
+}
+
+/* Walks a D2L paged result (PagingInfo/Items) or a plain array. */
+async function getPaged(path) {
+  const items = [];
+  let bookmark = null, guard = 0;
+  do {
+    const sep = path.indexOf('?') >= 0 ? '&' : '?';
+    const url = path + (bookmark ? sep + 'bookmark=' + encodeURIComponent(bookmark) : '');
+    const data = await getJSON(url);
+    if (Array.isArray(data)) { items.push(...data); break; }
+    const batch = (data && Array.isArray(data.Items)) ? data.Items : [];
+    items.push(...batch);
+    const pi = (data && data.PagingInfo) || {};
+    bookmark = pi.HasMoreItems ? pi.Bookmark : null;
+  } while (bookmark && ++guard < 400);
+  return items;
+}
+
+/* Runs fn over items, net.n at a time. Honours a shrinking pool and Stop. */
+function mapPool(items, fn) {
+  return new Promise(resolve => {
+    let i = 0, active = 0, done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    const pump = () => {
+      if (state.cancelled) { if (active === 0) finish(); return; }
+      while (active < net.n && i < items.length) {
+        const item = items[i++];
+        active++;
+        Promise.resolve()
+          .then(() => fn(item))
+          .catch(e => dbg('task failed', e && e.message))
+          .then(() => { active--; pump(); });
+      }
+      if (active === 0 && i >= items.length) finish();
+    };
+    if (!items.length) finish(); else pump();
+  });
+}
+
+/* ------------------------------ VERSIONS ------------------------------ */
+async function resolveVersions() {
+  const found = {}, source = {};
+  let list = null;
+  try { list = await getJSON('/d2l/api/versions/'); }
+  catch (e) { dbg('/d2l/api/versions/ unavailable', e.message); }
+
+  const pickFrom = codes => {
+    if (!Array.isArray(list)) return null;
+    for (const code of codes) {
+      const hit = list.find(x => x && String(x.ProductCode || '').toLowerCase() === code);
+      if (hit) return hit.LatestVersion || hit.Version || null;
+    }
+    return null;
+  };
+
+  const wanted = { lp:['lp'], le:['le'] };
+
+  for (const key of Object.keys(wanted)) {
+    let v = pickFrom(wanted[key]);
+    if (v) { found[key] = v; source[key] = 'tenant'; continue; }
+    for (const code of wanted[key]) {
+      try {
+        const p = await getJSON('/d2l/api/' + code + '/versions/');
+        const val = p && (p.LatestVersion || p.Version || (Array.isArray(p) && p[0] && p[0].LatestVersion));
+        if (val) { v = val; break; }
+      } catch (e) { /* try the next code */ }
+    }
+    if (v) { found[key] = v; source[key] = 'product'; }
+    else   { found[key] = CONFIG.fallbackVersions[key]; source[key] = 'fallback'; }
+  }
+
+  state.versions = found;
+  state.vsource  = source;
+  dbg('versions', found, source);
+}
+
+function paintVersions() {
+  const v = state.versions, s = state.vsource;
+  const tag = k => v[k] + (s[k] === 'fallback' ? '*' : '');
+  $('versions').innerHTML = 'API <code>LP ' + esc(tag('lp')) + ' · LE ' + esc(tag('le')) + '</code>';
+}
+
+/* --------------------------- ORG UNITS --------------------------- */
+function normalizeOUs(list, typeFilter) {
+  const seen = new Map();
+  for (const o of (list || [])) {
+    const src = o && o.OrgUnit ? o.OrgUnit : o;
+    if (!src) continue;
+    if (typeFilter != null && src.Type && Number(src.Type.Id) !== Number(typeFilter)) continue;
+    const id = Number(src.Identifier != null ? src.Identifier : src.Id);
+    if (!Number.isFinite(id) || seen.has(id)) continue;
+    seen.set(id, { id, name: String(src.Name || '').trim() || ('Org unit ' + id), code: String(src.Code || '').trim() });
+  }
+  return [...seen.values()].sort((a, b) => b.id - a.id);
+}
+/* ===================== CLASSLIST PARSING =====================
+   The classlist page is server-rendered HTML. It contains several tables; the
+   one we want has a Role column and a Last Accessed column. The parser finds
+   that table by its headers, then reads every row whose Role is Faculty. It
+   keeps a couple of fallbacks so a slightly different layout still yields data:
+   if a header can't be found it scans the whole row's text for a date, and it
+   picks the instructor name from the row's profile link. */
+
+const MON = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+/* Matches "Jul 14, 2026 10:25 AM" and tolerant variants (full month name,
+   missing time, single-digit hour). Time is optional; day math uses the date. */
+const DATE_RE = /([A-Za-z]{3,9})\.?\s+(\d{1,2}),\s+(\d{4})(?:[\s,]+(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?[Mm]\.?)?)?/;
+
+function parseAccessDate(str) {
+  if (!str) return null;
+  const m = String(str).match(DATE_RE);
+  if (!m) return null;
+  const mo = MON[m[1].slice(0, 3).toLowerCase()];
+  if (mo == null) return null;
+  let h = 0, min = 0;
+  if (m[4] != null) {
+    const hh = Number(m[4]);
+    min = Number(m[5]);
+    if (m[6]) { h = hh % 12; if (/p/i.test(m[6])) h += 12; }   // 12-hour with AM/PM
+    else { h = hh; }                                            // 24-hour (this tenant's classlist format)
+  }
+  const d = new Date(Number(m[3]), mo, Number(m[2]), h, min);
+  return isNaN(d) ? null : { date:d, text:m[0].replace(/\s+/g, ' ').trim() };
+}
+
+const cellText = td => td ? td.textContent.replace(/\s+/g, ' ').trim() : '';
+
+/* The instructor name, "Lastname, Firstname". Prefer a link whose text reads
+   like a comma name; fall back to the longest link, then the cell text. Strip
+   trailing "(You)" / pronoun decorations Brightspace sometimes appends. */
+function nameFromCell(td) {
+  if (!td) return '';
+  const links = [...td.querySelectorAll('a')]
+    .map(a => a.textContent.replace(/\s+/g, ' ').trim())
+    .filter(t => /[A-Za-z]/.test(t) && !/^faculty$/i.test(t));
+  const comma = links.find(t => /^[^,]+,\s*\S/.test(t));
+  let name = comma || links.sort((a, b) => b.length - a.length)[0] || cellText(td);
+  return name.replace(/\s*\((?:you|[^)]*)\)\s*$/i, '').trim();
+}
+function nameFromRow(row) {
+  const links = [...row.querySelectorAll('a')]
+    .map(a => a.textContent.replace(/\s+/g, ' ').trim())
+    .filter(t => /[A-Za-z]/.test(t) && !/^faculty$/i.test(t) && !DATE_RE.test(t));
+  const comma = links.find(t => /^[^,]+,\s*\S/.test(t));
+  return (comma || links.sort((a, b) => b.length - a.length)[0] || '')
+    .replace(/\s*\((?:you|[^)]*)\)\s*$/i, '').trim();
+}
+
+/* Roles that count as an instructor (from CONFIG), matched exactly and
+   case-insensitively against the classlist Role column. */
+const ROLE_SET = new Set(CONFIG.instructorRoles.map(r => String(r).replace(/\s+/g, ' ').trim().toLowerCase()));
+const isInstructorRole = txt => ROLE_SET.has(String(txt).replace(/\s+/g, ' ').trim().toLowerCase());
+
+/* Is this classlist name the signed-in user? Comma is stripped so
+   "Doe, Jane" compares against "doe jane" / "jane doe". */
+const normName = s => String(s || '').toLowerCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+function isSelf(name) {
+  const n = normName(name);
+  if (!n) return false;
+  const f = normName(state.selfFirst), l = normName(state.selfLast), full = normName(state.selfName);
+  if (l && f && (n === l + ' ' + f || n === f + ' ' + l)) return true;
+  if (full && n === full) return true;
+  if (f && l && n.indexOf(f) >= 0 && n.indexOf(l) >= 0) return true;
+  return false;
+}
+
+/* Finds the real enrollment grid and reads the instructor rows.
+   Brightspace ships several tables on the classlist page — including a search
+   panel whose Role filter literally lists "Faculty", "Course Coordinator", etc.
+   To avoid ever locking onto that, we only accept a table whose HEADER row has
+   short, single-label cells for BOTH Role and Last Accessed (the grid); the
+   search panel's "header" is one long concatenated blob, which the length
+   guard rejects. The last-access date is then read from that row's real Last
+   Accessed cell — never from a whole-row text scan, which is what previously
+   let an unrelated date (or today) slip in. */
+/* Locate the real enrollment grid in a parsed classlist document. Only a table
+   whose header row has short, single-label Role AND Last Accessed cells counts,
+   which excludes the search-filter panel (whose "header" is one long blob). */
+function findGrid(doc) {
+  let best = null, bestScore = -1;
+  for (const tbl of [...doc.querySelectorAll('table')]) {
+    let heads = [...tbl.querySelectorAll('thead th')];
+    if (!heads.length) {
+      const r0 = tbl.querySelector('tr');
+      if (r0) heads = [...r0.children];
+    }
+    const idx = { name:-1, role:-1, last:-1 };
+    heads.forEach((h, i) => {
+      const t = cellText(h);
+      if (!t || t.length > 40) return;            // real headers are short single labels
+      const tl = t.toLowerCase();
+      if (idx.role < 0 && /\brole\b/.test(tl)) idx.role = i;
+      if (idx.last < 0 && /last\s*access/.test(tl)) idx.last = i;
+      if (idx.name < 0 && /\bname\b/.test(tl) && !/user\s*name|first|last\s*name|display/.test(tl)) idx.name = i;
+    });
+    if (idx.role < 0 || idx.last < 0) continue;    // only the enrollment grid has both
+
+    const tb = tbl.querySelector('tbody');
+    const bodyRows = tb ? [...tb.querySelectorAll('tr')]
+                        : [...tbl.querySelectorAll('tr')].slice(heads.length ? 1 : 0);
+    const score = (idx.name >= 0 ? 1e6 : 0) + Math.min(bodyRows.length, 999999);
+    if (score > bestScore) { bestScore = score; best = { idx, bodyRows }; }
+  }
+  return best;
+}
+
+/* Instructor rows on one classlist page (the roles in CONFIG.instructorRoles). */
+function parseClasslistDoc(doc) {
+  const g = findGrid(doc);
+  if (!g) return [];
+  const { idx, bodyRows } = g;
+  const need = Math.max(idx.role, idx.last, idx.name);
+  const out = [];
+  for (const row of bodyRows) {
+    const cells = [...row.children];
+    if (cells.length <= need) continue;            // header/spacer/ragged row
+    const roleTxt = cellText(cells[idx.role]);
+    if (!isInstructorRole(roleTxt)) continue;
+
+    const name = idx.name >= 0 ? nameFromCell(cells[idx.name]) : nameFromRow(row);
+    if (CONFIG.excludeSelf && isSelf(name)) continue;   // your own Last Accessed is corrupted by this tool's read
+
+    const lastCellTxt = cellText(cells[idx.last]);
+    const parsed = parseAccessDate(lastCellTxt);
+    out.push({
+      name:      name || '(unnamed)',
+      role:      roleTxt.replace(/\s+/g, ' ').trim(),
+      lastText:  lastCellTxt || '',
+      lastMatch: parsed ? parsed.text : null,
+      lastDate:  parsed ? parsed.date : null
+    });
+  }
+  return out;
+}
+function parseClasslist(html) { return parseClasslistDoc(new DOMParser().parseFromString(html, 'text/html')); }
+
+/* A fingerprint of a page's roster, so we can tell when a page-turn didn't
+   actually advance (or when the last page repeats). */
+function pageSignature(doc) {
+  const g = findGrid(doc);
+  if (!g || g.idx.name < 0) return '';
+  const names = g.bodyRows.map(r => cellText(r.children[g.idx.name])).filter(Boolean);
+  return names.length + '::' + (names[0] || '') + '::' + (names[names.length - 1] || '');
+}
+
+/* Total classlist pages, read from the grid's "N of M" page selector. */
+function pageCount(doc) {
+  for (const sel of [...doc.querySelectorAll('select')]) {
+    const opts = [...sel.querySelectorAll('option')];
+    if (opts.length && /^\s*\d+\s+of\s+\d+\s*$/i.test(opts[0].textContent || '')) return opts.length;
+  }
+  return findNextButton(doc) ? 2 : 1;
+}
+
+/* The enabled Next-Page control element, if any. */
+function findNextButton(doc) {
+  for (const el of [...doc.querySelectorAll('[onclick]')]) {
+    const label = (el.getAttribute('text') || el.getAttribute('title') || '');
+    if (!/next\s*page/i.test(label)) continue;
+    if (el.hasAttribute('disabled') || /disabled/i.test(el.className || '')) return null;
+    return el;
+  }
+  return null;
+}
+
+/* --- Hidden-iframe pager ---------------------------------------------------
+   Brightspace pages the classlist through a form postback that only its own
+   page JS can produce (an out-of-band POST — even with the live hit-code — just
+   re-serves page 1). So for multi-page shells we load the classlist in a hidden,
+   same-origin iframe and drive Brightspace's real Next-Page control, reading
+   each page's grid straight out of the iframe. Serialized so only one runs at a
+   time — a full classlist page is heavy. */
+let iframeGate = Promise.resolve();
+function withIframe(fn) {
+  const run = iframeGate.then(fn, fn);
+  iframeGate = run.then(() => {}, () => {});
+  return run;
+}
+
+function waitLoad(iframe, ms) {
+  return new Promise(resolve => {
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; resolve(false); } }, ms);
+    iframe.onload = () => { if (!done) { done = true; clearTimeout(t); resolve(true); } };
+  });
+}
+async function waitGrid(iframe, ms) {
+  const t0 = Date.now();
+  for (;;) {
+    let d = null;
+    try { d = iframe.contentDocument; } catch (e) { return null; }
+    if (d && d.querySelector('table#z_f')) return d;
+    if (Date.now() - t0 > ms) return d && d.querySelector('table') ? d : null;
+    await sleep(150);
+  }
+}
+
+async function pageViaIframe(item) {
+  const url = ORIGIN + '/d2l/lms/classlist/classlist.d2l?ou=' + item.courseId;
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.cssText = 'position:fixed;left:-99999px;top:0;width:1280px;height:900px;border:0;visibility:hidden;';
+  const seen = new Map();
+  const ingest = doc => {
+    for (const f of parseClasslistDoc(doc)) {
+      const k = (f.name || '') + '|' + (f.lastText || f.lastMatch || '');
+      if (!seen.has(k)) seen.set(k, f);
+    }
+    return pageSignature(doc);
+  };
+
+  document.body.appendChild(iframe);
+  try {
+    const loaded = waitLoad(iframe, 25000);
+    iframe.src = url;
+    await loaded;
+    let doc = await waitGrid(iframe, 8000);
+    if (!doc || !doc.querySelector('table#z_f')) return null;   // couldn't read it — caller falls back
+    let sig = ingest(doc);
+
+    for (let i = 0; i < CONFIG.maxClasslistPages; i++) {
+      if (state.cancelled) break;
+      const btn = findNextButton(doc);
+      if (!btn) break;
+      note('Reading a large shell (' + (item.courseName || 'classlist') + ') — page ' + (i + 2) + '…');
+
+      const nav = waitLoad(iframe, 25000);
+      const onclick = btn.getAttribute('onclick') || '';
+      try { btn.click(); }                                 // fire Brightspace's own Next-Page handler
+      catch (e) { try { iframe.contentWindow.eval(onclick); } catch (e2) { break; } }
+      await nav;
+
+      doc = await waitGrid(iframe, 8000);
+      if (!doc || !doc.querySelector('table#z_f')) break;
+      const nsig = ingest(doc);
+      if (nsig === sig) break;                              // didn't advance — stop
+      sig = nsig;
+    }
+    return [...seen.values()];
+  } catch (e) {
+    dbg('iframe paging failed', item.courseId, e.message);
+    return seen.size ? [...seen.values()] : null;
+  } finally {
+    try { iframe.src = 'about:blank'; } catch (e) {}
+    try { iframe.remove(); } catch (e) {}
+  }
+}
+
+/* Read every page of a course's classlist and return the instructor rows across
+   all of them. Single-page classlists (most sections) use one fast fetch; only
+   multi-page combined shells fall back to the iframe pager. */
+async function fetchClasslistFaculty(item) {
+  const path = '/d2l/lms/classlist/classlist.d2l?ou=' + item.courseId;
+  let html;
+  try { html = await getHTML(path, { ok404:null }); }
+  catch (e) { dbg('classlist read failed', item.courseId, e.message); return null; }
+  if (html == null) return null;
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (pageCount(doc) <= 1 || state.demo) return parseClasslistDoc(doc);   // fast single-page path
+
+  const walked = await withIframe(() => pageViaIframe(item));             // multi-page shell
+  note('Scanning classlists…');                                          // clear the per-shell paging note
+  return (walked && walked.length !== undefined) ? walked : parseClasslistDoc(doc);
+}
+
+/* ---- days-since + bucketing ---- */
+function daysSince(d) {
+  if (!d || isNaN(d)) return null;
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const now = new Date();
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+function bucketOf(days) {
+  if (days == null) return 'red';                 // never accessed -> most urgent
+  for (const b of CONFIG.buckets) if (b.test(days)) return b.key;
+  return 'red';
+}
+function bucketLabel(key) {
+  if (key === 'nofac') return 'No faculty';
+  const b = CONFIG.buckets.find(x => x.key === key);
+  return b ? b.label.replace(/&lt;/g, '<').replace(/&gt;/g, '>') : key;
+}
+
+/* =============================== THE SCAN ===============================
+   Nothing starts before Run check is pressed.
+   Load    — read the account's own course list and group into terms (list only).
+   Scan    — fetch each selected offering's classlist, parse the Faculty rows.
+   Build   — flatten to one row per instructor and tally the buckets.        */
+function selectedTerms() { return state.terms.filter(t => state.picked.has(t.id)); }
+function selectionKeys()  { return selectedTerms().map(t => t.id); }
+
+function semIdOf(co) {
+  const s = co && co.Semester;
+  const id = s && Number(s.Identifier != null ? s.Identifier : s.Id);
+  return (Number.isFinite(id) && id > 0) ? id : NO_TERM_ID;
+}
+
+async function loadMine() {
+  if (state.mine) return state.mine;
+  const lp = state.versions.lp;
+
+  state.cancelled = false;
+  state.running = true;
+  state.t0 = Date.now();
+  state.stats.total = 0;
+  state.stats.done  = 0;
+  net.calls = 0;
+  net.n = Number($('speed').value) || CONFIG.concurrency;
+  $('progCard').hidden = false;
+  $('cancelBtn').hidden = false;
+  setScan('Finding the courses you\'re enrolled in…');
+
+  const stubs = normalizeOUs(
+    await getPaged('/d2l/api/lp/' + lp + '/enrollments/myenrollments/?orgUnitTypeId=' + CONFIG.courseOfferingTypeId),
+    CONFIG.courseOfferingTypeId);
+
+  state.stats.total = stubs.length;
+  setScan('Reading your course list to find its terms — no classlists yet…');
+
+  const out = [];
+  let unread = 0, inactive = 0;
+  await mapPool(stubs, async st => {
+    try {
+      const co = await getJSON('/d2l/api/lp/' + lp + '/courses/' + st.id, { ok404:null });
+      if (!co) unread++;
+      else if (co.IsActive === false) inactive++;   // skip courses that aren't active
+      else out.push(co);
+    } catch (e) { unread++; dbg('course read failed', st.id, e.message); }
+    bump();
+  });
+  state.unread = unread;
+  state.inactive = inactive;
+
+  state.running = false;
+  $('progCard').hidden = true;
+  $('cancelBtn').hidden = true;
+
+  if (state.cancelled) return null;
+  state.mine = out;
+  return out;
+}
+
+function termsFromMine(mine) {
+  const seen = new Map();
+  for (const co of mine) {
+    const id = semIdOf(co);
+    if (!seen.has(id)) {
+      const s = co.Semester;
+      seen.set(id, {
+        id,
+        name: id === NO_TERM_ID ? 'No term' : (String((s && s.Name) || '').trim() || ('Term ' + id)),
+        code: String((s && s.Code) || '').trim(),
+        n: 0
+      });
+    }
+    seen.get(id).n++;
+  }
+  return [...seen.values()].sort((a, b) => b.id - a.id);
+}
+
+/* The offerings to scan: the user's own courses in the chosen terms. No listing
+   call — the course list is already in hand from load. */
+async function collectWork(terms) {
+  const mine = state.mine || (await loadMine()) || [];
+  const want = new Set(terms.map(t => t.id));
+  const work = [];
+  for (const co of mine) {
+    const id = semIdOf(co);
+    if (!want.has(id)) continue;
+    const term = state.terms.find(t => t.id === id) || { id, name: 'Term ' + id };
+    work.push({
+      key:        id,
+      term:       term,
+      courseId:   String(co.Identifier),
+      courseName: String(co.Name || ''),
+      courseCode: String(co.Code || '')
+    });
+  }
+  return work;
+}
+
+function classlistUrl(ou) { return ORIGIN + '/d2l/lms/classlist/classlist.d2l?ou=' + ou; }
+
+async function scanCourse(item) {
+  const faculty = await fetchClasslistFaculty(item);   // walks every page of the classlist
+  bump();
+  if (faculty == null) return { item, unread:true, faculty:[] };
+  return { item, unread:false, faculty };
+}
+
+function instrRow(item, f) {
+  const days = daysSince(f.lastDate);
+  const disp = f.lastMatch
+    ? f.lastMatch
+    : (f.lastText && !/^(never|—|-)?$/i.test(f.lastText.trim()) ? f.lastText.trim() : 'Never');
+  return {
+    courseId:   item.courseId,
+    courseName: item.courseName,
+    courseCode: item.courseCode,
+    courseUrl:  classlistUrl(item.courseId),
+    termId:     item.term.id,
+    termName:   item.term.name,
+    instructor: f.name || '(unnamed)',
+    role:       f.role || '',
+    lastDate:   f.lastDate || null,
+    lastDisplay: f.lastDate ? disp : 'Never',
+    days:       days,
+    bucket:     bucketOf(days)
+  };
+}
+function nofacRow(item) {
+  return {
+    courseId:   item.courseId,
+    courseName: item.courseName,
+    courseCode: item.courseCode,
+    courseUrl:  classlistUrl(item.courseId),
+    termId:     item.term.id,
+    termName:   item.term.name,
+    instructor: 'No faculty enrolled',
+    role:       '',
+    lastDate:   null,
+    lastDisplay:'—',
+    days:       null,
+    bucket:     'nofac'
+  };
+}
+
+/* Aggregate the selected terms' cached results into rows + bucket tallies. */
+function build() {
+  state.rows = [];
+  state.counts = { all:0, green:0, yellow:0, orange:0, red:0 };
+  let unread = 0, nofac = 0;
+  const courses = new Set();
+  for (const k of selectionKeys()) {
+    const v = state.cached.get(k);
+    if (!v) continue;
+    unread += v.unread || 0;
+    for (const r of v.rows) {
+      state.rows.push(r);
+      courses.add(r.courseId);
+      if (r.bucket === 'nofac') nofac++;
+      else { state.counts.all++; state.counts[r.bucket]++; }
+    }
+  }
+  state.unread = unread;
+  state.nofacCount = nofac;
+  state.courseCount = courses.size;
+}
+
+async function runCheck(refetch) {
+  if (state.running) return;
+  const terms = selectedTerms();
+  if (!terms.length) return;
+
+  const keys = selectionKeys();
+  if (refetch) keys.forEach(k => state.cached.delete(k));
+  const need = keys.filter(k => !state.cached.has(k));
+
+  clearBanners();
+  state.cancelled = false;
+  net.n = Number($('speed').value) || CONFIG.concurrency;
+  net.gate = 0;
+  net.streak = 0;
+
+  // Everything already scanned — rebuilding is instant and costs nothing.
+  if (!need.length) {
+    build();
+    show(state.rows.length ? 'Re-listed from memory — no classlists re-read.' : null);
+    return;
+  }
+
+  state.running = true;
+  state.stats.total = 0;
+  state.stats.done  = 0;
+  state.t0 = Date.now();
+  net.calls = 0;
+  $('runBtn').disabled = true;
+  $('refetchBtn').hidden = true;
+  $('cancelBtn').hidden = false;
+  $('progCard').hidden = false;
+  $('resCard').hidden = true;
+
+  try {
+    const wanted = terms.filter(t => need.includes(t.id));
+    setScan('Gathering your sections in ' + wanted.length + ' term' + (wanted.length === 1 ? '' : 's') + '…');
+
+    const work = await collectWork(wanted);
+    state.stats.total = work.length;
+    tick(true);
+
+    if (!work.length) {
+      state.running = false;
+      finish('You have no course sections in the selected terms.');
+      return;
+    }
+
+    setScan('Scanning classlists…');
+    const buckets = new Map(need.map(k => [k, { rows:[], unread:0, nofac:0 }]));
+    await mapPool(work, async item => {
+      const res = await scanCourse(item);
+      const b = buckets.get(item.key);
+      if (!b) return;
+      if (res.unread) { b.unread++; return; }
+      if (!res.faculty.length) { b.nofac++; b.rows.push(nofacRow(item)); return; }
+      for (const f of res.faculty) b.rows.push(instrRow(item, f));
+    });
+
+    if (!state.cancelled) for (const [k, v] of buckets) state.cached.set(k, v);
+
+    state.running = false;
+    build();
+    finish(state.cancelled ? 'Stopped early — showing the classlists that were scanned.' : null);
+  } catch (e) {
+    state.running = false;
+    setBanner('bad', 'The check stopped', esc(e.message || String(e)));
+    finish(null);
+  }
+}
+
+function finish(msg) {
+  state.running = false;
+  $('cancelBtn').hidden = true;
+  $('progCard').hidden = true;
+  $('runBtn').disabled = !selectedTerms().length;
+
+  if (!state.cancelled && state.stats.total) {
+    const secs = Math.max(1, Math.round((Date.now() - state.t0) / 1000));
+    $('footRight').textContent = state.stats.total.toLocaleString() + ' course offerings · ' +
+      net.calls.toLocaleString() + ' requests · ' + fmtSecs(secs);
+  }
+  show(msg);
+}
+
+function show(msg) {
+  if (msg) setBanner('info', msg, '');
+
+  if (!state.rows.length) {
+    $('resCard').hidden = true;
+    setBanner('info', 'Nothing to report',
+      state.unread ? 'None of the classlists in the selected terms could be read.'
+                   : 'No faculty were found in the selected terms.');
+    return;
+  }
+
+  $('resCard').hidden = false;
+  $('refetchBtn').hidden = false;
+  renderResults();
+  $('runHint').textContent = state.counts.all.toLocaleString() +
+    ' faculty held in memory — filter or export without re-scanning.';
+}
+/* ------------------------------ RENDERING ------------------------------ */
+const DT_PARTS = new Intl.DateTimeFormat('en-US', {
+  timeZone:CONFIG.timeZone, month:'short', day:'numeric', year:'numeric',
+  hour:'numeric', minute:'2-digit', hour12:true
+});
+/* Only used if a row somehow lacks the classlist's own text; normally we show
+   the classlist's exact string so it matches what staff see on the page. */
+function fmtDateTime(d) {
+  if (!d || isNaN(d)) return '';
+  const p = DT_PARTS.formatToParts(d).reduce((o, x) => (o[x.type] = x.value, o), {});
+  return p.month + ' ' + p.day + ', ' + p.year + ' ' + p.hour + ':' + p.minute + ' ' + p.dayPeriod;
+}
+function fmtSecs(s) {
+  s = Math.round(s);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  return m + 'm ' + String(s % 60).padStart(2, '0') + 's';
+}
+
+function renderCats() {
+  const c = state.counts;
+  const defs = [{ key:'all', label:'All instructors', cls:'' }]
+    .concat(CONFIG.buckets.map(b => ({ key:b.key, label:b.label, cls:b.key })));
+  $('cats').innerHTML = defs.map(d =>
+    '<button type="button" class="cat ' + d.cls + '" data-k="' + d.key + '" aria-pressed="' + (state.filter === d.key) + '">' +
+      '<span class="n">' + (c[d.key] || 0).toLocaleString() + '</span>' +
+      '<span class="k">' + (d.cls ? '<span class="dot"></span>' : '') + d.label + '</span>' +
+    '</button>').join('');
+
+  [...$('cats').querySelectorAll('.cat')].forEach(b => b.onclick = () => {
+    const k = b.dataset.k;
+    state.filter = (state.filter === k && k !== 'all') ? 'all' : k;   // click active color again -> All
+    renderCats(); renderTable(); renderNote();
+  });
+}
+
+function renderNote() {
+  const filt = state.filter === 'all' ? '' : ('Showing ' + bucketLabel(state.filter).replace(/</g,'&lt;').replace(/>/g,'&gt;') + ' only — click the card again to clear.');
+  $('filterNote').innerHTML = filt;
+
+  const bits = [];
+  bits.push(state.counts.all.toLocaleString() + ' faculty across ' +
+    state.courseCount.toLocaleString() + ' course' + (state.courseCount === 1 ? '' : 's'));
+  if (state.nofacCount) bits.push(state.nofacCount + ' course' + (state.nofacCount === 1 ? '' : 's') + ' with no faculty enrolled');
+  if (state.unread) bits.push(state.unread + ' classlist' + (state.unread === 1 ? '' : 's') + ' couldn\'t be read');
+  $('skipNote').textContent = bits.join(' · ');
+}
+
+function visibleRows() {
+  const q = state.search.trim().toLowerCase();
+  return state.rows.filter(r => {
+    if (r.bucket === 'nofac') { if (state.filter !== 'all') return false; }
+    else if (state.filter !== 'all' && r.bucket !== state.filter) return false;
+    if (q) {
+      const hay = (r.courseName + ' ' + r.courseCode + ' ' + r.termName + ' ' + r.instructor).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) =>
+    (b.termId - a.termId) ||                                   // newest term first
+    a.courseName.localeCompare(b.courseName) ||
+    a.courseId.localeCompare(b.courseId) ||                    // keep a course's rows together
+    ((b.days == null ? 1e9 : b.days) - (a.days == null ? 1e9 : a.days)) ||  // worst first within a course
+    a.instructor.localeCompare(b.instructor));
+}
+
+/* One row per instructor. Course + Term are written once per course via
+   rowspan, so they aren't repeated down an offering's instructors. */
+function renderTable() {
+  const rows = visibleRows();
+  $('emptyRow').hidden = rows.length > 0;
+
+  const html = [];
+  let i = 0;
+  while (i < rows.length) {
+    const cid = rows[i].courseId;
+    let j = i;
+    while (j < rows.length && rows[j].courseId === cid) j++;
+    const group = rows.slice(i, j);
+    const span = group.length;
+
+    group.forEach((r, gi) => {
+      const first = gi === 0;
+      let tds = '';
+      if (first) {
+        tds += '<td rowspan="' + span + '" class="cgrp">' +
+          '<div class="cname"><a href="' + esc(r.courseUrl) + '" target="_blank" rel="noopener">' + esc(r.courseName) + '</a></div>' +
+          '<div class="ccode">' + esc(r.courseCode || '—') + ' · ' + esc(r.courseId) + '</div></td>';
+        tds += '<td rowspan="' + span + '" class="term cgrp">' + esc(r.termName) + '</td>';
+      }
+      const last = r.lastDate ? esc(r.lastDisplay) : '<span class="never">' + esc(r.lastDisplay) + '</span>';
+      const badge = r.bucket === 'nofac'
+        ? '<span class="badge nofac">—</span>'
+        : '<span class="badge ' + r.bucket + '">' + (r.days == null ? 'Never' : r.days.toLocaleString()) + '</span>';
+      const instr = r.bucket === 'nofac'
+        ? '<span class="never">' + esc(r.instructor) + '</span>'
+        : '<span class="instr">' + esc(r.instructor) + '</span>';
+
+      tds += '<td>' + instr + '</td>';
+      tds += '<td class="nums">' + last + '</td>';
+      tds += '<td class="nums" style="text-align:right">' + badge + '</td>';
+
+      html.push('<tr class="' + (first ? 'grp-first ' : '') + 'b-' + r.bucket + '">' + tds + '</tr>');
+    });
+    i = j;
+  }
+  $('tbody').innerHTML = html.join('');
+}
+
+function renderResults() { renderCats(); renderNote(); renderTable(); }
+
+/* ------------------------------- EXPORTS ------------------------------- */
+function columns() {
+  return [
+    ['SemesterName',            r => r.termName],
+    ['SemesterOrgUnitId',       r => r.termId],
+    ['CourseName',              r => r.courseName],
+    ['CourseCode',              r => r.courseCode],
+    ['CourseOrgUnitId',         r => r.courseId],
+    ['ClasslistLink',           r => r.courseUrl],
+    ['Instructor',              r => r.instructor],
+    ['Role',                    r => r.role || (r.bucket === 'nofac' ? '' : '')],
+    ['LastAccessed',            r => r.bucket === 'nofac' ? '' : (r.lastDate ? r.lastDisplay : 'Never')],
+    ['TotalDaysSinceLastAccessed', r => r.days == null ? '' : r.days],
+    ['Category',                r => bucketLabel(r.bucket)]
+  ];
+}
+
+function stamp() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+function exportCSV() {
+  const cols = columns(), rows = visibleRows();
+  const q = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [cols.map(c => q(c[0])).join(',')];
+  for (const r of rows) lines.push(cols.map(c => q(c[1](r))).join(','));
+  download(new Blob(['\uFEFF' + lines.join('\r\n')], { type:'text/csv;charset=utf-8' }),
+    'brightspace_instructor_access_' + stamp() + '.csv');
+}
+
+/* ---- minimal XLSX writer (store-only zip, no dependencies) ---- */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const u16 = n => [n & 255, (n >>> 8) & 255];
+  const u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+  const bytes = arr => new Uint8Array(arr);
+  const join = list => {
+    const out = new Uint8Array(list.reduce((n, c) => n + c.length, 0));
+    let p = 0;
+    for (const c of list) { out.set(c, p); p += c.length; }
+    return out;
+  };
+
+  const local = [], central = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const data = enc.encode(f.data);
+    const crc = crc32(data);
+
+    const head = bytes([].concat(
+      u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0)));
+    local.push(head, nameBytes, data);
+
+    central.push(bytes([].concat(
+      u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length),
+      u16(nameBytes.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset))), nameBytes);
+
+    offset += head.length + nameBytes.length + data.length;
+  }
+
+  const cd = join(central);
+  const end = bytes([].concat(
+    u32(0x06054b50), u16(0), u16(0),
+    u16(files.length), u16(files.length), u32(cd.length), u32(offset), u16(0)));
+
+  return join([join(local), cd, end]);
+}
+const xesc = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+
+function colRef(i) {
+  let s = '';
+  i += 1;
+  while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); }
+  return s;
+}
+function sheetXml(header, rows) {
+  const line = (cells, rowNum) => '<row r="' + rowNum + '">' + cells.map((v, i) => {
+    const ref = colRef(i) + rowNum;
+    if (typeof v === 'number' && Number.isFinite(v)) return '<c r="' + ref + '"><v>' + v + '</v></c>';
+    return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + xesc(v) + '</t></is></c>';
+  }).join('') + '</row>';
+
+  const body = [line(header, 1)].concat(rows.map((r, i) => line(r, i + 2))).join('');
+  const cols = '<cols>' + header.map((h, i) =>
+    '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + Math.min(46, Math.max(11, String(h).length + 4)) + '"/>').join('') + '</cols>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    cols + '<sheetData>' + body + '</sheetData></worksheet>';
+}
+function safeSheetName(name, used) {
+  let s = String(name || 'Sheet').replace(/[\\\/\?\*\[\]:]/g, '-').slice(0, 28).trim() || 'Sheet';
+  const base = s;
+  let n = 2;
+  while (used.has(s.toLowerCase())) s = (base + ' ' + n++).slice(0, 31);
+  used.add(s.toLowerCase());
+  return s;
+}
+
+function exportXLSX() {
+  const cols = columns(), rows = visibleRows();
+  const header = cols.map(c => c[0]);
+  const toRow = r => cols.map(c => {
+    const v = c[1](r);
+    return (typeof v === 'number') ? v : String(v == null ? '' : v);
+  });
+
+  const used = new Set();
+  const sheets = [{ name: safeSheetName('Instructor Access', used), header, rows: rows.map(toRow) }];
+
+  const byTerm = new Map();
+  for (const r of rows) {
+    if (!byTerm.has(r.termName)) byTerm.set(r.termName, []);
+    byTerm.get(r.termName).push(r);
+  }
+  if (byTerm.size > 1) for (const [term, list] of byTerm) {
+    sheets.push({ name: safeSheetName(term, used), header, rows: list.map(toRow) });
+  }
+
+  const files = [
+    { name:'[Content_Types].xml', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      sheets.map((s, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) +
+        '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+      '</Types>' },
+    { name:'_rels/.rels', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>' },
+    { name:'xl/workbook.xml', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+      sheets.map((s, i) => '<sheet name="' + xesc(s.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') +
+      '</sheets></workbook>' },
+    { name:'xl/_rels/workbook.xml.rels', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map((s, i) => '<Relationship Id="rId' + (i + 1) +
+        '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+      '</Relationships>' }
+  ];
+  sheets.forEach((s, i) => files.push({ name:'xl/worksheets/sheet' + (i + 1) + '.xml', data: sheetXml(s.header, s.rows) }));
+
+  download(new Blob([zipStore(files)], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    'brightspace_instructor_access_' + stamp() + '.xlsx');
+}
+/* ------------------------------ UI PLUMBING ------------------------------ */
+function setBanner(kind, title, html) {
+  const d = document.createElement('div');
+  d.className = 'banner ' + kind;
+  d.innerHTML = '<b>' + esc(title) + '</b>' + (html || '');
+  $('banners').appendChild(d);
+}
+function clearBanners() { $('banners').innerHTML = ''; }
+
+let lastPaint = 0;
+function setScan(msg) { $('scanMsg').textContent = msg; tick(true); }
+function note(msg) { if (state.running) $('scanMsg').textContent = msg; }
+function bump() { state.stats.done++; tick(false); }
+
+function tick(force) {
+  const now = Date.now();
+  if (!force && now - lastPaint < 120) return;
+  lastPaint = now;
+
+  const s = state.stats;
+  $('scanCount').innerHTML = s.total ? '<b>' + s.done.toLocaleString() + '</b> / ' + s.total.toLocaleString() : '';
+  $('scanBar').style.width = s.total ? Math.round((s.done / s.total) * 100) + '%' : '0%';
+
+  const elapsed = (now - state.t0) / 1000;
+  const rate = elapsed > 0.5 ? s.done / elapsed : 0;
+  const left = Math.max(0, s.total - s.done);
+  const bits = [];
+  if (rate > 0) bits.push(rate.toFixed(1) + ' /sec');
+  if (rate > 0.2 && left) bits.push('about ' + fmtSecs(left / rate) + ' left');
+  $('scanRate').textContent = bits.join(' · ');
+  $('scanCalls').textContent = net.calls.toLocaleString() + ' requests · ' + net.n + ' at a time';
+}
+
+/* ---- term picker ---- */
+let cursor = -1;
+function menuOpen() { return $('termMenu').dataset.open === '1'; }
+function placeMenu() {
+  const b = $('termBtn').getBoundingClientRect();
+  const m = $('termMenu');
+  m.style.left  = b.left + 'px';
+  m.style.width = Math.max(280, b.width) + 'px';
+  const below = window.innerHeight - b.bottom;
+  if (below < 240 && b.top > below) { m.style.top = ''; m.style.bottom = (window.innerHeight - b.top + 4) + 'px'; }
+  else { m.style.bottom = ''; m.style.top = (b.bottom + 4) + 'px'; }
+}
+function openMenu(on) {
+  const m = $('termMenu');
+  m.dataset.open = on ? '1' : '0';
+  $('termBtn').setAttribute('aria-expanded', String(!!on));
+  if (on) { placeMenu(); $('termSearch').value = ''; cursor = -1; renderTermOptions(); $('termSearch').focus(); }
+}
+function renderTermOptions() {
+  const q = $('termSearch').value.trim().toLowerCase();
+  const list = state.terms.filter(t => !q || t.name.toLowerCase().includes(q) || String(t.id).includes(q));
+  const host = $('termList');
+
+  if (!list.length) { host.innerHTML = '<div class="menu-empty">No terms match.</div>'; return; }
+
+  host.innerHTML = list.map((t, i) =>
+    '<div class="opt" role="option" data-id="' + t.id + '" data-i="' + i + '" aria-selected="' + state.picked.has(t.id) + '">' +
+      '<span class="box"></span><span class="nm">' + esc(t.name) + '</span><span class="id">' +
+      (t.n != null ? t.n + (t.n === 1 ? ' course' : ' courses') : t.id) + '</span>' +
+    '</div>').join('');
+
+  [...host.querySelectorAll('.opt')].forEach(el => {
+    el.onclick = () => togglePick(Number(el.dataset.id));
+    el.onmouseenter = () => { cursor = Number(el.dataset.i); paintCursor(); };
+  });
+  paintCursor();
+}
+function paintCursor() {
+  [...$('termList').querySelectorAll('.opt')].forEach(el =>
+    el.classList.toggle('cursor', Number(el.dataset.i) === cursor));
+}
+
+/* Multi-select: picking a term must not close the menu, so update the one row
+   that changed instead of re-rendering the list (re-rendering would detach the
+   clicked node mid-bubble and the outside-click handler would shut the menu). */
+function togglePick(id) {
+  if (state.picked.has(id)) state.picked.delete(id); else state.picked.add(id);
+  const el = $('termList').querySelector('.opt[data-id="' + id + '"]');
+  if (el) el.setAttribute('aria-selected', String(state.picked.has(id)));
+  renderPicks();
+}
+function renderPicks() {
+  const picked = state.terms.filter(t => state.picked.has(t.id));
+  $('termBtnLabel').textContent = !picked.length
+    ? 'Select terms…'
+    : picked.length === 1 ? picked[0].name : picked.length + ' terms selected';
+
+  $('picks').innerHTML = picked.map(t =>
+    '<span class="pick">' + esc(t.name) +
+      '<button type="button" data-id="' + t.id + '" aria-label="Remove ' + esc(t.name) + '">&times;</button></span>').join('');
+
+  [...$('picks').querySelectorAll('button')].forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    togglePick(Number(b.dataset.id));
+  });
+
+  $('menuCount').textContent = picked.length ? picked.length + ' selected' : 'None selected';
+
+  const ready = selectedTerms().length > 0;
+  $('runBtn').disabled = state.running || !ready;
+
+  if (!state.rows.length) {
+    $('runHint').textContent = ready ? 'No classlist is read until you press Run check.' : '';
+  }
+}
+
+/* ---- the one thing done up front: your course list, grouped into terms ---- */
+async function loadTerms() {
+  if (state.running) return;
+
+  state.rows = [];
+  state.picked.clear();
+  state.terms = [];
+  $('resCard').hidden = true;
+  $('refetchBtn').hidden = true;
+  $('retryBtn').hidden = true;
+  $('runBtn').disabled = true;
+  $('picks').innerHTML = '';
+  $('termBtn').disabled = true;
+  $('termBtnLabel').textContent = 'Finding your terms…';
+  $('mineCount').textContent = 'Reading your courses…';
+
+  let mine = null;
+  try { mine = await loadMine(); }
+  catch (e) { setBanner('bad', 'Couldn\'t read your course list', esc(e.message || String(e))); }
+
+  const stall = msg => {
+    $('termBtnLabel').textContent = 'No terms available';
+    $('mineCount').textContent = '';
+    $('retryBtn').hidden = false;
+    if (msg) setBanner('info', 'Stopped', msg);
+  };
+
+  if (!mine) {
+    stall(state.cancelled ? 'The course list didn\'t finish. Press Reload my course list to try again.' : null);
+    return;
+  }
+
+  state.terms = termsFromMine(mine);
+
+  if (!state.terms.length) {
+    $('termBtnLabel').textContent = 'No terms available';
+    $('mineCount').textContent = '';
+    setBanner('warn', 'No courses found',
+      'Your Brightspace account isn\'t attached to any course offerings, so there\'s nothing to scan.');
+    return;
+  }
+
+  if (state.unread) {
+    setBanner('warn', state.unread + ' of your courses couldn\'t be read',
+      'Brightspace wouldn\'t return details for ' + state.unread + ' enrolled course' +
+      (state.unread === 1 ? '' : 's') + ', so ' + (state.unread === 1 ? 'it is' : 'they are') +
+      ' missing from the terms below. Everything else is here.');
+  }
+
+  const courses = mine.length, terms = state.terms.length;
+  $('termBtn').disabled = false;
+  $('termBtnLabel').textContent = 'Select terms…';
+  $('mineCount').textContent = courses + ' active course' + (courses === 1 ? '' : 's') +
+    ' · ' + terms + ' term' + (terms === 1 ? '' : 's') +
+    (state.inactive ? ' · ' + state.inactive + ' inactive skipped' : '');
+  $('scopeHint').textContent = 'The terms your own active courses sit in, newest first. Pick as many as you want, then Run check.';
+  $('footRight').textContent = (state.demo ? 'demo mode' : 'session auth') +
+    ' · ' + courses + ' courses · ' + terms + ' terms';
+  renderTermOptions();
+  renderPicks();
+}
+
+/* ------------------------------- DEMO MODE ------------------------------- */
+const DEMO = (() => {
+  const terms = [
+    { id:14210, name:'Fall 2026-FULL Semester' },
+    { id:14180, name:'Summer 2026 - 7 Wk Session' },
+    { id:14150, name:'Summer 2026-FULL Semester' },
+    { id:13990, name:'Spring 2026-FULL Semester' }
+  ];
+  const subjects = ['ACC','BIO','CPT','ENG','HIS','MAT','NUR','PSY','SPC','WLD'];
+  const titles = ['Introduction to','Principles of','Applied','Advanced','Survey of','Foundations of'];
+  const nouns = ['Accounting','Biology','Programming','Composition','History','Algebra','Nursing','Psychology','Speech','Welding'];
+  const courses = {};
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+
+  terms.forEach((t, ti) => {
+    const list = [];
+    for (let i = 0; i < 40; i++) {
+      const s = subjects[Math.floor(rnd() * subjects.length)];
+      const num = 101 + Math.floor(rnd() * 180);
+      const sect = ['D01','D02','H01','W01','W02'][Math.floor(rnd() * 5)];
+      const id = 500000 + ti * 1000 + i;
+      list.push({
+        Identifier: String(id),
+        Name: titles[Math.floor(rnd() * titles.length)] + ' ' + nouns[Math.floor(rnd() * nouns.length)],
+        Code: s + '-' + num + '-' + sect + '-' + (14000 + ti),
+        IsActive: rnd() > 0.12,
+        StartDate: new Date(2026, ti * 2, 5).toISOString(),
+        EndDate: new Date(2026, ti * 2 + 2, 20).toISOString(),
+        Semester: { Identifier: t.id, Name: t.name }
+      });
+    }
+    courses[t.id] = list;
+  });
+
+  const FAC = ['Reyes, Marcus','Okafor, Adaeze','Nguyen, Thanh','Brooks, Danielle','Alvarez, Sofia','Kim, Jae','Patel, Ravi','Sullivan, Erin'];
+  const AGO = [0, 1, 2, 3, 4, 6, 9, 15, 28];  // spans every bucket, incl. very stale
+  const MONABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const fmtDemo = d => {
+    let h = d.getHours(), ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12;
+    return MONABBR[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear() + ' ' +
+      h + ':' + String(d.getMinutes()).padStart(2, '0') + ' ' + ap;
+  };
+  const classlistFor = ou => {
+    const n = Number(ou) || 0;
+    const noFac = (n % 13 === 0);                 // a few offerings have no faculty
+    const facN = (n % 3 === 0) ? 2 : 1;           // some have two instructors
+    let fac = '';
+    for (let i = 0; i < facN; i++) {
+      const nm = FAC[(n + i) % FAC.length];
+      const ago = AGO[(n * 7 + i * 3) % AGO.length];
+      const d = new Date(); d.setDate(d.getDate() - ago);
+      d.setHours(8 + ((n + i) % 9), (n * 11 + i * 7) % 60, 0, 0);
+      fac += '<tr><td><input type="checkbox"></td><td><img src="#" alt=""></td><td><a href="#">' + nm + '</a></td><td>Faculty</td><td>' + fmtDemo(d) + '</td></tr>';
+    }
+    const stu = (nm, dt) => '<tr><td><input type="checkbox"></td><td><img src="#" alt=""></td><td><a href="#">' + nm + '</a></td><td>Student</td><td>' + dt + '</td></tr>';
+    const students = stu('Doe, Jane', 'Jul 1, 2026 8:00 AM') + stu('Roe, Sam', 'Jul 3, 2026 2:14 PM');
+    // the signed-in demo user, enrolled as Faculty with a "just now" date — should be excluded from results
+    const selfRow = '<tr><td><input type="checkbox"></td><td><img src="#" alt=""></td><td><a href="#">Admin, Demo</a></td><td>Faculty</td><td>' + fmtDemo(new Date()) + '</td></tr>';
+    return '<!doctype html><html><body>' +
+      '<table><thead><tr><th>Section</th></tr></thead><tbody><tr><td>ignore me</td></tr></tbody></table>' +
+      '<table class="d_g"><thead><tr><th></th><th>Image</th><th>Name</th><th>Role</th><th>Last Accessed</th></tr></thead>' +
+      '<tbody>' + (noFac ? '' : fac) + selfRow + students + '</tbody></table></body></html>';
+  };
+
+  return { terms, courses, classlistFor };
+})();
+
+async function demoJSON(path) {
+  await sleep(18);
+  net.calls++;
+  if (/\/versions\//.test(path)) return [{ ProductCode:'lp', LatestVersion:'1.52' }, { ProductCode:'le', LatestVersion:'1.86' }];
+  if (/users\/whoami/.test(path)) return { Identifier:'9999', FirstName:'Demo', LastName:'Admin' };
+  if (/myenrollments/.test(path)) {
+    const mine = [];
+    [0, 1, 2].forEach(ti => (DEMO.courses[DEMO.terms[ti].id] || [])
+      .slice(0, [5, 7, 3][ti]).forEach(c => mine.push(c)));
+    return { PagingInfo:{ HasMoreItems:false }, Items: mine.map(c => ({ OrgUnit:{ Id:c.Identifier, Name:c.Name, Code:c.Code, Type:{ Id:3 } } })) };
+  }
+  const m = path.match(/\/courses\/(\d+)/);
+  if (m) {
+    for (const t of DEMO.terms) {
+      const hit = (DEMO.courses[t.id] || []).find(c => c.Identifier === m[1]);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  return null;
+}
+
+async function demoHTML(path) {
+  await sleep(15);
+  net.calls++;
+  const m = path.match(/[?&]ou=(\d+)/);
+  return DEMO.classlistFor(m ? m[1] : '0');
+}
+
+/* --------------------------------- BOOT --------------------------------- */
+async function boot() {
+  $('runBtn').onclick     = () => runCheck(false);
+  $('refetchBtn').onclick = () => runCheck(true);
+  $('cancelBtn').onclick  = () => { state.cancelled = true; setScan('Stopping…'); };
+  $('csvBtn').onclick     = exportCSV;
+  $('xlsxBtn').onclick    = exportXLSX;
+  $('retryBtn').onclick   = () => loadTerms();
+  $('search').oninput = e => { state.search = e.target.value; renderTable(); };
+  $('speed').onchange = e => { net.n = Number(e.target.value) || CONFIG.concurrency; };
+
+  $('termBtn').onclick = e => { e.stopPropagation(); openMenu(!menuOpen()); };
+  $('termSearch').oninput = renderTermOptions;
+  $('selAll').onclick  = () => { state.terms.forEach(t => state.picked.add(t.id)); renderTermOptions(); renderPicks(); };
+  $('selNone').onclick = () => { state.picked.clear(); renderTermOptions(); renderPicks(); };
+  $('menuDone').onclick = () => { openMenu(false); $('termBtn').focus(); };
+
+  $('termMenu').addEventListener('click', e => e.stopPropagation());
+
+  document.addEventListener('click', e => {
+    if (menuOpen() && !$('termMenu').contains(e.target) && !$('termBtn').contains(e.target)) openMenu(false);
+  });
+  document.addEventListener('keydown', e => {
+    if (!menuOpen()) return;
+    const opts = [...$('termList').querySelectorAll('.opt')];
+    if (e.key === 'Escape') { openMenu(false); $('termBtn').focus(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); cursor = Math.min(cursor + 1, opts.length - 1); paintCursor(); if (opts[cursor]) opts[cursor].scrollIntoView({ block:'nearest' }); }
+    else if (e.key === 'ArrowUp')   { e.preventDefault(); cursor = Math.max(cursor - 1, 0); paintCursor(); if (opts[cursor]) opts[cursor].scrollIntoView({ block:'nearest' }); }
+    else if ((e.key === 'Enter' || e.key === ' ') && cursor >= 0 && opts[cursor]) {
+      e.preventDefault(); togglePick(Number(opts[cursor].dataset.id));
+    }
+  });
+  window.addEventListener('resize', () => { if (menuOpen()) placeMenu(); });
+  window.addEventListener('scroll', () => { if (menuOpen()) placeMenu(); }, true);
+
+  $('footLeft').textContent = location.host;
+
+  if (CONFIG.demoMode === 'on') state.demo = true;
+  else if (CONFIG.demoMode === 'auto') {
+    const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, 15000) : null;
+    try {
+      const opts = { credentials:'same-origin', headers:{ Accept:'application/json' } };
+      if (ctrl) opts.signal = ctrl.signal;
+      const r = await fetch(ORIGIN + '/d2l/api/versions/', opts);
+      state.demo = !r.ok;
+    } catch (e) {
+      state.demo = (e && e.name === 'AbortError') ? false : true;   // a stall means real-but-slow, not demo
+    } finally { if (timer) clearTimeout(timer); }
+  }
+
+  if (state.demo) {
+    setBanner('info', 'Demo mode',
+      'This page isn\'t talking to a Brightspace session, so it\'s running on sample data. ' +
+      'Upload it to Manage Files and open it from inside Brightspace to scan real classlists.');
+    $('whoami').innerHTML = 'Signed in as <b>Demo Admin</b>';
+  }
+
+  await resolveVersions();
+  paintVersions();
+
+  try {
+    const me = await getJSON('/d2l/api/lp/' + state.versions.lp + '/users/whoami');
+    if (me) {
+      const name = [me.FirstName, me.LastName].filter(Boolean).join(' ') || me.UniqueName || ('user ' + me.Identifier);
+      state.selfId    = me.Identifier != null ? String(me.Identifier) : '';
+      state.selfFirst = me.FirstName || '';
+      state.selfLast  = me.LastName || '';
+      state.selfName  = name;
+      $('whoami').innerHTML = 'Signed in as <b>' + esc(name) + '</b>';
+    }
+  } catch (e) { dbg('whoami failed', e.message); }
+
+  await loadTerms();
+}
+
+boot().finally(() => { state.booted = true; });
+</script>
+</body>
+</html>

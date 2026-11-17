@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Attendance Check
+  Reports attendance registers, session counts, and whether attendance is being marked in each course.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance Check</title>
+<style>
+  :root{
+    --bg:#ffffff; --ink:#1f2733; --muted:#5b6b7d; --line:#e2e6ec; --line-2:#eef1f4;
+    --card:#ffffff; --shadow:0 1px 2px rgba(24,39,58,.06),0 1px 8px rgba(24,39,58,.05);
+    --accent:#1f6feb; --accent-ink:#0b4ea2;
+    /* status marks */
+    --s-none-ink:#5b6472;   --s-none-bg:#eef0f2;   --s-none-br:#d9dee4;
+    --s-has-ink:#0b4ea2;    --s-has-bg:#e7f0fd;    --s-has-br:#bcd6f7;
+    --s-nodata-ink:#8a4b00; --s-nodata-bg:#fdf1e0; --s-nodata-br:#f2d6ac;
+    --s-data-ink:#1a7f37;   --s-data-bg:#e6f4ea;   --s-data-br:#b7dfc2;
+    --s-read-ink:#a5271b;   --s-read-bg:#fdecea;   --s-read-br:#f4c7c1;
+    --s-skip-ink:#6a7482;   --s-skip-bg:#f2f4f6;   --s-skip-br:#e0e5ea;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#f5f6f8; color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px; margin:0 auto; padding:24px 20px 64px}
+  h1{font-size:20px; font-weight:650; margin:0 0 4px; letter-spacing:-.01em}
+  .lede{color:var(--muted); margin:0 0 18px; max-width:78ch}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); padding:18px}
+  .card + .card{margin-top:16px}
+
+  /* controls */
+  .controls{display:flex; flex-wrap:wrap; gap:20px 40px; align-items:flex-start; justify-content:space-between}
+  .field{min-width:230px}
+  .field.terms{flex:1 1 380px; min-width:280px; max-width:620px}
+  .field.options{flex:0 0 auto; margin-left:auto}
+  .field > label{display:block; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:7px}
+  .picker-btn{
+    display:flex; align-items:center; gap:10px; justify-content:space-between;
+    width:100%; min-width:280px; padding:10px 13px; border:1px solid var(--line); border-radius:9px;
+    background:#fff; color:var(--ink); cursor:pointer; font:inherit; text-align:left;
+  }
+  .picker-btn:hover{border-color:#c9d1da}
+  .picker-btn .chev{color:var(--muted); font-size:12px}
+  .picker-btn[disabled]{opacity:.55; cursor:default}
+  .checks{display:flex; flex-direction:column; gap:9px; padding-top:2px}
+  .check{display:flex; gap:9px; align-items:flex-start; cursor:pointer; max-width:52ch}
+  .check input{margin-top:2px; width:16px; height:16px; accent-color:var(--accent); flex:0 0 auto}
+  .check .cl{font-weight:600}
+  .check .cs{color:var(--muted)}
+  .run-row{display:flex; align-items:center; gap:14px; margin-top:16px; flex-wrap:wrap}
+  .btn{
+    appearance:none; border:1px solid var(--accent); background:var(--accent); color:#fff;
+    font:inherit; font-weight:600; padding:10px 18px; border-radius:9px; cursor:pointer;
+  }
+  .btn:hover{background:var(--accent-ink); border-color:var(--accent-ink)}
+  .btn[disabled]{opacity:.5; cursor:default}
+  .btn.ghost{background:#fff; color:var(--accent-ink); border-color:#c9d6ea}
+  .btn.ghost:hover{background:#f4f8fe}
+  .btn.sm{padding:7px 13px; font-size:13px}
+
+  .status-line{color:var(--muted); min-height:20px}
+  .status-line b{color:var(--ink)}
+  .bar{height:6px; background:var(--line-2); border-radius:99px; overflow:hidden; margin-top:10px; display:none}
+  .bar > i{display:block; height:100%; width:0; background:var(--accent); transition:width .18s ease}
+
+  /* shelf */
+  .shelf-title{font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700; margin:0 0 12px}
+  .shelf{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px}
+  .shelf .row{
+    border:1px solid var(--line); border-radius:9px; padding:11px 13px; display:flex;
+    justify-content:space-between; align-items:baseline; gap:12px; background:#fcfcfd;
+  }
+  .shelf .row .tn{font-weight:600; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .shelf .row .tv{white-space:nowrap; font-variant-numeric:tabular-nums}
+  .shelf .row .tv b{font-size:16px}
+  .shelf .row .tv .em{color:var(--s-none-ink)}
+  .shelf .row .tv .sk{color:var(--muted); font-size:12px}
+  .shelf-legend{margin-top:12px; display:flex; flex-wrap:wrap; gap:8px}
+
+  /* totals */
+  .totals{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:10px; overflow:hidden}
+  .totals .t{background:#fff; padding:12px 14px}
+  .totals .t .n{font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  .totals .t .k{font-size:12px; color:var(--muted); margin-top:2px}
+  .totals .t.checked .n{color:var(--ink)}
+  .totals .t.noreg .n{color:var(--s-none-ink)}
+  .totals .t.hasreg .n{color:var(--s-has-ink)}
+  .totals .t.nodata .n{color:var(--s-nodata-ink)}
+  .totals .t.hasdata .n{color:var(--s-data-ink)}
+  .totals .t.skip .n{color:var(--s-skip-ink)}
+  .totals .t.read .n{color:var(--s-read-ink)}
+
+  /* status row */
+  .status-row{display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:space-between}
+  .chips{display:flex; gap:8px; flex-wrap:wrap}
+  .chip{
+    display:inline-flex; align-items:center; gap:7px; padding:5px 11px; border-radius:99px;
+    border:1px solid var(--line); background:#fff; cursor:pointer; font:inherit; font-size:13px; color:var(--ink);
+  }
+  .chip:hover{border-color:#c9d1da}
+  .chip.active{outline:2px solid var(--accent); outline-offset:-1px}
+  .chip .dot{width:9px; height:9px; border-radius:99px; background:var(--muted)}
+  .chip .ct{color:var(--muted); font-variant-numeric:tabular-nums}
+  .chip.all .dot{background:linear-gradient(90deg,#6b7280,#1f6feb)}
+  .tools{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .search{position:relative}
+  .search input{
+    padding:8px 12px 8px 32px; border:1px solid var(--line); border-radius:9px; font:inherit; min-width:210px; background:#fff;
+  }
+  .search input:focus{outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent)}
+  .search svg{position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--muted)}
+
+  /* table */
+  .tbl-scroll{margin-top:14px; border:1px solid var(--line); border-radius:10px; overflow:auto}
+  table{border-collapse:collapse; width:100%; font-size:13.5px}
+  thead th{
+    position:sticky; top:0; background:#fafbfc; text-align:left; font-weight:650; color:var(--muted);
+    font-size:12px; text-transform:uppercase; letter-spacing:.03em; padding:10px 12px; border-bottom:1px solid var(--line); white-space:nowrap; z-index:1;
+  }
+  tbody td{padding:10px 12px; border-bottom:1px solid var(--line-2); vertical-align:top}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:#fbfcfe}
+  .pill{
+    display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border-radius:99px;
+    font-size:12px; font-weight:600; border:1px solid var(--line); white-space:nowrap;
+  }
+  .pill .d{width:7px; height:7px; border-radius:99px}
+  .pill.noreg{color:var(--s-none-ink); background:var(--s-none-bg); border-color:var(--s-none-br)}
+  .pill.noreg .d{background:var(--s-none-ink)}
+  .pill.hasreg{color:var(--s-has-ink); background:var(--s-has-bg); border-color:var(--s-has-br)}
+  .pill.hasreg .d{background:var(--s-has-ink)}
+  .pill.nodata{color:var(--s-nodata-ink); background:var(--s-nodata-bg); border-color:var(--s-nodata-br)}
+  .pill.nodata .d{background:var(--s-nodata-ink)}
+  .pill.hasdata{color:var(--s-data-ink); background:var(--s-data-bg); border-color:var(--s-data-br)}
+  .pill.hasdata .d{background:var(--s-data-ink)}
+  .pill.read{color:var(--s-read-ink); background:var(--s-read-bg); border-color:var(--s-read-br)}
+  .pill.read .d{background:var(--s-read-ink)}
+  .pill.skip{color:var(--s-skip-ink); background:var(--s-skip-bg); border-color:var(--s-skip-br)}
+  .pill.skip .d{background:var(--s-skip-ink)}
+  td.course a{color:var(--accent-ink); text-decoration:none; font-weight:600}
+  td.course a:hover{text-decoration:underline}
+  td.course .code{display:block; color:var(--muted); font-size:12px; margin-top:1px}
+  td.ou{font-variant-numeric:tabular-nums; color:var(--muted)}
+  td.reg .r{display:block}
+  td.reg .r + .r{margin-top:3px}
+  td.sess{font-variant-numeric:tabular-nums}
+  td.sess .s{display:block}
+  td.sess .s + .s{margin-top:3px}
+  td.sess .z{color:var(--s-none-ink)}
+  .muted-cell{color:var(--muted)}
+  .empty-note{padding:26px; text-align:center; color:var(--muted)}
+
+  .hidden{display:none !important}
+
+  /* term dropdown panel (portaled to body so it is never clipped) */
+  .panel{
+    position:fixed; z-index:9999; background:#fff; border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 8px 30px rgba(24,39,58,.16); padding:8px; width:320px; max-height:60vh; overflow:auto;
+  }
+  .panel .phead{display:flex; gap:8px; padding:4px 6px 8px; border-bottom:1px solid var(--line-2); margin-bottom:6px}
+  .panel .phead button{
+    flex:1; font:inherit; font-size:12px; padding:6px 8px; border:1px solid var(--line); background:#fff; border-radius:7px; cursor:pointer; color:var(--accent-ink);
+  }
+  .panel .phead button:hover{background:#f4f8fe}
+  .opt{display:flex; gap:9px; align-items:center; padding:7px 8px; border-radius:7px; cursor:pointer}
+  .opt:hover{background:#f4f6f9}
+  .opt input{width:16px; height:16px; accent-color:var(--accent)}
+  .opt .on{color:var(--muted); font-variant-numeric:tabular-nums; margin-left:auto; font-size:12px}
+  .opt .nm{min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important} }
+  @media (max-width:640px){ .controls{gap:14px} .field,.field.terms,.field.options,.picker-btn,.search input{min-width:0; width:100%; max-width:none; margin-left:0} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Attendance Check</h1>
+  <p class="lede" id="lede">This report checks the Attendance tool in each of your Brightspace course offerings. It reads the course offerings attached to your account, so it covers the sections you are enrolled in for the terms you pick — not every section in a term. For each section it opens the Attendance tool, reads each register and its session count, and, when you ask it to, opens each register's data to see whether attendance has actually been marked. Every section gets one status.</p>
+
+  <!-- Controls -->
+  <div class="card">
+    <div class="controls">
+      <div class="field terms">
+        <label id="termLabel">Terms to check</label>
+        <button type="button" class="picker-btn" id="termBtn" disabled aria-haspopup="listbox" aria-expanded="false">
+          <span id="termBtnText">Loading terms…</span>
+          <span class="chev">▾</span>
+        </button>
+      </div>
+      <div class="field options">
+        <label>Options</label>
+        <div class="checks">
+          <label class="check">
+            <input type="checkbox" id="cbActive" checked>
+            <span><span class="cl">Scan active sections only</span><br><span class="cs">Skip offerings marked inactive.</span></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="cbSession" checked>
+            <span><span class="cl">Require at least one attendance session</span><br><span class="cs">Count a course with empty sessions as empty.</span></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="cbCompleted">
+            <span><span class="cl">Require at least one session completed</span><br><span class="cs">Count a course with no sessions completed as empty.</span></span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="run-row">
+      <button class="btn" id="runBtn" disabled>Run check</button>
+      <span class="status-line" id="statusLine">Starting up…</span>
+    </div>
+    <div class="bar" id="bar"><i id="barFill"></i></div>
+  </div>
+
+  <!-- Results -->
+  <div id="results" class="hidden">
+
+    <!-- Section shelf: one mark per section, per term -->
+    <div class="card">
+      <p class="shelf-title">Section shelf — one mark per section</p>
+      <div class="shelf" id="shelf"></div>
+      <div class="shelf-legend" id="shelfLegend"></div>
+    </div>
+
+    <!-- Totals -->
+    <div class="card">
+      <div class="totals" id="totals"></div>
+    </div>
+
+    <!-- Status row + tools -->
+    <div class="card">
+      <div class="status-row">
+        <div class="chips" id="chips"></div>
+        <div class="tools">
+          <div class="search">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input type="search" id="search" placeholder="Search course, code, term, register…">
+          </div>
+          <button class="btn ghost sm" id="dlCsv">Download CSV</button>
+          <button class="btn ghost sm" id="dlXls">Download Excel</button>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th><th>Term</th><th>Course</th><th>Org Unit</th><th>Registers</th><th>Sessions</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- Configuration (from the Colab source / tenant) -----------------------
+  var ORIGIN = window.location.origin;          // must run while signed in to Brightspace
+  var LP_FALLBACK = "1.52";                      // used only if version negotiation fails
+  var COURSE_OFFERING_OUTYPE = 3;                // org unit type: course offering
+  var CONCURRENCY = 12;                          // parity with the template audit
+  var ATTENDANCE_MARKS = ["P", "A", "T"];        // any of these in a session cell = attendance taken
+  // ---------------------------------------------------------------------------
+
+  var STATUS = {
+    NOREG:  "No Registers",
+    HASREG: "Has Registers",
+    NODATA: "No Attendance Data",
+    HASDATA:"Has Attendance Data",
+    READ:   "Couldn't Read",
+    SKIP:   "Inactive Skipped"
+  };
+  var STATUS_ORDER = [STATUS.NOREG, STATUS.HASREG, STATUS.NODATA, STATUS.HASDATA, STATUS.READ, STATUS.SKIP];
+  var STATUS_CLASS = {};
+  STATUS_CLASS[STATUS.NOREG]="noreg"; STATUS_CLASS[STATUS.HASREG]="hasreg";
+  STATUS_CLASS[STATUS.NODATA]="nodata"; STATUS_CLASS[STATUS.HASDATA]="hasdata";
+  STATUS_CLASS[STATUS.READ]="read"; STATUS_CLASS[STATUS.SKIP]="skip";
+
+  // ---- State ----------------------------------------------------------------
+  var CACHE = { lpVer: null, courses: [], terms: [] };
+  var SELECTED = new Set();     // selected term ids
+  var RESULTS = [];             // scan results
+  var FILTER = null;            // active status filter (null = all)
+  var QUERY = "";               // search text
+
+  // ---- DOM ------------------------------------------------------------------
+  var $ = function(id){ return document.getElementById(id); };
+  var termBtn=$("termBtn"), termBtnText=$("termBtnText"), runBtn=$("runBtn"),
+      statusLine=$("statusLine"), bar=$("bar"), barFill=$("barFill"),
+      results=$("results"), shelf=$("shelf"), shelfLegend=$("shelfLegend"),
+      totals=$("totals"), chips=$("chips"), tbody=$("tbody"), searchBox=$("search"),
+      cbActive=$("cbActive"), cbSession=$("cbSession"), cbCompleted=$("cbCompleted");
+
+  function setStatus(html){ statusLine.innerHTML = html; }
+  function showBar(show){ bar.style.display = show ? "block" : "none"; }
+  function setBar(done,total){ barFill.style.width = (total ? Math.round(done/total*100) : 0) + "%"; }
+
+  function esc(s){
+    return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+
+  // ---- Fetch helpers --------------------------------------------------------
+  var quotaWaitUntil = 0;
+
+  // JSON API fetch, used only for /d2l/api/lp calls.
+  async function apiFetch(path, attempt){
+    attempt = attempt || 0;
+    var now = Date.now();
+    if (quotaWaitUntil > now) { await sleep(quotaWaitUntil - now); }
+    var url = /^https?:/.test(path) ? path : (ORIGIN + path);
+    var res = await fetch(url, { credentials:"same-origin", headers:{ "Accept":"application/json" } });
+    if (res.status === 429 && attempt < 5){
+      var ra = parseFloat(res.headers.get("Retry-After"));
+      if (!(ra > 0)) ra = 2;
+      quotaWaitUntil = Date.now() + ra*1000;
+      await sleep(ra*1000);
+      return apiFetch(path, attempt+1);
+    }
+    // NB: this tenant sends X-Rate-Limit-Remaining: 0 on a 200 as a placeholder.
+    // Only a real 429 means exhaustion, so the header is intentionally ignored here.
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+
+  // HTML page fetch (Attendance tool pages). Same-origin, session-authenticated.
+  // Returns the raw HTML and the parsed document so callers can inspect either.
+  async function fetchPage(url){
+    var res = await fetch(url, { credentials:"same-origin", headers:{ "Accept":"text/html" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    var html = await res.text();
+    return { html: html, doc: new DOMParser().parseFromString(html, "text/html") };
+  }
+  async function fetchDoc(url){ return (await fetchPage(url)).doc; }
+
+  // Generic bounded-concurrency pool.
+  async function runPool(items, worker, concurrency){
+    var out = new Array(items.length), i = 0;
+    async function next(){
+      while (true){
+        var idx = i++;
+        if (idx >= items.length) return;
+        try { out[idx] = await worker(items[idx], idx); }
+        catch (e){ out[idx] = { __error: (e && e.message) || String(e) }; }
+      }
+    }
+    var runners = [];
+    for (var k = 0; k < Math.min(concurrency, items.length); k++) runners.push(next());
+    await Promise.all(runners);
+    return out;
+  }
+
+  // ---- Load: version, enrollments, term info --------------------------------
+  async function getLpVersion(){
+    try {
+      var vs = await apiFetch("/d2l/api/versions/");
+      if (Array.isArray(vs)){
+        for (var i=0;i<vs.length;i++){
+          if (vs[i] && String(vs[i].ProductCode).toLowerCase()==="lp" && vs[i].LatestVersion){
+            return vs[i].LatestVersion;
+          }
+        }
+      }
+    } catch(e){ /* fall through */ }
+    return LP_FALLBACK;
+  }
+
+  async function getMyCourseOfferings(ver){
+    var out = [], bookmark = "";
+    for (var guard=0; guard<400; guard++){
+      var q = "/d2l/api/lp/"+ver+"/enrollments/myenrollments/?orgUnitTypeId="+COURSE_OFFERING_OUTYPE
+              + (bookmark ? "&bookmark="+encodeURIComponent(bookmark) : "");
+      var page = await apiFetch(q);
+      var items = (page && page.Items) || [];
+      for (var j=0;j<items.length;j++){
+        var ou = items[j].OrgUnit || {};
+        var typeId = ou.Type && ou.Type.Id;
+        if (typeId == null || typeId === COURSE_OFFERING_OUTYPE){
+          out.push({ ou: ou.Id, name: ou.Name || "", code: ou.Code || "" });
+        }
+      }
+      if (page && page.PagingInfo && page.PagingInfo.HasMoreItems){ bookmark = page.PagingInfo.Bookmark; }
+      else break;
+    }
+    var seen = {}, dedup = [];
+    for (var m=0;m<out.length;m++){ if (!seen[out[m].ou]){ seen[out[m].ou]=1; dedup.push(out[m]); } }
+    return dedup;
+  }
+
+  async function enrichWithTerms(offerings, ver){
+    var done = 0, total = offerings.length;
+    var worker = async function(c){
+      try {
+        var info = await apiFetch("/d2l/api/lp/"+ver+"/courses/"+c.ou);
+        var sem = info.Semester || null;
+        return {
+          ou: c.ou,
+          name: info.Name || c.name || ("Org Unit "+c.ou),
+          code: info.Code || c.code || "",
+          termId: (sem && sem.Identifier != null) ? Number(sem.Identifier) : 0,
+          termName: (sem && sem.Name) ? sem.Name : "(No term)",
+          isActive: info.IsActive !== false
+        };
+      } catch(e){
+        return { ou:c.ou, name:c.name||("Org Unit "+c.ou), code:c.code||"",
+                 termId:0, termName:"(No term)", isActive:true, infoError:true };
+      } finally {
+        done++; setStatus("Reading term info… <b>"+done+"</b> / "+total);
+      }
+    };
+    return runPool(offerings, worker, CONCURRENCY);
+  }
+
+  function buildTerms(courses){
+    var map = new Map();
+    courses.forEach(function(c){
+      if (!map.has(c.termId)) map.set(c.termId, { id:c.termId, name:c.termName, count:0 });
+      map.get(c.termId).count++;
+    });
+    return Array.from(map.values()).sort(function(a,b){ return b.id - a.id; }); // larger id = newer
+  }
+
+  async function init(){
+    try {
+      setStatus("Negotiating API version…");
+      CACHE.lpVer = await getLpVersion();
+      setStatus("Loading your course offerings…");
+      var offerings = await getMyCourseOfferings(CACHE.lpVer);
+      if (!offerings.length){
+        setStatus("No course offerings are attached to your account, so there is nothing to check.");
+        termBtnText.textContent = "No terms";
+        return;
+      }
+      CACHE.courses = await enrichWithTerms(offerings, CACHE.lpVer);
+      CACHE.terms = buildTerms(CACHE.courses);
+      buildPanel(CACHE.terms);
+      termBtn.disabled = false;
+      updateTermBtn();
+      runBtn.disabled = false;
+      setStatus("Ready — <b>"+CACHE.courses.length+"</b> course offerings across <b>"+CACHE.terms.length+"</b> terms. Pick your terms and run the check.");
+    } catch(e){
+      setStatus("Could not load your courses ("+esc((e&&e.message)||e)+"). This tool must run while you are signed in to Brightspace.");
+    }
+  }
+
+  // ---- Term picker (portaled panel, never clipped) --------------------------
+  var panel = null, panelOpen = false;
+
+  function buildPanel(terms){
+    panel = document.createElement("div");
+    panel.className = "panel"; panel.setAttribute("role","listbox");
+    var head = document.createElement("div"); head.className = "phead";
+    var all = document.createElement("button"); all.type="button"; all.textContent="Select all";
+    var none = document.createElement("button"); none.type="button"; none.textContent="Clear";
+    all.onclick = function(){ terms.forEach(function(t){ SELECTED.add(t.id); }); syncPanel(); updateTermBtn(); };
+    none.onclick = function(){ SELECTED.clear(); syncPanel(); updateTermBtn(); };
+    head.appendChild(all); head.appendChild(none); panel.appendChild(head);
+
+    terms.forEach(function(t){
+      var row = document.createElement("label"); row.className = "opt";
+      var cb = document.createElement("input"); cb.type="checkbox"; cb.value=String(t.id); cb.dataset.term=String(t.id);
+      cb.onchange = function(){ if (cb.checked) SELECTED.add(t.id); else SELECTED.delete(t.id); updateTermBtn(); };
+      var nm = document.createElement("span"); nm.className="nm"; nm.textContent = t.name;
+      var on = document.createElement("span"); on.className="on"; on.textContent = t.count + (t.count===1?" section":" sections");
+      row.appendChild(cb); row.appendChild(nm); row.appendChild(on);
+      panel.appendChild(row);
+    });
+    document.body.appendChild(panel);
+    panel.style.display = "none";
+  }
+
+  function syncPanel(){
+    if (!panel) return;
+    Array.prototype.forEach.call(panel.querySelectorAll("input[type=checkbox]"), function(cb){
+      cb.checked = SELECTED.has(Number(cb.value));
+    });
+  }
+
+  function positionPanel(){
+    var r = termBtn.getBoundingClientRect();
+    panel.style.width = Math.min(Math.max(r.width, 360), window.innerWidth - 24) + "px";
+    panel.style.left = Math.min(r.left, window.innerWidth - panel.offsetWidth - 12) + "px";
+    var below = window.innerHeight - r.bottom;
+    if (below < 220 && r.top > below){
+      panel.style.top = ""; panel.style.bottom = (window.innerHeight - r.top + 6) + "px";
+    } else {
+      panel.style.bottom = ""; panel.style.top = (r.bottom + 6) + "px";
+    }
+  }
+
+  function openPanel(){
+    if (panelOpen) return;
+    panelOpen = true; panel.style.display="block"; syncPanel(); positionPanel();
+    termBtn.setAttribute("aria-expanded","true");
+    document.addEventListener("mousedown", outside, true);
+    window.addEventListener("scroll", positionPanel, true);
+    window.addEventListener("resize", positionPanel);
+  }
+  function closePanel(){
+    if (!panelOpen) return;
+    panelOpen = false; panel.style.display="none";
+    termBtn.setAttribute("aria-expanded","false");
+    document.removeEventListener("mousedown", outside, true);
+    window.removeEventListener("scroll", positionPanel, true);
+    window.removeEventListener("resize", positionPanel);
+  }
+  function outside(e){ if (e.target!==termBtn && !panel.contains(e.target) && !termBtn.contains(e.target)) closePanel(); }
+  termBtn.onclick = function(){ panelOpen ? closePanel() : openPanel(); };
+
+  function updateTermBtn(){
+    var n = SELECTED.size;
+    if (n===0){ termBtnText.textContent = "Select terms"; }
+    else if (n===1){
+      var only = CACHE.terms.filter(function(t){ return SELECTED.has(t.id); })[0];
+      termBtnText.textContent = only ? only.name : "1 term";
+    } else { termBtnText.textContent = n + " terms selected"; }
+  }
+
+  // ---- Attendance page parsing ----------------------------------------------
+  // e.g. "There are currently no registers available. Click New Register to create a register."
+  var NO_REGISTERS_RE = /no\s+registers\s+available/i;
+
+  function parseRegistersList(doc, html, baseUrl){
+    // Registers win first: if we can see any register, this is not the empty state.
+    var regs = parseByHeaders(doc, baseUrl);
+    if (!regs) regs = parseByLinks(doc, baseUrl);
+    if (regs && regs.length){ return { noRegisters:false, registers:regs }; }
+
+    // No registers parsed. Is this the documented "no registers available" empty state?
+    // Check the rendered text and the raw response — on some page variants the message
+    // sits outside the parsed <body> text (inline state/markup), which read as Couldn't Read.
+    var bodyText = (doc && doc.body) ? doc.body.textContent : "";
+    if (NO_REGISTERS_RE.test(bodyText) || NO_REGISTERS_RE.test(html || "")){
+      return { noRegisters:true, registers:[] };
+    }
+    return { couldntRead:true, registers:[] };
+  }
+
+  function cellText(el){ return (el && el.textContent ? el.textContent : "").replace(/\s+/g," ").trim(); }
+  function rowCells(row){
+    return Array.prototype.filter.call(row.children, function(c){ return c.tagName==="TD" || c.tagName==="TH"; });
+  }
+  function registerIdFrom(href){ var m = (href||"").match(/registerId=(\d+)/i); return m ? m[1] : null; }
+  function resolveUrl(href, baseUrl){ try { return new URL(href, baseUrl || ORIGIN).href; } catch(e){ return href; } }
+
+  function parseByHeaders(doc, baseUrl){
+    var tables = Array.prototype.slice.call(doc.querySelectorAll("table"));
+    for (var t=0;t<tables.length;t++){
+      var regs = parseRegisterTable(tables[t], baseUrl);
+      if (regs && regs.length) return regs;
+    }
+    return null;
+  }
+
+  // The Attendance registers table columns are: [checkbox] Register Name |
+  // Cause for Concern (%) | # of Sessions. The sessions value MUST come from the
+  // "# of Sessions" column — never the "Cause for Concern" column, which sits to its
+  // left and is only present on some courses.
+  function parseRegisterTable(table, baseUrl){
+    var allRows = Array.prototype.slice.call(table.querySelectorAll("tr"));
+    if (!allRows.length) return null;
+
+    // Locate the header row by its text — works whether the cells are <th> or <td>,
+    // and whether or not they sit inside a <thead>.
+    var headerIdx = -1, headers = null;
+    for (var i=0; i<allRows.length && i<8; i++){
+      var texts = rowCells(allRows[i]).map(function(c){ return cellText(c).toLowerCase(); });
+      var hasReg = texts.some(function(x){ return x.indexOf("register")>=0; });
+      var hasSess = texts.some(function(x){ return x.indexOf("session")>=0; });
+      if (hasReg && hasSess){ headerIdx = i; headers = texts; break; }
+    }
+    if (headerIdx < 0) return null;
+
+    var nameIdx = headers.findIndex(function(h){ return h.indexOf("register")>=0 && h.indexOf("name")>=0; });
+    if (nameIdx < 0) nameIdx = headers.findIndex(function(h){ return h.indexOf("register")>=0; });
+    // "session" but not "concern": guard so the Cause-for-Concern column is never used.
+    var sessIdx = headers.findIndex(function(h){ return h.indexOf("session")>=0 && h.indexOf("concern")<0; });
+    if (nameIdx < 0 || sessIdx < 0) return null;
+    var maxIdx = Math.max(nameIdx, sessIdx);
+
+    var regs = [];
+    for (var r=headerIdx+1; r<allRows.length; r++){
+      var cells = rowCells(allRows[r]);
+      if (cells.length <= maxIdx) continue;                 // header/footer/spacer, not a data row
+      var nameCell = cells[nameIdx], sessCell = cells[sessIdx];
+      var link = nameCell ? nameCell.querySelector('a[href*="data_list"], a[href*="registerId"]') : null;
+      var name = link ? cellText(link) : (nameCell ? cellText(nameCell) : "");
+      if (!name && !link) continue;
+      var sm = sessCell ? cellText(sessCell).match(/\d+/) : null;   // strictly the sessions column
+      var sessions = sm ? parseInt(sm[0],10) : 0;
+      var href = link ? link.getAttribute("href") : null;
+      regs.push({
+        name: name || "(unnamed register)",
+        sessions: sessions,
+        registerId: href ? registerIdFrom(href) : null,
+        hrefUrl: href ? resolveUrl(href, baseUrl) : null
+      });
+    }
+    return regs.length ? regs : null;
+  }
+
+  // Fallback: no recognizable header row — key off the register links themselves.
+  function parseByLinks(doc, baseUrl){
+    var anchors = Array.prototype.filter.call(doc.querySelectorAll("a[href]"), function(a){
+      var h = a.getAttribute("href") || "";
+      return /registerId=/i.test(h) && /data_list\.d2l/i.test(h);
+    });
+    if (!anchors.length) return null;
+    var regs = [], seen = {};
+    for (var i=0;i<anchors.length;i++){
+      var href = anchors[i].getAttribute("href") || "";
+      var id = registerIdFrom(href) || href;
+      if (seen[id]) continue; seen[id]=1;
+      var sessions = 0, row = anchors[i].closest("tr");
+      if (row){
+        // # of Sessions is the last numeric column; Cause for Concern (%) can appear
+        // before it, so prefer the rightmost integer cell rather than the first.
+        var nums = rowCells(row).map(cellText).filter(function(x){ return /^\d+$/.test(x); });
+        if (nums.length) sessions = parseInt(nums[nums.length-1],10);
+      }
+      regs.push({
+        name: cellText(anchors[i]) || "(unnamed register)",
+        sessions: sessions,
+        registerId: registerIdFrom(href),
+        hrefUrl: resolveUrl(href, baseUrl)
+      });
+    }
+    return regs.length ? regs : null;
+  }
+
+  // Scan an attendance data page: any P/A/T among the session cells = data taken.
+  function parseAttendanceData(doc){
+    var marks = ATTENDANCE_MARKS.map(function(m){ return m.toUpperCase(); });
+    var cells = doc.querySelectorAll("td, th");
+    for (var i=0;i<cells.length;i++){
+      var txt = (cells[i].textContent || "").trim().toUpperCase();
+      if (txt.length <= 2 && marks.indexOf(txt) >= 0) return true;
+      var img = cells[i].querySelector("img[alt], img[title]");
+      if (img){
+        var a = (img.getAttribute("alt")||"").trim().toUpperCase();
+        var ti = (img.getAttribute("title")||"").trim().toUpperCase();
+        if (marks.indexOf(a)>=0 || marks.indexOf(ti)>=0) return true;
+      }
+    }
+    return false;
+  }
+
+  // ---- Scan one course offering ---------------------------------------------
+  function registersUrl(ou){ return ORIGIN + "/d2l/lms/attendance/registers/registers_list.d2l?ou=" + ou; }
+  function dataUrl(ou, register){
+    if (register.registerId) return ORIGIN + "/d2l/lms/attendance/attendance/data_list.d2l?registerId=" + register.registerId + "&ou=" + ou;
+    return register.hrefUrl; // fallback if we couldn't read a registerId
+  }
+
+  async function scanCourse(course, opts){
+    var res = {
+      ou: course.ou, name: course.name, code: course.code,
+      termId: course.termId, termName: course.termName,
+      registers: [], status: null
+    };
+    var listUrl = registersUrl(course.ou);
+    var page;
+    try { page = await fetchPage(listUrl); }
+    catch(e){ res.status = STATUS.READ; return res; }
+
+    var parsed = parseRegistersList(page.doc, page.html, listUrl);
+    if (parsed.couldntRead){ res.status = STATUS.READ; return res; }
+    if (parsed.noRegisters || parsed.registers.length === 0){ res.status = STATUS.NOREG; return res; }
+
+    res.registers = parsed.registers; // always report every register + its session count
+
+    var withSessions = parsed.registers.filter(function(r){ return r.sessions >= 1; });
+
+    // Checkbox 2: require at least one session → empty sessions count as empty.
+    if (opts.requireSession && withSessions.length === 0){ res.status = STATUS.NOREG; return res; }
+
+    // Checkbox 3 off → stop at the register level.
+    if (!opts.requireCompleted){ res.status = STATUS.HASREG; return res; }
+
+    // Checkbox 3 on → only registers with sessions can hold completed attendance.
+    if (withSessions.length === 0){ res.status = STATUS.NODATA; return res; }
+
+    var anyData = false, anyReadable = false;
+    for (var i=0;i<withSessions.length;i++){
+      var d;
+      try { d = await fetchDoc(dataUrl(course.ou, withSessions[i])); anyReadable = true; }
+      catch(e){ continue; }
+      if (parseAttendanceData(d)){ anyData = true; break; }
+    }
+    if (anyData){ res.status = STATUS.HASDATA; return res; }
+    if (!anyReadable){ res.status = STATUS.READ; return res; }
+    res.status = STATUS.NODATA;
+    return res;
+  }
+
+  // ---- Run ------------------------------------------------------------------
+  async function runCheck(){
+    if (SELECTED.size === 0){ setStatus("Pick at least one term first."); openPanel(); return; }
+    closePanel();
+    var opts = {
+      activeOnly: cbActive.checked,
+      requireSession: cbSession.checked,
+      requireCompleted: cbCompleted.checked
+    };
+    var pool = CACHE.courses.filter(function(c){ return SELECTED.has(c.termId); });
+
+    RESULTS = [];
+    var toScan = [];
+    pool.forEach(function(c){
+      if (opts.activeOnly && !c.isActive){
+        RESULTS.push({ ou:c.ou, name:c.name, code:c.code, termId:c.termId, termName:c.termName, registers:[], status:STATUS.SKIP });
+      } else {
+        toScan.push(c);
+      }
+    });
+
+    runBtn.disabled = true; termBtn.disabled = true; showBar(true); setBar(0, toScan.length);
+    var done = 0;
+    setStatus("Checking attendance… <b>0</b> / " + toScan.length + " sections");
+    var scanned = await runPool(toScan, async function(c){
+      var r = await scanCourse(c, opts);
+      done++; setBar(done, toScan.length);
+      setStatus("Checking attendance… <b>"+done+"</b> / "+toScan.length+" sections");
+      return r;
+    }, CONCURRENCY);
+
+    RESULTS = RESULTS.concat(scanned);
+    RESULTS.sort(sortResults);
+    showBar(false); runBtn.disabled = false; termBtn.disabled = false;
+    FILTER = null; QUERY = ""; searchBox.value = "";
+    render();
+    var checked = RESULTS.filter(function(r){ return r.status !== STATUS.SKIP; }).length;
+    setStatus("Done — checked <b>"+checked+"</b> section"+(checked===1?"":"s")+".");
+  }
+
+  function sortResults(a,b){
+    if (b.termId !== a.termId) return b.termId - a.termId;         // newest term first
+    var sa = STATUS_ORDER.indexOf(a.status), sb = STATUS_ORDER.indexOf(b.status);
+    if (sa !== sb) return sa - sb;
+    return (a.name||"").localeCompare(b.name||"");
+  }
+
+  // ---- Rendering ------------------------------------------------------------
+  function counts(rows){
+    var c = {}; STATUS_ORDER.forEach(function(s){ c[s]=0; });
+    rows.forEach(function(r){ if (c[r.status]!=null) c[r.status]++; });
+    c.checked = rows.filter(function(r){ return r.status !== STATUS.SKIP; }).length;
+    return c;
+  }
+
+  function render(){
+    results.classList.remove("hidden");
+    renderShelf();
+    renderTotals();
+    renderChips();
+    renderTable();
+  }
+
+  function renderShelf(){
+    // per selected term (that has rows): checked / empty(No Registers)  (+ skipped)
+    var byTerm = new Map();
+    RESULTS.forEach(function(r){
+      if (!byTerm.has(r.termId)) byTerm.set(r.termId, { name:r.termName, checked:0, empty:0, skip:0 });
+      var b = byTerm.get(r.termId);
+      if (r.status === STATUS.SKIP) b.skip++;
+      else { b.checked++; if (r.status === STATUS.NOREG) b.empty++; }
+    });
+    var terms = Array.from(byTerm.entries()).sort(function(a,b){ return b[0]-a[0]; });
+    shelf.innerHTML = terms.map(function(e){
+      var b = e[1];
+      var skip = b.skip ? ' <span class="sk">(+'+b.skip+' skipped)</span>' : '';
+      return '<div class="row"><span class="tn" title="'+esc(b.name)+'">'+esc(b.name)+'</span>'
+           + '<span class="tv"><b>'+b.checked+'</b> / <span class="em">'+b.empty+'</span>'+skip+'</span></div>';
+    }).join("");
+
+    var c = counts(RESULTS);
+    var legendItems = [
+      [STATUS.NOREG,"noreg"], [STATUS.HASREG,"hasreg"], [STATUS.NODATA,"nodata"],
+      [STATUS.HASDATA,"hasdata"], [STATUS.READ,"read"]
+    ];
+    shelfLegend.innerHTML = legendItems.map(function(it){
+      return '<span class="pill '+it[1]+'"><span class="d"></span>'+esc(it[0])+' · '+c[it[0]]+'</span>';
+    }).join("");
+  }
+
+  function renderTotals(){
+    var c = counts(RESULTS);
+    var cells = [
+      ["checked","# Sections Checked", c.checked],
+      ["noreg","# No Registers", c[STATUS.NOREG]],
+      ["hasreg","# Has Registers", c[STATUS.HASREG]],
+      ["nodata","# No Attendance Data", c[STATUS.NODATA]],
+      ["hasdata","# Has Attendance Data", c[STATUS.HASDATA]],
+      ["skip","# Inactive Skipped", c[STATUS.SKIP]],
+      ["read","# Couldn't Read", c[STATUS.READ]]
+    ];
+    totals.innerHTML = cells.map(function(x){
+      return '<div class="t '+x[0]+'"><div class="n">'+x[2]+'</div><div class="k">'+esc(x[1])+'</div></div>';
+    }).join("");
+  }
+
+  function renderChips(){
+    var c = counts(RESULTS);
+    var order = [STATUS.NOREG, STATUS.HASREG, STATUS.NODATA, STATUS.HASDATA, STATUS.READ];
+    var html = '<button class="chip all'+(FILTER===null?" active":"")+'" data-f="__all"><span class="dot"></span>All <span class="ct">'+listable().length+'</span></button>';
+    order.forEach(function(s){
+      if (!c[s]) return; // hide statuses with no rows
+      html += '<button class="chip '+(FILTER===s?"active ":"")+'" data-f="'+esc(s)+'">'
+            + '<span class="dot" style="background:'+dotColor(s)+'"></span>'+esc(s)+' <span class="ct">'+c[s]+'</span></button>';
+    });
+    chips.innerHTML = html;
+    Array.prototype.forEach.call(chips.querySelectorAll(".chip"), function(ch){
+      ch.onclick = function(){
+        var f = ch.getAttribute("data-f");
+        FILTER = (f==="__all") ? null : f;
+        renderChips(); renderTable();
+      };
+    });
+  }
+
+  function dotColor(s){
+    return ({}, {
+      "No Registers":"#5b6472","Has Registers":"#0b4ea2","No Attendance Data":"#8a4b00",
+      "Has Attendance Data":"#1a7f37","Couldn't Read":"#a5271b","Inactive Skipped":"#6a7482"
+    })[s] || "#5b6472";
+  }
+
+  // Rows shown in the listing / export. Inactive-skipped sections are counted in the
+  // totals but never listed as rows and have no filter chip.
+  function listable(){ return RESULTS.filter(function(r){ return r.status !== STATUS.SKIP; }); }
+
+  function visibleRows(){
+    var q = QUERY.trim().toLowerCase();
+    return listable().filter(function(r){
+      if (FILTER && r.status !== FILTER) return false;
+      if (!q) return true;
+      var hay = [r.name, r.code, r.termName, r.status, String(r.ou),
+                 r.registers.map(function(x){ return x.name; }).join(" ")].join(" ").toLowerCase();
+      return hay.indexOf(q) >= 0;
+    });
+  }
+
+  function renderTable(){
+    var rows = visibleRows();
+    if (!rows.length){
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty-note">No sections match this view.</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function(r){
+      var cls = STATUS_CLASS[r.status] || "noreg";
+      var pill = '<span class="pill '+cls+'"><span class="d"></span>'+esc(r.status)+'</span>';
+      var link = registersUrl(r.ou);
+      var course = '<a href="'+esc(link)+'" target="_blank" rel="noopener">'+esc(r.name)+'</a>'
+                 + (r.code ? '<span class="code">'+esc(r.code)+'</span>' : '');
+      var regCell, sessCell;
+      if (r.registers.length){
+        regCell = r.registers.map(function(x){ return '<span class="r">'+esc(x.name)+'</span>'; }).join("");
+        sessCell = r.registers.map(function(x){
+          return '<span class="s'+(x.sessions===0?' z':'')+'">'+x.sessions+'</span>';
+        }).join("");
+      } else {
+        regCell = '<span class="muted-cell">—</span>';
+        sessCell = '<span class="muted-cell">—</span>';
+      }
+      return '<tr>'
+        + '<td>'+pill+'</td>'
+        + '<td>'+esc(r.termName)+'</td>'
+        + '<td class="course">'+course+'</td>'
+        + '<td class="ou">'+r.ou+'</td>'
+        + '<td class="reg">'+regCell+'</td>'
+        + '<td class="sess">'+sessCell+'</td>'
+        + '</tr>';
+    }).join("");
+  }
+
+  // ---- Export ---------------------------------------------------------------
+  function exportRows(){
+    // full report, ordered as displayed; excludes inactive-skipped sections (not listed)
+    return listable().map(function(r){
+      return {
+        Status: r.status,
+        Term: r.termName,
+        Course: r.name,
+        CourseCode: r.code || "",
+        OrgUnit: r.ou,
+        Registers: r.registers.map(function(x){ return x.name; }).join(" | "),
+        Sessions: r.registers.map(function(x){ return x.sessions; }).join(" | "),
+        AttendanceURL: registersUrl(r.ou)
+      };
+    });
+  }
+  var HEADERS = ["Status","Term","Course","CourseCode","OrgUnit","Registers","Sessions","AttendanceURL"];
+
+  function stamp(){
+    var d = new Date(), p = function(n){ return (n<10?"0":"")+n; };
+    return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+  }
+  function download(blob, name){
+    var url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 0);
+  }
+  function csvCell(v){ v = String(v==null?"":v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+
+  function downloadCsv(){
+    if (!listable().length) return;
+    var rows = exportRows();
+    var lines = [HEADERS.join(",")];
+    rows.forEach(function(r){ lines.push(HEADERS.map(function(h){ return csvCell(r[h]); }).join(",")); });
+    download(new Blob(["\ufeff"+lines.join("\r\n")], { type:"text/csv;charset=utf-8" }), "attendance-check_"+stamp()+".csv");
+  }
+
+  function downloadXls(){
+    if (!listable().length) return;
+    var rows = exportRows();
+    var th = HEADERS.map(function(h){ return "<th>"+esc(h)+"</th>"; }).join("");
+    var trs = rows.map(function(r){
+      return "<tr>"+HEADERS.map(function(h){ return "<td>"+esc(r[h])+"</td>"; }).join("")+"</tr>";
+    }).join("");
+    var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">'
+      + '<head><meta charset="utf-8"></head><body>'
+      + '<table border="1"><thead><tr>'+th+'</tr></thead><tbody>'+trs+'</tbody></table>'
+      + '</body></html>';
+    download(new Blob([html], { type:"application/vnd.ms-excel" }), "attendance-check_"+stamp()+".xls");
+  }
+
+  // ---- Wire up --------------------------------------------------------------
+  runBtn.onclick = runCheck;
+  $("dlCsv").onclick = downloadCsv;
+  $("dlXls").onclick = downloadXls;
+  searchBox.addEventListener("input", function(){ QUERY = searchBox.value; renderTable(); });
+
+  init();
+})();
+</script>
+</body>
+</html>

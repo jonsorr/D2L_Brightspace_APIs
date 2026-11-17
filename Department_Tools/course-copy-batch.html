@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Copy Course Batch
+  Copies one model course into many course offerings in a single run.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Copy Course Batch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   Copy Course Batch
+   Same chassis as the Department Tools pages: session auth, runtime LP
+   version negotiation, myenrollments -> course offerings -> terms.
+   Palette and type match the Department Grade widget.
+   ========================================================================== */
+:root{
+  --blue:#006EB3;            /* primary blue */
+  --blue-dark:#0059a0;
+  --blue-deep:#1a3a5c;       /* panel headers */
+  --amber:#f5a81c;           /* accent amber — ADA-safe on blue */
+
+  --bg:#f0f4f8;
+  --card:#ffffff;
+  --surface:#f7f9fc;
+  --ink:#1a2940;
+  --muted:#607d8b;
+  --faint:#8a9bab;
+  --line:#dde3ec;
+  --line-soft:#eef2f7;
+
+  --ok:#2e7d32;      --ok-bg:#e8f5e9;   --ok-line:#b6ddb9;
+  --warn:#e65100;    --warn-bg:#fff3e6; --warn-line:#f7cfa6;
+  --bad:#c62828;     --bad-bg:#fdecec;  --bad-line:#f3bfbf;
+  --none:#607d8b;    --none-bg:#eef2f6; --none-line:#d8e0e8;
+  --info-bg:#e8f1f8; --info-line:#c4dbec;
+
+  --radius:12px;
+  --mono:'DM Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  --serif:'Playfair Display',Georgia,serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:auto}
+body{
+  font-family:var(--sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  padding:20px 16px 60px;
+}
+.wrap{max-width:1240px;margin:0 auto}
+[hidden]{display:none !important}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+/* ------------------------------- masthead ------------------------------- */
+.masthead{
+  background:var(--blue);color:#fff;border-radius:var(--radius) var(--radius) 0 0;
+  padding:18px 22px 16px;display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;
+}
+.masthead h1{font-family:var(--serif);font-size:22px;font-weight:700;line-height:1.15}
+.masthead p{font-size:12.5px;color:rgba(255,255,255,.82);margin-top:5px;max-width:70ch}
+.masthead .meta{text-align:right;font-size:11.5px;color:rgba(255,255,255,.78);line-height:1.7;flex:0 0 auto}
+.masthead .meta b{color:#fff;font-weight:600}
+.masthead .meta code{font-family:var(--mono);font-size:11px}
+.ribbon{
+  background:var(--blue-dark);color:rgba(255,255,255,.78);font-size:11px;
+  padding:6px 22px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.ribbon b{color:#fff;font-weight:600}
+
+/* --------------------------------- cards -------------------------------- */
+.card{background:var(--card);border:1px solid var(--line);border-top:0;padding:16px 18px}
+.card:last-of-type{border-radius:0 0 var(--radius) var(--radius)}
+.card-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-h h2{font-family:var(--serif);font-size:15px;font-weight:700}
+.card-title{font-family:var(--serif);font-size:15px;font-weight:700;margin-bottom:2px}
+.card-sub{font-size:12px;color:var(--muted);margin-bottom:14px}
+
+.banner{border-radius:9px;padding:11px 13px;margin-bottom:12px;font-size:12.5px;border:1px solid;line-height:1.5}
+.banner b{display:block;margin-bottom:2px;font-weight:600}
+.banner.info{background:var(--info-bg);border-color:var(--info-line);color:#0b4f7d}
+.banner .shout{display:block;margin-top:7px;font-weight:700;letter-spacing:.02em;color:var(--bad)}
+.banner.warn{background:var(--warn-bg);border-color:var(--warn-line);color:#8a4b00}
+.banner.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+
+/* ------------------------------- controls ------------------------------- */
+.row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.col{flex:1 1 330px;min-width:270px}
+.field{margin-bottom:2px}
+.lab{display:block;font-size:12px;font-weight:600;margin-bottom:6px}
+.hint{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.5}
+
+.picker-btn{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  font:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--ink);
+}
+.picker-btn:hover:not(:disabled){border-color:#bcc9d8}
+.picker-btn:disabled{background:var(--surface);color:var(--faint);cursor:not-allowed}
+.picker-btn .chev{color:var(--faint);flex:0 0 auto}
+
+.menu{
+  position:fixed;z-index:9999;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 14px 38px rgba(16,32,52,.18);display:none;flex-direction:column;overflow:hidden;
+}
+.menu[data-open="1"]{display:flex}
+.menu-top{padding:9px;border-bottom:1px solid var(--line-soft);display:flex;gap:6px;align-items:center}
+.menu-top input{flex:1;min-width:0;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12.5px}
+.menu-top button{border:1px solid var(--line);background:var(--card);border-radius:6px;font:inherit;font-size:11.5px;padding:7px 9px;cursor:pointer;color:var(--muted);white-space:nowrap}
+.menu-top button:hover{background:var(--surface)}
+.menu-list{overflow-y:auto;max-height:300px;padding:5px}
+.menu-row{display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:12.5px}
+.menu-row:hover{background:var(--surface)}
+.menu-row input{margin:2px 0 0;flex:0 0 auto;accent-color:var(--blue)}
+.menu-row small{display:block;color:var(--faint);font-size:11px}
+.menu-foot{padding:9px;border-top:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--muted)}
+
+.picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.pick{display:inline-flex;align-items:center;gap:6px;background:var(--info-bg);border:1px solid var(--info-line);
+  color:#0b4f7d;border-radius:20px;padding:2px 7px 2px 10px;font-size:11.5px;font-weight:500}
+.pick button{border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;line-height:1;padding:2px;opacity:.65}
+.pick button:hover{opacity:1}
+
+select.sel,input.txt{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px;background:var(--card);color:var(--ink);width:100%}
+input.txt::placeholder{color:var(--faint)}
+input.txt.mono{font-family:var(--mono)}
+input.txt:focus,select.sel:focus{border-color:var(--blue);outline:0;box-shadow:0 0 0 3px rgba(0,110,179,.13)}
+input.txt.err{border-color:var(--bad);background:var(--bad-bg)}
+.check{display:flex;align-items:flex-start;gap:9px;font-size:12.5px;cursor:pointer}
+.check input{margin:2px 0 0;flex:0 0 auto;accent-color:var(--blue)}
+
+/* ---------------------------------- help -------------------------------- */
+.help{
+  display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+  border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  font-size:10px;font-weight:700;cursor:help;margin-left:5px;vertical-align:1px;
+}
+.help:hover,.help:focus{background:var(--blue);border-color:var(--blue);color:#fff}
+.help-pop{
+  position:fixed;z-index:10000;max-width:330px;background:var(--blue-deep);color:#fff;
+  border-radius:9px;padding:10px 12px;font-size:11.5px;line-height:1.55;
+  box-shadow:0 12px 30px rgba(16,32,52,.28);display:none;
+}
+.help-pop[data-open="1"]{display:block}
+.help-pop b{display:block;font-weight:600;margin-bottom:3px}
+.help-pop code{font-family:var(--mono);background:rgba(255,255,255,.14);padding:1px 4px;border-radius:4px}
+
+/* -------------------------------- buttons ------------------------------- */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
+  color:var(--ink);border-radius:8px;padding:9px 15px;font:inherit;font-size:12.5px;font-weight:600;
+  cursor:pointer;white-space:nowrap;transition:filter .15s,background .15s;
+}
+.btn:hover:not(:disabled){background:var(--surface)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover:not(:disabled){background:var(--blue-dark);filter:none}
+.btn.go{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.go:hover:not(:disabled){filter:brightness(1.1);background:var(--ok)}
+.btn.small{padding:6px 11px;font-size:11.5px;font-weight:500}
+.btn-row{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+
+/* ------------------------------- progress ------------------------------- */
+.bar{height:6px;background:var(--line-soft);border-radius:20px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+
+/* ---------------------------- results toolbar --------------------------- */
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar .grow{flex:1 1 220px;min-width:180px}
+.count-pill{
+  display:inline-flex;align-items:baseline;gap:6px;background:var(--surface);border:1px solid var(--line);
+  border-radius:20px;padding:5px 13px;font-size:12px;color:var(--muted);
+}
+.count-pill b{font-size:15px;font-weight:700;color:var(--blue);font-family:var(--mono)}
+
+/* ------------------------- department groupings ------------------------- */
+.depts{display:flex;flex-direction:column;gap:9px}
+.dept{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.dept-h{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 14px;background:var(--blue-deep);color:#fff;border:0;cursor:pointer;
+  font:inherit;text-align:left;transition:filter .15s;
+}
+.dept-h:hover{filter:brightness(1.14)}
+.dept-h:focus-visible{outline:2px solid var(--amber);outline-offset:-3px}
+.dept-h .dc{font-family:var(--serif);font-size:15px;font-weight:700;letter-spacing:.02em}
+.dept-h .dn{font-size:11.5px;color:rgba(255,255,255,.68);margin-left:10px}
+.dept-h .rt{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.dept-badge{border:1px solid rgba(255,255,255,.28);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:600;background:rgba(255,255,255,.12);white-space:nowrap}
+.dept-badge.on{background:rgba(245,168,28,.42);border-color:rgba(255,255,255,.4)}
+.dept-h .arrow{font-size:12px;opacity:.8;transition:transform .18s}
+.dept:not(.open) .dept-h .arrow{transform:rotate(-90deg)}
+.dept:not(.open) .dept-b{display:none}
+.dept-b{padding:0}
+
+table.gt{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+col.c-pick{width:38px}
+col.c-code{width:200px}
+col.c-stat{width:186px}
+table.gt th{
+  text-align:left;font-size:11px;font-weight:600;color:var(--muted);
+  padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface);white-space:nowrap;
+}
+table.gt td{padding:8px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+table.gt tbody tr:last-child td{border-bottom:0}
+table.gt tbody tr:hover{background:var(--surface)}
+table.gt tbody tr.sel{background:#eef6fc}
+table.gt tbody tr.sel:hover{background:#e5f0f9}
+td.pick-cell{padding-right:0}
+td.pick-cell input{accent-color:var(--blue);cursor:pointer;margin-top:2px}
+th.pick-cell input{accent-color:var(--blue);cursor:pointer}
+.cname{font-weight:500;line-height:1.4}
+.ccode{font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+.ou{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.empty-note{padding:26px 14px;text-align:center;color:var(--faint);font-size:12.5px}
+
+/* ----------------------------- copy statuses ---------------------------- */
+td.stat-cell{white-space:normal}
+.pill{
+  display:inline-block;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:600;
+  border:1px solid;background:var(--none-bg);border-color:var(--none-line);color:var(--none);
+}
+.pill.wait{background:var(--info-bg);border-color:var(--info-line);color:#0b4f7d}
+.pill.busy{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.pill.done{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.pill.part{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.pill.fail{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+.stat-msg{display:block;font-size:10.5px;color:var(--faint);margin-top:3px;font-family:var(--mono)}
+
+.runstats{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.runstat{
+  border:1px solid var(--line);border-radius:9px;padding:8px 14px;background:var(--surface);
+  min-width:96px;
+}
+.runstat .n{font-family:var(--mono);font-size:19px;font-weight:500;line-height:1.1}
+.runstat .k{font-size:11px;color:var(--muted);margin-top:2px}
+.runstat.done .n{color:var(--ok)}
+.runstat.fail .n{color:var(--bad)}
+.runstat.busy .n{color:var(--warn)}
+
+/* --------------------------- floating progress -------------------------- */
+.scrim{
+  position:fixed;inset:0;z-index:10001;background:rgba(16,32,52,.42);
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.float{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 24px 60px rgba(16,32,52,.32);padding:22px 26px;width:min(420px,100%);
+  text-align:center;
+}
+.float-h{font-family:var(--serif);font-size:17px;font-weight:700;margin-bottom:10px}
+.float-n{font-size:14px;color:var(--muted);margin-bottom:12px}
+.float-n b{font-family:var(--mono);font-size:22px;font-weight:500;color:var(--blue)}
+.float .bar{height:8px;margin-top:0}
+.float-sub{font-size:11.5px;color:var(--faint);margin-top:10px;min-height:1.4em}
+.float-warn{
+  margin-top:14px;padding-top:12px;border-top:1px solid var(--line-soft);
+  font-size:11px;font-weight:700;color:var(--bad);letter-spacing:.02em;line-height:1.5;
+}
+
+/* -------------------------------- footer -------------------------------- */
+.foot{font-size:11.5px;color:var(--faint);margin-top:14px;text-align:center}
+
+@media (max-width:640px){
+  body{padding:12px 8px 40px}
+  .masthead{padding:15px 16px 13px}
+  .masthead .meta{text-align:left}
+  .card{padding:14px 13px}
+  table.gt th,table.gt td{padding:7px 8px}
+  col.c-pick{width:30px}
+  col.c-code{width:118px}
+  col.c-stat{width:104px}
+  .pill{font-size:10px;padding:2px 7px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============================== masthead ============================== -->
+  <div class="masthead">
+    <div>
+      <h1>Copy Course Batch</h1>
+      <p>Pick the courses you want the model course copied into, then run the copy.</p>
+    </div>
+    <div class="meta">
+      <div id="whoami">Checking your session…</div>
+      <div id="versions"></div>
+    </div>
+  </div>
+  <div class="ribbon">
+    <span id="mineCount">Reading your courses…</span>
+  </div>
+
+  <div id="banners"></div>
+
+  <!-- ============================ what to scan ============================ -->
+  <div class="card">
+    <div class="card-h">
+      <h2>What to scan</h2>
+      <span class="hint" id="scanState" style="margin:0"></span>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <div class="field">
+          <label class="lab" for="termBtn">Terms</label>
+          <button type="button" class="picker-btn" id="termBtn" disabled aria-haspopup="listbox" aria-expanded="false">
+            <span id="termBtnLabel">Loading terms…</span>
+            <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="picks" id="picks"></div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="field">
+          <label class="lab" for="speed">Speed</label>
+          <select class="sel" id="speed">
+            <option value="4">Gentle — 4 at a time</option>
+            <option value="8">Normal — 8 at a time</option>
+            <option value="12" selected>Fast — 12 at a time</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px">
+      <button type="button" class="btn primary" id="runBtn" disabled>Display courses</button>
+      <label class="check" for="emptyOnly" style="margin:0">
+        <input type="checkbox" id="emptyOnly" checked>
+        <span>Only Display Course Offerings that do not contain content.
+          <span class="help" tabindex="0" role="button" aria-label="What this filter checks"
+            data-help-title="Courses with no content"
+            data-help="Each course in the chosen terms is read through the Content tool. Only courses whose table of contents is completely empty are listed, which is normally what you want before copying a model shell in. Unchecked, every course in the term is listed.">?</span>
+        </span>
+      </label>
+      <span class="note" id="runNote" style="margin:0"></span>
+    </div>
+    <div class="bar" id="barWrap" hidden><i id="bar"></i></div>
+  </div>
+
+  <!-- ============================== courses =============================== -->
+  <div class="card" id="resultsCard" hidden>
+    <div class="card-h">
+      <h2>Target courses</h2>
+      <span class="hint" id="resultState" style="margin:0"></span>
+    </div>
+
+    <div class="toolbar">
+      <div style="flex:0 0 auto">
+        <select class="sel" id="deptFilter" aria-label="Filter by department code" style="width:auto;min-width:190px">
+          <option value="">All departments</option>
+        </select>
+      </div>
+      <div class="grow"><input type="text" class="txt" id="search" placeholder="Search name, code, or term…"></div>
+      <button type="button" class="btn small" id="selAllBtn">Select all shown</button>
+      <button type="button" class="btn small" id="selNoneBtn">Clear selection</button>
+      <span class="count-pill"><b id="selCount">0</b> selected</span>
+    </div>
+
+    <div class="depts" id="depts"></div>
+    <div class="empty-note" id="noMatch" hidden>No courses match this filter.</div>
+  </div>
+
+  <!-- =========================== model + copy ============================ -->
+  <div class="card" id="copyCard" hidden>
+    <div class="card-h"><h2>Model Course</h2></div>
+
+    <div class="banner warn">
+      <b>This writes into live courses</b>
+      Copying adds the model's components to each selected course. It does not empty the course first,
+      so anything already there stays and you can end up with duplicates. There is no undo.
+      <b class="shout">DO NOT LEAVE OR REFRESH THIS PAGE UNTIL ALL OF THE COPIES HAVE BEEN COMPLETED.</b>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <div class="field">
+          <label class="lab" for="modelOu">Source Model Course Org Unit ID
+            <span class="help" tabindex="0" role="button" aria-label="Where to find the model course org unit ID"
+              data-help-title="Source Model Course Org Unit ID"
+              data-help="The course you are copying <em>from</em>. Open the model course in Brightspace and read the number in the address bar — <code>/d2l/home/123456</code> means the org unit ID is <code>123456</code>. It also shows under Course Admin &rsaquo; Course Offering Information as the Org Unit ID. A course template org unit works here too.">?</span>
+          </label>
+          <input type="text" inputmode="numeric" class="txt mono" id="modelOu" placeholder="123456">
+          <div class="hint" id="modelInfo">Enter the org unit and it will be looked up here.</div>
+        </div>
+      </div>
+      <div class="col"></div>
+    </div>
+
+    <div class="btn-row" style="margin-top:18px">
+      <button type="button" class="btn go" id="copyBtn">Copy to Courses</button>
+      <button type="button" class="btn" id="clearBtn">Clear</button>
+      <span class="note" id="copyNote" style="margin:0"></span>
+    </div>
+
+    <div id="runBox" hidden style="margin-top:16px">
+      <div class="bar"><i id="runBar"></i></div>
+      <div class="runstats" id="runStats"></div>
+      <div class="note" id="runFoot"></div>
+    </div>
+  </div>
+
+  <div class="foot">Leaving the page stops the status tracking, so wait for every course to finish.</div>
+</div>
+
+<div class="menu" id="termMenu" role="listbox" aria-multiselectable="true">
+  <div class="menu-top">
+    <input type="text" id="termSearch" placeholder="Find a term…">
+    <button type="button" id="termAll">All</button>
+    <button type="button" id="termNone">None</button>
+  </div>
+  <div class="menu-list" id="termList"></div>
+  <div class="menu-foot"><span id="termFoot">Newest terms first</span><button type="button" class="btn small" id="termDone">Done</button></div>
+</div>
+
+<div class="help-pop" id="helpPop"></div>
+
+<div class="scrim" id="scrim" hidden>
+  <div class="float" role="status" aria-live="polite">
+    <div class="float-h" id="floatTitle">Copying courses</div>
+    <div class="float-n"><b id="floatDone">0</b> of <b id="floatTotal">0</b> courses processed</div>
+    <div class="bar"><i id="floatBar"></i></div>
+    <div class="float-sub" id="floatSub"></div>
+    <div class="float-warn">DO NOT LEAVE OR REFRESH THIS PAGE UNTIL ALL OF THE COPIES HAVE BEEN COMPLETED.</div>
+  </div>
+</div>
+<script>
+(function () {
+'use strict';
+
+/* ============================== configuration ==============================
+   Everything tenant-specific lives here.
+   ========================================================================= */
+var CONFIG = {
+  build: '2026-09-02c',
+  host: '',                       // same origin — the page runs inside Brightspace
+  fallbackLP: '1.28',             // used only if /d2l/api/versions/ can't be read
+  fallbackLE: '1.97',             // copy routes need LE 1.82+; 1.97 adds COMPLETE_WITH_ERRORS
+  courseOfferingTypeId: 3,
+  copyConcurrency: 3,             // copy jobs are heavy — keep this modest
+  pollMs: 5000,
+  pollMaxMs: 20 * 60 * 1000,
+  requestTimeoutMs: 30000,
+  maxRetries: 3,
+  retryBaseMs: 700,
+};
+
+/* ================================= helpers ================================ */
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
+
+function banner(kind, title, body) {
+  var d = document.createElement('div');
+  d.className = 'banner ' + kind;
+  d.innerHTML = (title ? '<b>' + esc(title) + '</b>' : '') + body;
+  $('banners').appendChild(d);
+  return d;
+}
+
+/* ============================== fetch chassis =============================
+   Session authentication — the signed-in user's own Brightspace session is the
+   credential, so there are no API keys anywhere in this file.
+
+   Two lessons from the sibling tools are baked in:
+     * this tenant does not send usable X-Rate-Limit-* headers on session
+       calls, so a missing or zero "remaining" on a 200 is a placeholder, not
+       an exhausted quota. Real exhaustion answers 429.
+     * a request can stall with no response and no error, so every call gets
+       an AbortController timeout and a bounded retry.
+   ========================================================================= */
+function xsrf() {
+  try { return localStorage.getItem('XSRF.Token') || ''; } catch (e) { return ''; }
+}
+
+function rlFetch(url, opts) {
+  opts = opts || {};
+  var attempt = 0;
+
+  function go() {
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, CONFIG.requestTimeoutMs);
+    var headers = Object.assign({ 'Accept': 'application/json' }, opts.headers || {});
+    var tok = xsrf();
+    if (tok) headers['X-Csrf-Token'] = tok;
+
+    return fetch(CONFIG.host + url, {
+      method: opts.method || 'GET',
+      credentials: 'same-origin',
+      headers: headers,
+      body: opts.body,
+      signal: ctl.signal
+    }).then(function (res) {
+      clearTimeout(timer);
+      if (res.status === 429) {
+        var ra = parseFloat(res.headers.get('Retry-After'));
+        var wait = (isFinite(ra) && ra > 0) ? ra * 1000 : CONFIG.retryBaseMs * Math.pow(2, attempt);
+        if (attempt++ < CONFIG.maxRetries) return sleep(Math.min(wait, 15000)).then(go);
+        throw new Error('Brightspace is rate limiting this account. Wait a minute and try again.');
+      }
+      return res;
+    }).catch(function (err) {
+      clearTimeout(timer);
+      var aborted = err && (err.name === 'AbortError');
+      if (attempt++ < CONFIG.maxRetries) {
+        return sleep(CONFIG.retryBaseMs * Math.pow(2, attempt)).then(go);
+      }
+      if (aborted) throw new Error("Brightspace didn't respond. Wait a moment, then reload the page.");
+      throw err;
+    });
+  }
+  return Promise.resolve().then(go);
+}
+
+function getJSON(url) {
+  return rlFetch(url).then(function (res) {
+    if (!res.ok) {
+      var e = new Error('HTTP ' + res.status + ' on ' + url);
+      e.status = res.status;
+      throw e;
+    }
+    return res.json();
+  });
+}
+
+/* Run `worker` over `items`, `n` in flight at a time. */
+function runPool(items, n, worker, onTick) {
+  var i = 0, done = 0, out = new Array(items.length);
+  n = Math.max(1, Math.min(n, items.length || 1));
+
+  function next() {
+    if (i >= items.length) return Promise.resolve();
+    var idx = i++;
+    return Promise.resolve(worker(items[idx], idx)).then(function (v) {
+      out[idx] = v;
+    }).catch(function () {
+      out[idx] = null;
+    }).then(function () {
+      done++;
+      if (onTick) onTick(done, items.length);
+      return next();
+    });
+  }
+  var runners = [];
+  for (var k = 0; k < n; k++) runners.push(next());
+  return Promise.all(runners).then(function () { return out; });
+}
+
+/* ================================== state ================================= */
+var state = {
+  demo: false,
+  lp: CONFIG.fallbackLP,
+  le: CONFIG.fallbackLE,
+  running: false,
+  status: {},           // ou -> {key, msg}
+  courses: [],          // {ou, name, code, dept, termId, termName, offeringName}
+  terms: [],            // {id, name, count}
+  pickedTerms: {},      // termId -> true
+  shown: [],            // courses currently displayed (term-filtered)
+  selected: {},         // ou -> true   (survives filtering)
+  openDepts: {}         // deptCode -> false when collapsed
+};
+
+/* ============================= department code ============================
+   CPT_101_I01_2026FA -> CPT.  Falls back to the letters in front of the
+   course number when the code isn't underscore-delimited, then to the
+   department name Brightspace reports.
+   ========================================================================= */
+function deptOf(code, fallbackName) {
+  var c = String(code || '').trim();
+  if (c) {
+    var first = c.split(/[_\-\s]/)[0];
+    if (first && /^[A-Za-z]{2,6}$/.test(first)) return first.toUpperCase();
+    var m = c.match(/^([A-Za-z]{2,6})/);
+    if (m) return m[1].toUpperCase();
+  }
+  return (fallbackName || 'Other').toUpperCase();
+}
+
+/* The Course Offering Name is taken from Brightspace exactly as it comes back
+   — offering names often already carry the term, e.g.
+   "Intro to Computers (CPT-101-I01) Fall 2026-FULL Semester" */
+
+/* ================================== boot ================================== */
+function boot() {
+
+  detectSession()
+    .then(function (live) {
+      state.demo = !live;
+      if (state.demo) return loadDemo();
+      return loadVersions().then(loadWhoami).then(loadCourses);
+    })
+    .then(buildTerms)
+    .catch(function (err) {
+      $('scanState').textContent = '';
+      $('mineCount').textContent = 'Could not read your courses';
+      banner('bad', "Couldn't read your courses",
+        esc(err && err.message ? err.message : String(err)) +
+        ' Make sure you are signed in to Brightspace in this browser, then reload.');
+    });
+}
+
+function detectSession() {
+  return getJSON('/d2l/api/versions/').then(function () { return true; })
+    .catch(function () { return false; });
+}
+
+function loadVersions() {
+  return getJSON('/d2l/api/versions/').then(function (list) {
+    (list || []).forEach(function (p) {
+      if (p.ProductCode === 'lp' && p.LatestVersion) state.lp = p.LatestVersion;
+      if (p.ProductCode === 'le' && p.LatestVersion) state.le = p.LatestVersion;
+    });
+    paintVersions();
+  }).catch(paintVersions);
+}
+
+function paintVersions() {
+  $('versions').innerHTML = 'LP <code>' + esc(state.lp) + '</code> &middot; LE <code>' + esc(state.le) + '</code>';
+}
+
+function loadWhoami() {
+  return getJSON('/d2l/api/lp/' + state.lp + '/users/whoami').then(function (me) {
+    var nm = [me.FirstName, me.LastName].filter(Boolean).join(' ') || me.UniqueName || 'Signed in';
+    $('whoami').innerHTML = 'Signed in as <b>' + esc(nm) + '</b>';
+  }).catch(function () {
+    $('whoami').textContent = 'Signed in';
+  });
+}
+
+/* enrollments -> the account's own course offerings -> each offering's term */
+function loadCourses() {
+  $('scanState').textContent = 'Reading your enrollments…';
+  return readEnrollments().then(function (offerings) {
+    if (!offerings.length) {
+      $('mineCount').textContent = 'No course offerings found on your account';
+      return [];
+    }
+    $('barWrap').hidden = false;
+    var n = parseInt($('speed').value, 10) || 8;
+
+    return runPool(offerings, n, function (o) {
+      return getJSON('/d2l/api/lp/' + state.lp + '/courses/' + o.Id)
+        .then(function (c) { return { ou: o.Id, raw: c, fallbackName: o.Name, fallbackCode: o.Code }; })
+        .catch(function () { return null; });
+    }, function (done, total) {
+      $('bar').style.width = Math.round((done / total) * 100) + '%';
+      $('scanState').textContent = 'Reading course details… ' + done + ' of ' + total;
+    }).then(function (rows) {
+      var kept = [], inactive = 0, unread = 0;
+
+      rows.forEach(function (r) {
+        if (!r || !r.raw) { unread++; return; }
+        var c = r.raw;
+        if (c.IsActive === false) { inactive++; return; }
+        var termName = (c.Semester && c.Semester.Name) || '';
+        var termId = (c.Semester && (c.Semester.Identifier != null ? c.Semester.Identifier : c.Semester.Id));
+        var code = c.Code || r.fallbackCode || '';
+        var name = c.Name || r.fallbackName || '';
+        kept.push({
+          ou: String(r.ou),
+          name: name,
+          code: code,
+          dept: deptOf(code, c.Department && c.Department.Name),
+          termId: termId != null ? String(termId) : '0',
+          termName: termName || 'No term',
+          offeringName: String(name || '').trim()
+        });
+      });
+
+      state.courses = kept;
+      $('barWrap').hidden = true;
+      $('scanState').textContent = '';
+      $('mineCount').textContent =
+        plural(kept.length, 'active course offering') +
+        (inactive ? ' · ' + inactive + ' inactive skipped' : '') +
+        (unread ? ' · ' + unread + " couldn't be read" : '');
+      return kept;
+    });
+  });
+}
+
+function readEnrollments() {
+  var out = [], bookmark = null, guard = 0;
+
+  function page() {
+    var url = '/d2l/api/lp/' + state.lp + '/enrollments/myenrollments/?orgUnitTypeId=' +
+      CONFIG.courseOfferingTypeId + (bookmark ? '&bookmark=' + encodeURIComponent(bookmark) : '');
+    return getJSON(url).then(function (res) {
+      (res.Items || []).forEach(function (it) {
+        var ou = it.OrgUnit || {};
+        if (ou.Id != null) out.push({ Id: ou.Id, Name: ou.Name, Code: ou.Code });
+      });
+      $('scanState').textContent = 'Reading your enrollments… ' + out.length + ' found';
+      var pi = res.PagingInfo || {};
+      if (pi.HasMoreItems && pi.Bookmark && guard++ < 200) {
+        bookmark = pi.Bookmark;
+        return page();
+      }
+      return out;
+    });
+  }
+  return page();
+}
+
+/* ================================== terms ================================= */
+function buildTerms() {
+  var map = {};
+  state.courses.forEach(function (c) {
+    if (!map[c.termId]) map[c.termId] = { id: c.termId, name: c.termName, count: 0 };
+    map[c.termId].count++;
+  });
+  // larger org unit id = newer term
+  state.terms = Object.keys(map).map(function (k) { return map[k]; })
+    .sort(function (a, b) { return (parseInt(b.id, 10) || 0) - (parseInt(a.id, 10) || 0); });
+
+  renderTermList();
+  $('termBtn').disabled = state.terms.length === 0;
+  $('termBtnLabel').textContent = state.terms.length ? 'Pick one or more terms' : 'No terms found';
+  $('termFoot').textContent = plural(state.terms.length, 'term') + ', newest first';
+  syncRunBtn();
+}
+
+function renderTermList() {
+  var q = ($('termSearch').value || '').trim().toLowerCase();
+  $('termList').innerHTML = state.terms.filter(function (t) {
+    return !q || t.name.toLowerCase().indexOf(q) !== -1;
+  }).map(function (t) {
+    return '<label class="menu-row"><input type="checkbox" data-term="' + esc(t.id) + '"' +
+      (state.pickedTerms[t.id] ? ' checked' : '') + '>' +
+      '<span>' + esc(t.name) + '<small>' + plural(t.count, 'course') + '</small></span></label>';
+  }).join('') || '<div class="empty-note" style="padding:16px">No terms match.</div>';
+}
+
+/* The list is never rebuilt from inside a click — rebuilding innerHTML mid-click
+   detaches the clicked element and the menu closes on the outside-click handler. */
+$('termList').addEventListener('change', function (e) {
+  var cb = e.target.closest('input[data-term]');
+  if (!cb) return;
+  var id = cb.getAttribute('data-term');
+  if (cb.checked) state.pickedTerms[id] = true; else delete state.pickedTerms[id];
+  renderPicks();
+  syncRunBtn();
+});
+
+function renderPicks() {
+  var ids = Object.keys(state.pickedTerms);
+  $('picks').innerHTML = ids.map(function (id) {
+    var t = state.terms.filter(function (x) { return x.id === id; })[0];
+    return '<span class="pick">' + esc(t ? t.name : id) +
+      '<button type="button" data-drop="' + esc(id) + '" aria-label="Remove">&times;</button></span>';
+  }).join('');
+  $('termBtnLabel').textContent = ids.length
+    ? plural(ids.length, 'term') + ' selected'
+    : (state.terms.length ? 'Pick one or more terms' : 'No terms found');
+}
+
+$('picks').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-drop]');
+  if (!b) return;
+  delete state.pickedTerms[b.getAttribute('data-drop')];
+  renderPicks();
+  renderTermList();
+  syncRunBtn();
+});
+
+function openMenu(open) {
+  var m = $('termMenu'), btn = $('termBtn');
+  if (open) {
+    var r = btn.getBoundingClientRect();
+    m.style.left = r.left + 'px';
+    m.style.top = (r.bottom + 6) + 'px';
+    m.style.width = Math.max(r.width, 280) + 'px';
+    m.setAttribute('data-open', '1');
+    btn.setAttribute('aria-expanded', 'true');
+    $('termSearch').focus();
+  } else {
+    m.removeAttribute('data-open');
+    btn.setAttribute('aria-expanded', 'false');
+  }
+}
+$('termBtn').addEventListener('click', function () {
+  openMenu($('termMenu').getAttribute('data-open') !== '1');
+});
+$('termDone').addEventListener('click', function () { openMenu(false); });
+$('termSearch').addEventListener('input', renderTermList);
+$('termAll').addEventListener('click', function () {
+  state.terms.forEach(function (t) { state.pickedTerms[t.id] = true; });
+  renderTermList(); renderPicks(); syncRunBtn();
+});
+$('termNone').addEventListener('click', function () {
+  state.pickedTerms = {};
+  renderTermList(); renderPicks(); syncRunBtn();
+});
+document.addEventListener('mousedown', function (e) {
+  if ($('termMenu').getAttribute('data-open') !== '1') return;
+  if (e.target.closest('#termMenu') || e.target.closest('#termBtn')) return;
+  openMenu(false);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { openMenu(false); hideHelp(); }
+});
+window.addEventListener('resize', function () { openMenu(false); hideHelp(); });
+
+function syncRunBtn() {
+  var n = Object.keys(state.pickedTerms).length;
+  $('runBtn').disabled = n === 0 || state.courses.length === 0;
+  $('runNote').textContent = n === 0 ? 'Pick at least one term.' : '';
+}
+
+/* ============================= display courses ============================ */
+/* ============================ floating progress ===========================
+   Fixed and centred, so it stays put while the page scrolls. It also keeps
+   the DO NOT LEAVE warning in front of the user for the whole run.
+   ========================================================================= */
+function floatOpen(title, total, warn) {
+  $('floatTitle').textContent = title;
+  $('floatTotal').textContent = total;
+  $('floatDone').textContent = '0';
+  $('floatBar').style.width = '0';
+  $('floatSub').textContent = '';
+  $('scrim').querySelector('.float-warn').hidden = !warn;
+  $('scrim').hidden = false;
+}
+function floatSet(done, total, sub) {
+  $('floatDone').textContent = done;
+  $('floatTotal').textContent = total;
+  $('floatBar').style.width = total ? Math.round((done / total) * 100) + '%' : '0';
+  if (sub != null) $('floatSub').textContent = sub;
+}
+function floatClose() { $('scrim').hidden = true; }
+
+/* ============================== content check =============================
+   Same source as the Content Check widget: the course's table of contents.
+   A 404 means the Content tool has nothing in it, which counts as empty.
+   A course we genuinely cannot read is left OUT of the empty list — calling
+   it empty could put a copy on top of a course that already has content.
+   ========================================================================= */
+function readToc(ou) {
+  return rlFetch('/d2l/api/le/' + state.le + '/' + ou + '/content/toc').then(function (res) {
+    if (res.status === 404) return { modules: 0, topics: 0 };
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json().then(countToc);
+  });
+}
+
+function countToc(toc) {
+  var modules = 0, topics = 0;
+  (function walk(list) {
+    (list || []).forEach(function (m) {
+      modules++;
+      topics += ((m.Topics || []).length);
+      walk(m.Modules);
+    });
+  })(toc && toc.Modules);
+  return { modules: modules, topics: topics };
+}
+
+/* Matches the Content Check widget's default rule: a course counts as having
+   content when it has any module or any topic, so an empty module still
+   reads as "built". */
+function hasContent(c) { return (c.modules + c.topics) > 0; }
+
+function scanForEmpty(courses) {
+  var n = parseInt($('speed').value, 10) || 8;
+  var empty = [], unreadable = 0;
+
+  floatOpen('Checking course content', courses.length, false);
+  return runPool(courses, n, function (c) {
+    if (state.demo) {
+      // preview data: every third course is empty
+      return Promise.resolve(Number(c.ou) % 3 === 0 ? { modules: 0, topics: 0 } : { modules: 4, topics: 9 });
+    }
+    return readToc(c.ou).catch(function () { return null; });
+  }, function (done, total) {
+    floatSet(done, total, 'Reading the Content tool in each course');
+  }).then(function (counts) {
+    counts.forEach(function (v, i) {
+      if (!v) { unreadable++; return; }
+      if (!hasContent(v)) empty.push(courses[i]);
+    });
+    floatClose();
+    return { empty: empty, unreadable: unreadable };
+  });
+}
+
+/* ============================= display courses ============================ */
+$('runBtn').addEventListener('click', function () {
+  if (state.running) return;
+
+  var inTerms = state.courses.filter(function (c) { return state.pickedTerms[c.termId]; });
+  var termCount = Object.keys(state.pickedTerms).length;
+
+  $('runBtn').disabled = true;
+  $('runNote').textContent = '';
+
+  var work = $('emptyOnly').checked
+    ? scanForEmpty(inTerms)
+    : Promise.resolve({ empty: inTerms, unreadable: 0 });
+
+  work.then(function (res) {
+    show(res.empty, termCount, inTerms.length, res.unreadable, $('emptyOnly').checked);
+  }).catch(function (err) {
+    floatClose();
+    $('runNote').textContent = (err && err.message) ? err.message : 'The content check failed.';
+  }).then(function () {
+    $('runBtn').disabled = Object.keys(state.pickedTerms).length === 0;
+  });
+});
+
+function show(list, termCount, scanned, unreadable, filtered) {
+  state.shown = list.slice().sort(function (a, b) {
+    return a.dept.localeCompare(b.dept) ||
+      (a.code || '').localeCompare(b.code || '') ||
+      (a.name || '').localeCompare(b.name || '');
+  });
+
+  // drop selections for courses no longer on screen
+  Object.keys(state.selected).forEach(function (ou) {
+    if (!state.shown.some(function (c) { return c.ou === ou; })) delete state.selected[ou];
+  });
+
+  buildDeptFilter();
+  $('resultsCard').hidden = false;
+  $('copyCard').hidden = false;
+  $('resultState').textContent =
+    plural(state.shown.length, 'course') +
+    (filtered ? ' with no content, out of ' + scanned + ' scanned' : '') +
+    ' in ' + plural(termCount, 'term') +
+    (unreadable ? ' · ' + unreadable + " couldn't be read and were left out" : '');
+  $('noMatch').textContent = state.shown.length
+    ? 'No courses match this filter.'
+    : (filtered ? 'Every course in those terms already has content.' : 'No courses in those terms.');
+  renderDepts();
+  $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function buildDeptFilter() {
+  var seen = {}, list = [];
+  state.shown.forEach(function (c) { if (!seen[c.dept]) { seen[c.dept] = 1; list.push(c.dept); } });
+  list.sort();
+  var cur = $('deptFilter').value;
+  $('deptFilter').innerHTML = '<option value="">All departments</option>' +
+    list.map(function (d) { return '<option value="' + esc(d) + '">' + esc(d) + '</option>'; }).join('');
+  if (list.indexOf(cur) !== -1) $('deptFilter').value = cur;
+}
+
+function visibleCourses() {
+  var dept = $('deptFilter').value;
+  var q = ($('search').value || '').trim().toLowerCase();
+  return state.shown.filter(function (c) {
+    if (dept && c.dept !== dept) return false;
+    if (!q) return true;
+    return (c.offeringName + ' ' + c.code + ' ' + c.termName + ' ' + c.ou).toLowerCase().indexOf(q) !== -1;
+  });
+}
+
+function renderDepts() {
+  var rows = visibleCourses();
+  var groups = [], byDept = {};
+  rows.forEach(function (c) {
+    if (!byDept[c.dept]) { byDept[c.dept] = { dept: c.dept, courses: [] }; groups.push(byDept[c.dept]); }
+    byDept[c.dept].courses.push(c);
+  });
+
+  $('noMatch').hidden = rows.length > 0;
+  $('depts').innerHTML = groups.map(function (g) {
+    var picked = g.courses.filter(function (c) { return state.selected[c.ou]; }).length;
+    var allOn = picked === g.courses.length && picked > 0;
+    var open = state.openDepts[g.dept] !== false;
+
+    var body = g.courses.map(function (c) {
+      var on = !!state.selected[c.ou];
+      return '<tr class="' + (on ? 'sel' : '') + '" data-ou="' + esc(c.ou) + '">' +
+        '<td class="pick-cell"><input type="checkbox" data-pick="' + esc(c.ou) + '"' + (on ? ' checked' : '') +
+          ' aria-label="Select ' + esc(c.offeringName) + '"></td>' +
+        '<td><div class="cname">' + esc(c.offeringName) + '</div>' +
+          '<div class="ou">Org unit ' + esc(c.ou) + '</div></td>' +
+        '<td class="ccode">' + esc(c.code || '—') + '</td>' +
+        '<td class="stat-cell" data-stat="' + esc(c.ou) + '">' + statusHTML(c.ou) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    return '<div class="dept' + (open ? ' open' : '') + '" data-dept="' + esc(g.dept) + '">' +
+      '<button type="button" class="dept-h" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+        '<span><span class="dc">' + esc(g.dept) + '</span>' +
+          '<span class="dn">' + plural(g.courses.length, 'course') + '</span></span>' +
+        '<span class="rt">' +
+          (picked ? '<span class="dept-badge on">' + picked + ' selected</span>' : '<span class="dept-badge">none selected</span>') +
+          '<span class="arrow">&#9662;</span>' +
+        '</span>' +
+      '</button>' +
+      '<div class="dept-b"><table class="gt">' +
+        '<colgroup><col class="c-pick"><col class="c-name"><col class="c-code"><col class="c-stat"></colgroup>' +
+        '<thead><tr>' +
+        '<th class="pick-cell"><input type="checkbox" data-pickall="' + esc(g.dept) + '"' + (allOn ? ' checked' : '') +
+          ' aria-label="Select every ' + esc(g.dept) + ' course shown"></th>' +
+        '<th>Course Offering Name</th><th>Course Offering Code</th><th>Copy status</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+    '</div>';
+  }).join('');
+
+  updateSelCount();
+}
+
+$('depts').addEventListener('click', function (e) {
+  var head = e.target.closest('.dept-h');
+  if (head && !e.target.closest('input')) {
+    var panel = head.closest('.dept');
+    var d = panel.getAttribute('data-dept');
+    var open = !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    head.setAttribute('aria-expanded', String(open));
+    state.openDepts[d] = open;
+  }
+});
+
+$('depts').addEventListener('change', function (e) {
+  var one = e.target.closest('[data-pick]');
+  if (one) {
+    var ou = one.getAttribute('data-pick');
+    if (one.checked) state.selected[ou] = true; else delete state.selected[ou];
+    syncSelection();
+    return;
+  }
+  var all = e.target.closest('[data-pickall]');
+  if (all) {
+    var dept = all.getAttribute('data-pickall');
+    var on = all.checked;
+    visibleCourses().forEach(function (c) {
+      if (c.dept !== dept) return;
+      if (on) state.selected[c.ou] = true; else delete state.selected[c.ou];
+    });
+    syncSelection();
+  }
+});
+
+/* Selection changes update the existing table in place. Rebuilding innerHTML
+   here would detach the checkbox the user just clicked. */
+function syncSelection() {
+  if (state.running) return;
+  Array.prototype.forEach.call($('depts').querySelectorAll('.dept'), function (panel) {
+    var rows = panel.querySelectorAll('tbody tr[data-ou]');
+    var picked = 0;
+    Array.prototype.forEach.call(rows, function (tr) {
+      var on = !!state.selected[tr.getAttribute('data-ou')];
+      if (on) picked++;
+      tr.classList.toggle('sel', on);
+      var cb = tr.querySelector('[data-pick]');
+      if (cb && cb.checked !== on) cb.checked = on;
+    });
+    var badge = panel.querySelector('.dept-badge');
+    if (badge) {
+      badge.className = 'dept-badge' + (picked ? ' on' : '');
+      badge.textContent = picked ? picked + ' selected' : 'none selected';
+    }
+    var head = panel.querySelector('[data-pickall]');
+    if (head) head.checked = picked > 0 && picked === rows.length;
+  });
+  updateSelCount();
+}
+
+function updateSelCount() {
+  $('selCount').textContent = Object.keys(state.selected).length;
+}
+
+$('deptFilter').addEventListener('change', renderDepts);
+$('search').addEventListener('input', renderDepts);
+$('selAllBtn').addEventListener('click', function () {
+  visibleCourses().forEach(function (c) { state.selected[c.ou] = true; });
+  syncSelection();
+});
+$('selNoneBtn').addEventListener('click', function () {
+  state.selected = {};
+  syncSelection();
+});
+
+/* =================================== CSV ================================== */
+function selectedCourses() {
+  return state.shown.filter(function (c) { return state.selected[c.ou]; });
+}
+
+/* ============================ model lookup ================================
+   Resolving the model org unit before the run is a cheap safety net: a typo
+   in the box shows up as "couldn't find it" instead of copying the wrong
+   course into thirty sections.
+   ========================================================================= */
+var modelLookup = { id: null, ok: false, label: '' };
+var modelTimer = null;
+
+function setModelInfo(html, tone) {
+  $('modelInfo').innerHTML = tone
+    ? '<span style="color:var(' + tone + ')">' + html + '</span>'
+    : html;
+}
+
+function lookupModel() {
+  var id = ($('modelOu').value || '').trim();
+  modelLookup = { id: id, ok: false, label: '' };
+
+  if (!id) return setModelInfo('Enter the org unit and it will be looked up here.');
+  if (!/^\d+$/.test(id)) return setModelInfo('Org unit IDs are digits only.', '--bad');
+  if (state.demo) {
+    modelLookup.ok = true;
+    return setModelInfo('Preview mode, so the model course is not looked up.');
+  }
+
+  setModelInfo('Looking it up…');
+  getJSON('/d2l/api/lp/' + state.lp + '/courses/' + id)
+    .then(function (c) { return { name: c.Name, code: c.Code, kind: 'course offering' }; })
+    .catch(function () {
+      // a course template is also a valid copy source
+      return getJSON('/d2l/api/lp/' + state.lp + '/coursetemplates/' + id)
+        .then(function (t) { return { name: t.Name, code: t.Code, kind: 'course template' }; });
+    })
+    .then(function (m) {
+      if (($('modelOu').value || '').trim() !== id) return;   // box changed while we waited
+      modelLookup.ok = true;
+      modelLookup.label = m.name;
+      setModelInfo('Copying from <b>' + esc(m.name) + '</b>' +
+        (m.code ? ' <span class="ccode">' + esc(m.code) + '</span>' : '') +
+        ' — ' + m.kind + '.', '--ok');
+    })
+    .catch(function () {
+      if (($('modelOu').value || '').trim() !== id) return;
+      setModelInfo('No course offering or template found with that org unit ID, ' +
+        'or your account cannot read it.', '--bad');
+    });
+}
+
+$('modelOu').addEventListener('input', function () {
+  clearTimeout(modelTimer);
+  modelTimer = setTimeout(lookupModel, 450);
+});
+
+/* ============================== copy statuses ============================= */
+var STATUS = {
+  wait:  { cls: 'wait', label: 'Queued' },
+  busy:  { cls: 'busy', label: 'Copying' },
+  done:  { cls: 'done', label: 'Complete' },
+  part:  { cls: 'part', label: 'Complete with errors' },
+  fail:  { cls: 'fail', label: 'Failed' },
+  stop:  { cls: 'fail', label: 'Cancelled' }
+};
+
+function setStatus(ou, key, msg) {
+  state.status[ou] = { key: key, msg: msg || '' };
+  var cell = $('depts').querySelector('td.stat-cell[data-stat="' + ou + '"]');
+  if (cell) cell.innerHTML = statusHTML(ou);
+  paintRunStats();
+  if (state.running && !$('scrim').hidden) {
+    var total = Object.keys(state.status).length, fin = 0;
+    Object.keys(state.status).forEach(function (o) {
+      var k = state.status[o].key;
+      if (k !== 'wait' && k !== 'busy') fin++;
+    });
+    floatSet(fin, total, fin === total ? 'Finishing up…' : 'Copy jobs are queued and running');
+  }
+}
+
+function statusHTML(ou) {
+  var st = state.status[ou];
+  if (!st) return '<span style="color:var(--faint)">—</span>';
+  var def = STATUS[st.key] || STATUS.wait;
+  return '<span class="pill ' + def.cls + '">' + esc(def.label) + '</span>' +
+    (st.msg ? '<span class="stat-msg">' + esc(st.msg) + '</span>' : '');
+}
+
+function paintRunStats() {
+  var counts = { wait: 0, busy: 0, done: 0, part: 0, fail: 0, stop: 0 };
+  Object.keys(state.status).forEach(function (ou) {
+    var k = state.status[ou].key;
+    if (counts[k] != null) counts[k]++;
+  });
+  var total = Object.keys(state.status).length;
+  var finished = counts.done + counts.part + counts.fail + counts.stop;
+
+  $('runStats').innerHTML =
+    '<div class="runstat"><div class="n">' + total + '</div><div class="k">Courses</div></div>' +
+    '<div class="runstat busy"><div class="n">' + (counts.wait + counts.busy) + '</div><div class="k">In progress</div></div>' +
+    '<div class="runstat done"><div class="n">' + counts.done + '</div><div class="k">Complete</div></div>' +
+    (counts.part ? '<div class="runstat busy"><div class="n">' + counts.part + '</div><div class="k">With errors</div></div>' : '') +
+    '<div class="runstat fail"><div class="n">' + (counts.fail + counts.stop) + '</div><div class="k">Failed</div></div>';
+
+  $('runBar').style.width = total ? Math.round((finished / total) * 100) + '%' : '0';
+}
+
+/* ================================ the run ================================= */
+function problems() {
+  var errs = [];
+  $('modelOu').classList.remove('err');
+
+  var model = ($('modelOu').value || '').trim();
+  if (!selectedCourses().length) errs.push('Select at least one course.');
+  if (!model) { errs.push('Enter the Source Model Course Org Unit ID.'); $('modelOu').classList.add('err'); }
+  else if (!/^\d+$/.test(model)) { errs.push('The Source Model Course Org Unit ID should be digits only.'); $('modelOu').classList.add('err'); }
+  else if (state.selected[model]) {
+    errs.push('The model course is also selected as a target — a course cannot be copied into itself.');
+    $('modelOu').classList.add('err');
+  }
+  return errs;
+}
+
+function showProblems(errs) {
+  $('copyNote').innerHTML = '<span style="color:var(--bad)">' + errs.map(esc).join(' ') + '</span>';
+}
+
+function setRunning(on) {
+  state.running = on;
+  $('copyBtn').disabled = on;
+  $('copyBtn').textContent = on ? 'Copying…' : 'Copy to Courses';
+  $('clearBtn').disabled = on;
+  $('runBtn').disabled = on || Object.keys(state.pickedTerms).length === 0;
+  $('emptyOnly').disabled = on;
+  $('modelOu').disabled = on;
+  Array.prototype.forEach.call($('depts').querySelectorAll('input[type=checkbox]'), function (cb) {
+    cb.disabled = on;
+  });
+}
+
+$('copyBtn').addEventListener('click', function () {
+  if (state.running) return;
+  var errs = problems();
+  if (errs.length) return showProblems(errs);
+
+  var targets = selectedCourses();
+  var model = ($('modelOu').value || '').trim();
+  var who = modelLookup.ok && modelLookup.label ? '"' + modelLookup.label + '"' : 'org unit ' + model;
+
+  if (!confirm(
+    'Copy ' + who + ' into ' + plural(targets.length, 'course') + '?\n\n' +
+    'Every component of the model course is added to each selected course. ' +
+    'Existing content in those courses is left in place, so anything already there may end up duplicated.\n\n' +
+    'This cannot be undone.\n\n' +
+    'DO NOT LEAVE OR REFRESH THIS PAGE UNTIL ALL OF THE COPIES HAVE BEEN COMPLETED.')) return;
+
+  $('copyNote').textContent = '';
+  $('runBox').hidden = false;
+  state.status = {};
+  targets.forEach(function (c) { state.status[c.ou] = { key: 'wait', msg: '' }; });
+  renderDepts();
+  setRunning(true);
+  $('runFoot').textContent = 'Queuing copy jobs…';
+  floatOpen('Copying courses', targets.length, true);
+  floatSet(0, targets.length, 'Starting…');
+
+  runPool(targets, CONFIG.copyConcurrency, function (c) {
+    return copyOne(model, c);
+  }, function (done, total) {
+    floatSet(done, total, done === total ? 'Finishing up…' : 'Copy jobs are queued and running');
+  }).then(function () {
+    floatClose();
+    setRunning(false);
+    var c = { done: 0, part: 0, fail: 0 };
+    Object.keys(state.status).forEach(function (ou) {
+      var k = state.status[ou].key;
+      if (k === 'done') c.done++;
+      else if (k === 'part') c.part++;
+      else c.fail++;
+    });
+    $('runFoot').textContent = 'Finished — ' + c.done + ' complete' +
+      (c.part ? ', ' + c.part + ' complete with errors' : '') +
+      (c.fail ? ', ' + c.fail + ' failed' : '') + '.';
+  });
+});
+
+/* One target: queue the job, then watch it to a terminal state.
+
+   Two things the sample snippet got wrong, both confirmed against the
+   Valence docs:
+     * Components must be OMITTED (or null) to copy everything. An empty
+       array is documented as a 400 — "invalid (empty) course component
+       list" — and a non-empty one copies ONLY what it lists.
+     * a session-authenticated POST needs the X-Csrf-Token header, which
+       rlFetch adds from localStorage. */
+function copyOne(sourceId, course) {
+  var ou = course.ou;
+  setStatus(ou, 'busy', 'starting');
+
+  return rlFetch('/d2l/api/le/' + state.le + '/import/' + ou + '/copy/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ SourceOrgUnitId: parseInt(sourceId, 10) })
+  }).then(function (res) {
+    if (res.status === 202 || res.ok) {
+      return res.json().catch(function () { return {}; }).then(function (j) {
+        if (!j || !j.JobToken) {
+          setStatus(ou, 'busy', 'queued, no token returned');
+          return null;
+        }
+        setStatus(ou, 'busy', 'job ' + j.JobToken);
+        return watchJob(ou, j.JobToken);
+      });
+    }
+    return res.text().catch(function () { return ''; }).then(function (body) {
+      setStatus(ou, 'fail', explainCopyError(res.status, body));
+    });
+  }).catch(function (err) {
+    setStatus(ou, 'fail', (err && err.message) ? err.message : 'request failed');
+  });
+}
+
+function explainCopyError(status, body) {
+  var trimmed = String(body || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+  if (status === 400) return 'HTTP 400 — source org unit not found or rejected. ' + trimmed;
+  if (status === 403) return 'HTTP 403 — your account cannot start a copy into this course.';
+  if (status === 404) return 'HTTP 404 — this target course was not found.';
+  return 'HTTP ' + status + (trimmed ? ' — ' + trimmed : '');
+}
+
+function watchJob(ou, token) {
+  var started = Date.now();
+
+  function poll() {
+    return sleep(CONFIG.pollMs).then(function () {
+      if (Date.now() - started > CONFIG.pollMaxMs) {
+        setStatus(ou, 'busy', 'still running after ' +
+          Math.round(CONFIG.pollMaxMs / 60000) + ' min — check the course itself');
+        return;
+      }
+      return getJSON('/d2l/api/le/' + state.le + '/import/' + ou + '/copy/' + encodeURIComponent(token))
+        .then(function (j) {
+          var st = String((j && j.Status) || '').toUpperCase();
+          if (st === 'COMPLETE') { setStatus(ou, 'done', ''); return; }
+          if (st === 'COMPLETE_WITH_ERRORS') { setStatus(ou, 'part', 'check the copy log'); return; }
+          if (st === 'FAILED') { setStatus(ou, 'fail', 'copy job failed'); return; }
+          if (st === 'CANCELLED') { setStatus(ou, 'stop', 'copy job cancelled'); return; }
+          setStatus(ou, 'busy', st ? st.toLowerCase() : 'processing');
+          return poll();
+        })
+        .catch(function () {
+          // a transient status read shouldn't kill the watch
+          return poll();
+        });
+    });
+  }
+  return poll();
+}
+
+$('clearBtn').addEventListener('click', function () {
+  if (state.running) return;
+  var dirty = Object.keys(state.selected).length || $('modelOu').value;
+  if (dirty && !confirm('Clear the selected courses and the model course box?')) return;
+  state.selected = {};
+  state.status = {};
+  $('modelOu').value = '';
+  $('modelOu').classList.remove('err');
+  $('copyNote').textContent = '';
+  $('runBox').hidden = true;
+  setModelInfo('Enter the org unit and it will be looked up here.');
+  renderDepts();
+});
+
+/* ================================== help ================================== */
+function hideHelp() { $('helpPop').removeAttribute('data-open'); }
+
+function showHelp(el) {
+  var pop = $('helpPop');
+  pop.innerHTML = '<b>' + esc(el.getAttribute('data-help-title') || 'Where to find it') + '</b>' +
+    el.getAttribute('data-help');
+  pop.setAttribute('data-open', '1');
+  var r = el.getBoundingClientRect();
+  var w = pop.offsetWidth;
+  var left = Math.min(Math.max(8, r.left - 8), window.innerWidth - w - 8);
+  var top = r.bottom + 8;
+  if (top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - pop.offsetHeight - 8);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+document.addEventListener('mouseover', function (e) {
+  var h = e.target.closest('.help');
+  if (h) showHelp(h);
+});
+document.addEventListener('mouseout', function (e) {
+  if (!e.target.closest('.help')) return;
+  var to = e.relatedTarget;
+  if (to && to.closest && to.closest('.help-pop')) return;
+  hideHelp();
+});
+document.addEventListener('focusin', function (e) {
+  var h = e.target.closest('.help');
+  if (h) showHelp(h); else if (!e.target.closest('.help-pop')) hideHelp();
+});
+document.addEventListener('click', function (e) {
+  var h = e.target.closest('.help');
+  if (h) { e.preventDefault(); showHelp(h); }
+});
+
+/* ================================ demo mode ===============================
+   Opened outside a Brightspace session the page still demonstrates itself on
+   sample data, so it can be reviewed before it goes into Manage Files.
+   ========================================================================= */
+function loadDemo() {
+  banner('warn', 'Preview mode',
+    'No Brightspace session was found, so this page is showing sample courses. ' +
+    'Everything works — the course list is invented. Put the file in Manage Files and open it from inside Brightspace for real data.');
+
+  var terms = [
+    { id: '996612', name: 'Fall 2026-FULL Semester', tag: '2026FA' },
+    { id: '994310', name: 'Summer 2026-7 Wk Session', tag: '2026SU' }
+  ];
+  var seeds = [
+    ['CPT', '101', 'Intro to Computers'], ['CPT', '168', 'Programming Logic'],
+    ['ENG', '101', 'English Composition I'], ['ENG', '102', 'English Composition II'],
+    ['PSY', '201', 'General Psychology'], ['PSY', '203', 'Human Growth & Develop'],
+    ['MAT', '110', 'College Algebra'], ['BIO', '210', 'Anatomy & Physiology I'],
+    ['ACC', '101', 'Accounting Principles I'], ['IST', '200', 'Cisco LAN']
+  ];
+  var sections = ['I01', 'A1Y', 'B02'];
+  var ou = 1200000, list = [];
+
+  terms.forEach(function (t) {
+    seeds.forEach(function (s, si) {
+      sections.slice(0, (si % 3) + 1).forEach(function (sec) {
+        var code = s[0] + '_' + s[1] + '_' + sec + '_' + t.tag;
+        var name = s[2] + ' (' + s[0] + '-' + s[1] + '-' + sec + ') ' + t.name;
+        list.push({
+          ou: String(ou++),
+          name: name,
+          code: code,
+          dept: s[0],
+          termId: t.id,
+          termName: t.name,
+          offeringName: name
+        });
+      });
+    });
+  });
+
+  state.courses = list;
+  state.lp = '1.62';
+  state.le = '1.97';
+  $('whoami').innerHTML = 'Preview — <b>not signed in</b>';
+  paintVersions();
+  $('mineCount').textContent = plural(list.length, 'sample course offering');
+  $('scanState').textContent = '';
+  return Promise.resolve(list);
+}
+
+boot();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1528 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Enrollment Batch CSV Builder
+  Builds an ENROLL CSV for the Bulk User Management (BUM) tool from selected courses, people, and roles.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enrollment Batch — CSV Builder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================================
+   Enrollment Batch — CSV Builder
+   Same chassis as the Department Tools pages: session auth, runtime LP
+   version negotiation, myenrollments -> course offerings -> terms.
+   Palette and type match the Department Grade widget.
+
+   Output: one CSV row per selected course —
+     ENROLL,Username,Org Defined ID,Role Name,Org Unit Code
+   ========================================================================== */
+:root{
+  --blue:#006EB3;            /* primary blue */
+  --blue-dark:#0059a0;
+  --blue-deep:#1a3a5c;       /* panel headers */
+  --amber:#f5a81c;           /* accent amber — ADA-safe on blue */
+
+  --bg:#f0f4f8;
+  --card:#ffffff;
+  --surface:#f7f9fc;
+  --ink:#1a2940;
+  --muted:#607d8b;
+  --faint:#8a9bab;
+  --line:#dde3ec;
+  --line-soft:#eef2f7;
+
+  --ok:#2e7d32;      --ok-bg:#e8f5e9;   --ok-line:#b6ddb9;
+  --warn:#e65100;    --warn-bg:#fff3e6; --warn-line:#f7cfa6;
+  --bad:#c62828;     --bad-bg:#fdecec;  --bad-line:#f3bfbf;
+  --none:#607d8b;    --none-bg:#eef2f6; --none-line:#d8e0e8;
+  --info-bg:#e8f1f8; --info-line:#c4dbec;
+
+  --radius:12px;
+  --mono:'DM Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:'DM Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  --serif:'Playfair Display',Georgia,serif;
+
+  /* one source of truth for the results grid — every department table uses
+     these same widths so the columns line up from top to bottom of the page */
+  --w-pick:38px;
+  --w-code:200px;
+  --w-user:165px;
+  --w-cid:145px;
+  --w-role:175px;
+  --w-act:46px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:auto}
+body{
+  font-family:var(--sans);background:var(--bg);color:var(--ink);
+  font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  padding:20px 16px 60px;
+}
+.wrap{max-width:1240px;margin:0 auto}
+[hidden]{display:none !important}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+/* ------------------------------- masthead ------------------------------- */
+.masthead{
+  background:var(--blue);color:#fff;border-radius:var(--radius) var(--radius) 0 0;
+  padding:18px 22px 16px;display:flex;align-items:flex-start;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;
+}
+.masthead h1{font-family:var(--serif);font-size:22px;font-weight:700;line-height:1.15}
+.masthead p{font-size:12.5px;color:rgba(255,255,255,.82);margin-top:5px;max-width:70ch}
+.masthead .meta{text-align:right;font-size:11.5px;color:rgba(255,255,255,.78);line-height:1.7;flex:0 0 auto}
+.masthead .meta b{color:#fff;font-weight:600}
+.masthead .meta code{font-family:var(--mono);font-size:11px}
+.ribbon{
+  background:var(--blue-dark);color:rgba(255,255,255,.78);font-size:11px;
+  padding:6px 22px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.ribbon b{color:#fff;font-weight:600}
+
+/* --------------------------------- cards -------------------------------- */
+.card{background:var(--card);border:1px solid var(--line);border-top:0;padding:16px 18px}
+.card:last-of-type{border-radius:0 0 var(--radius) var(--radius)}
+.card-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-h h2{font-family:var(--serif);font-size:15px;font-weight:700}
+
+.banner{border-radius:9px;padding:11px 13px;margin-bottom:12px;font-size:12.5px;border:1px solid;line-height:1.5}
+.banner b{display:block;margin-bottom:2px;font-weight:600}
+.banner.info{background:var(--info-bg);border-color:var(--info-line);color:#0b4f7d}
+.banner.warn{background:var(--warn-bg);border-color:var(--warn-line);color:#8a4b00}
+.banner.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+
+/* ------------------------------- controls ------------------------------- */
+.row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.col{flex:1 1 330px;min-width:270px}
+.field{margin-bottom:2px}
+.lab{display:block;font-size:12px;font-weight:600;margin-bottom:6px}
+.hint{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.5}
+
+.picker-btn{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);
+  font:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--ink);
+}
+.picker-btn:hover:not(:disabled){border-color:#bcc9d8}
+.picker-btn:disabled{background:var(--surface);color:var(--faint);cursor:not-allowed}
+.picker-btn .chev{color:var(--faint);flex:0 0 auto}
+
+.menu{
+  position:fixed;z-index:9999;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;box-shadow:0 14px 38px rgba(16,32,52,.18);display:none;flex-direction:column;overflow:hidden;
+}
+.menu[data-open="1"]{display:flex}
+.menu-top{padding:9px;border-bottom:1px solid var(--line-soft);display:flex;gap:6px;align-items:center}
+.menu-top input{flex:1;min-width:0;padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12.5px}
+.menu-top button{border:1px solid var(--line);background:var(--card);border-radius:6px;font:inherit;font-size:11.5px;padding:7px 9px;cursor:pointer;color:var(--muted);white-space:nowrap}
+.menu-top button:hover{background:var(--surface)}
+.menu-list{overflow-y:auto;max-height:300px;padding:5px}
+.menu-row{display:flex;align-items:flex-start;gap:9px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:12.5px}
+.menu-row:hover{background:var(--surface)}
+.menu-row input{margin:2px 0 0;flex:0 0 auto;accent-color:var(--blue)}
+.menu-row small{display:block;color:var(--faint);font-size:11px}
+.menu-foot{padding:9px;border-top:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--muted)}
+
+.picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.pick{display:inline-flex;align-items:center;gap:6px;background:var(--info-bg);border:1px solid var(--info-line);
+  color:#0b4f7d;border-radius:20px;padding:2px 7px 2px 10px;font-size:11.5px;font-weight:500}
+.pick button{border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;line-height:1;padding:2px;opacity:.65}
+.pick button:hover{opacity:1}
+
+select.sel,input.txt{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:12.5px;background:var(--card);color:var(--ink);width:100%}
+input.txt::placeholder{color:var(--faint)}
+input.txt.mono{font-family:var(--mono)}
+input.txt:focus,select.sel:focus{border-color:var(--blue);outline:0;box-shadow:0 0 0 3px rgba(0,110,179,.13)}
+input.txt.err,select.sel.err{border-color:var(--bad);background:var(--bad-bg)}
+input.txt.soft,select.sel.soft{border-color:var(--warn-line);background:var(--warn-bg)}
+
+/* ---------------------------------- help -------------------------------- */
+.help{
+  display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;
+  border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  font-size:10px;font-weight:700;cursor:help;margin-left:5px;vertical-align:1px;
+}
+.help:hover,.help:focus{background:var(--blue);border-color:var(--blue);color:#fff}
+.help-pop{
+  position:fixed;z-index:10000;max-width:330px;background:var(--blue-deep);color:#fff;
+  border-radius:9px;padding:10px 12px;font-size:11.5px;line-height:1.55;
+  box-shadow:0 12px 30px rgba(16,32,52,.28);display:none;
+}
+.help-pop[data-open="1"]{display:block}
+.help-pop b{display:block;font-weight:600;margin-bottom:3px}
+.help-pop code{font-family:var(--mono);background:rgba(255,255,255,.14);padding:1px 4px;border-radius:4px}
+
+/* -------------------------------- buttons ------------------------------- */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);
+  color:var(--ink);border-radius:8px;padding:9px 15px;font:inherit;font-size:12.5px;font-weight:600;
+  cursor:pointer;white-space:nowrap;transition:filter .15s,background .15s;
+}
+.btn:hover:not(:disabled){background:var(--surface)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover:not(:disabled){background:var(--blue-dark);filter:none}
+.btn.go{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.go:hover:not(:disabled){filter:brightness(1.1);background:var(--ok)}
+.btn.small{padding:6px 11px;font-size:11.5px;font-weight:500}
+.btn-row{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+
+/* ------------------------------- progress ------------------------------- */
+.bar{height:6px;background:var(--line-soft);border-radius:20px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+
+/* ---------------------------- results toolbar --------------------------- */
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar .grow{flex:1 1 220px;min-width:180px}
+.count-pill{
+  display:inline-flex;align-items:baseline;gap:6px;background:var(--surface);border:1px solid var(--line);
+  border-radius:20px;padding:5px 13px;font-size:12px;color:var(--muted);
+}
+.count-pill b{font-size:15px;font-weight:700;color:var(--blue);font-family:var(--mono)}
+.count-pill.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+.count-pill.bad b{color:var(--bad)}
+
+/* ---------------------------- fill-down strip ---------------------------
+   Holds a list of people rather than one, so several can be applied to every
+   selected course at once. The control widths match the table's columns so
+   the strip reads as a header for what lands below it. */
+.fillbar{
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;margin-bottom:12px;
+}
+.fill-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.fill-head .fl{font-size:12px;font-weight:600;flex:0 0 auto}
+.fill-rows{display:flex;flex-direction:column;gap:7px}
+.fill-row{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.fill-row .f-user{flex:0 0 var(--w-user)}
+.fill-row .f-cid{flex:0 0 var(--w-cid)}
+.fill-row .f-role{flex:0 0 var(--w-role)}
+.fill-row .rowbtn{flex:0 0 27px}
+.fill-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:11px}
+@media (max-width:640px){
+  .fill-row .f-user,.fill-row .f-cid,.fill-row .f-role{flex:1 1 160px}
+}
+
+/* ------------------------- department groupings ------------------------- */
+.depts{display:flex;flex-direction:column;gap:9px}
+.dept{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.dept-h{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 14px;background:var(--blue-deep);color:#fff;border:0;cursor:pointer;
+  font:inherit;text-align:left;transition:filter .15s;
+}
+.dept-h:hover{filter:brightness(1.14)}
+.dept-h:focus-visible{outline:2px solid var(--amber);outline-offset:-3px}
+.dept-h .dc{font-family:var(--serif);font-size:15px;font-weight:700;letter-spacing:.02em}
+.dept-h .dn{font-size:11.5px;color:rgba(255,255,255,.68);margin-left:10px}
+.dept-h .rt{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+.dept-badge{border:1px solid rgba(255,255,255,.28);border-radius:20px;padding:2px 10px;font-size:10.5px;font-weight:600;background:rgba(255,255,255,.12);white-space:nowrap}
+.dept-badge.on{background:rgba(245,168,28,.42);border-color:rgba(255,255,255,.4)}
+.dept-h .arrow{font-size:12px;opacity:.8;transition:transform .18s}
+.dept:not(.open) .dept-h .arrow{transform:rotate(-90deg)}
+.dept:not(.open) .dept-b{display:none}
+.dept-b{padding:0;overflow-x:auto}
+
+/* Fixed layout + a shared colgroup is what keeps every department's columns
+   on the same vertical lines. Each department is its own <table>, so without
+   this each one would size its columns to its own longest course name. */
+table.gt{width:100%;min-width:1010px;table-layout:fixed;border-collapse:collapse;font-size:12.5px}
+table.gt th{
+  text-align:left;font-size:11px;font-weight:600;color:var(--muted);
+  padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface);white-space:nowrap;
+}
+table.gt td{padding:7px 12px;border-bottom:1px solid var(--line-soft);vertical-align:middle}
+table.gt tbody tr:last-child td{border-bottom:0}
+table.gt tbody tr:hover{background:var(--surface)}
+table.gt tbody tr.sel{background:#eef6fc}
+table.gt tbody tr.sel:hover{background:#e5f0f9}
+td.pick-cell,th.pick-cell{padding-right:0}
+td.pick-cell input,th.pick-cell input{accent-color:var(--blue);cursor:pointer}
+.cname{font-weight:500;line-height:1.35;overflow-wrap:anywhere}
+.ccode{font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow-wrap:anywhere}
+table.gt td input.txt,table.gt td select.sel{padding:6px 8px;font-size:12px}
+.empty-note{padding:26px 14px;text-align:center;color:var(--faint);font-size:12.5px}
+
+/* --------------------- extra people on the same course -------------------
+   A course with more than one person keeps one <tr> per person. The extra
+   rows carry the course code again but no name, so the group reads as one
+   course without the code column going blank halfway down. */
+table.gt tbody tr.has-more td{border-bottom:0}
+table.gt tbody tr.extra td{border-bottom:0}
+table.gt tbody tr.grp-end td{border-bottom:1px solid var(--line-soft)}
+table.gt tbody tr:last-child td{border-bottom:0}
+tr.extra .ccode{color:var(--faint)}
+.cont{color:var(--faint);margin-right:5px;font-family:var(--sans)}
+td.act-cell{text-align:right;padding-left:0}
+.rowbtn{
+  width:27px;height:27px;border-radius:7px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted);font:inherit;font-size:15px;font-weight:600;line-height:1;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;transition:background .15s,color .15s,border-color .15s;
+}
+.rowbtn.add:hover,.rowbtn.add:focus-visible{background:var(--blue);border-color:var(--blue);color:#fff}
+.rowbtn.del{font-size:13px}
+.rowbtn.del:hover,.rowbtn.del:focus-visible{background:var(--bad);border-color:var(--bad);color:#fff}
+
+/* -------------------------------- the csv ------------------------------- */
+.csvbox{
+  font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:9px;
+  padding:11px 13px;max-height:260px;overflow:auto;white-space:pre;
+}
+.csvbox .ph{color:var(--faint)}
+.csv-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.csv-h .fmt{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+
+/* -------------------------------- footer -------------------------------- */
+.foot{font-size:11.5px;color:var(--faint);margin-top:14px;text-align:center}
+
+@media (max-width:640px){
+  body{padding:12px 8px 40px}
+  .masthead{padding:15px 16px 13px}
+  .masthead .meta{text-align:left}
+  .card{padding:14px 13px}
+  table.gt th,table.gt td{padding:7px 8px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============================== masthead ============================== -->
+  <div class="masthead">
+    <div>
+      <h1>Enrollment Batch — CSV Builder</h1>
+      <p>Pick the courses, add the person and their role, then download the CSV.</p>
+    </div>
+    <div class="meta">
+      <div id="whoami">Checking your session…</div>
+      <div id="versions"></div>
+    </div>
+  </div>
+  <div class="ribbon">
+    <span id="mineCount">Reading your courses…</span>
+  </div>
+
+  <div id="banners"></div>
+
+  <!-- ============================ what to scan ============================ -->
+  <div class="card">
+    <div class="card-h">
+      <h2>What to scan</h2>
+      <span class="hint" id="scanState" style="margin:0"></span>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <div class="field">
+          <label class="lab" for="termBtn">Terms</label>
+          <button type="button" class="picker-btn" id="termBtn" disabled aria-haspopup="listbox" aria-expanded="false">
+            <span id="termBtnLabel">Loading terms…</span>
+            <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="picks" id="picks"></div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="field">
+          <label class="lab" for="speed">Speed</label>
+          <select class="sel" id="speed">
+            <option value="4">Gentle — 4 at a time</option>
+            <option value="8">Normal — 8 at a time</option>
+            <option value="12" selected>Fast — 12 at a time</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px">
+      <button type="button" class="btn primary" id="runBtn" disabled>Display courses</button>
+      <span class="note" id="runNote" style="margin:0"></span>
+    </div>
+    <div class="bar" id="barWrap" hidden><i id="bar"></i></div>
+  </div>
+
+  <!-- ============================== courses =============================== -->
+  <div class="card" id="resultsCard" hidden>
+    <div class="card-h">
+      <h2>Courses</h2>
+      <span class="hint" id="resultState" style="margin:0"></span>
+    </div>
+
+    <div class="toolbar">
+      <div style="flex:0 0 auto">
+        <select class="sel" id="deptFilter" aria-label="Filter by department code" style="width:auto;min-width:190px">
+          <option value="">All departments</option>
+        </select>
+      </div>
+      <div class="grow"><input type="text" class="txt" id="search" placeholder="Search name or code…"></div>
+      <button type="button" class="btn small" id="selAllBtn">Select all shown</button>
+      <button type="button" class="btn small" id="selNoneBtn">Clear selection</button>
+      <span class="count-pill"><b id="selCount">0</b> selected</span>
+      <span class="count-pill bad" id="gapPill" hidden><b id="gapCount">0</b> need info</span>
+    </div>
+
+    <div class="fillbar">
+      <div class="fill-head">
+        <span class="fl">Fill selected rows</span>
+        <span class="hint" style="margin:0">Everyone listed here is applied to every checked course.</span>
+      </div>
+      <div class="fill-rows" id="fillRows"></div>
+      <div class="fill-foot">
+        <button type="button" class="btn small" id="fillBtn">Apply</button>
+        <span class="hint" id="fillNote" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="depts" id="depts"></div>
+    <div class="empty-note" id="noMatch" hidden>No courses match this filter.</div>
+  </div>
+
+  <!-- ================================= csv ================================ -->
+  <div class="card" id="csvCard" hidden>
+    <div class="card-h">
+      <h2>CSV</h2>
+      <span class="hint" id="csvState" style="margin:0"></span>
+    </div>
+
+    <div class="csv-h">
+      <span class="fmt">ENROLL,Username,Org Defined ID,Role Name,Org Unit Code<span class="help" tabindex="0" role="button"
+        aria-label="About this CSV format"
+        data-help-title="CSV format"
+        data-help="One line per person per selected course, no header row. <code>ENROLL</code> is literal, the username and Org Defined ID are what you typed on the row, the role is the one you picked, and the Org Unit Code is the Course Code from Brightspace. Opening the file in Excel can strip leading zeros from Org Defined IDs — send the downloaded file itself rather than a re-saved copy.">?</span></span>
+      <span class="hint" id="csvCount" style="margin:0"></span>
+    </div>
+
+    <div class="csvbox" id="csvPreview"><span class="ph">Select courses above to build the CSV.</span></div>
+
+    <div class="btn-row" style="margin-top:16px">
+      <button type="button" class="btn go" id="dlBtn" disabled>Download CSV</button>
+      <button type="button" class="btn primary" id="mailBtn" disabled>Email CSV</button>
+      <button type="button" class="btn" id="clearBtn">Clear</button>
+      <span class="note" id="csvNote" style="margin:0"></span>
+    </div>
+  </div>
+
+  <div class="foot">Nothing on this page changes Brightspace — it only reads your courses and builds a file.</div>
+</div>
+
+<div class="menu" id="termMenu" role="listbox" aria-multiselectable="true">
+  <div class="menu-top">
+    <input type="text" id="termSearch" placeholder="Find a term…">
+    <button type="button" id="termAll">All</button>
+    <button type="button" id="termNone">None</button>
+  </div>
+  <div class="menu-list" id="termList"></div>
+  <div class="menu-foot"><span id="termFoot">Newest terms first</span><button type="button" class="btn small" id="termDone">Done</button></div>
+</div>
+
+<div class="help-pop" id="helpPop"></div>
+<script>
+(function () {
+'use strict';
+
+/* ============================== configuration ==============================
+   Everything tenant-specific lives here.
+   ========================================================================= */
+var CONFIG = {
+  host: '',                       // same origin — the page runs inside Brightspace
+  fallbackLP: '1.28',             // used only if /d2l/api/versions/ can't be read
+  fallbackLE: '1.97',
+  courseOfferingTypeId: 3,
+
+  /* The Classlist Roles offered on every row. These strings go into the CSV
+     exactly as written, so they must match the role names in Brightspace. */
+  roles: ['Instructor', 'Student', 'Teaching Assistant'],   // EDIT to match your org's role names
+
+  csvPrefix: 'ENROLL',
+  filePrefix: 'enrollment-batch',
+  previewLines: 60,
+  mailInlineMax: 1200,            // paste the CSV into the draft when it is this short
+  mailTo: '',                     // optional: who the Email button addresses, e.g. 'lms-admin@yourschool.edu'
+
+  /* Optional format check for the Org Defined ID box. null = no check.
+     Example: /^\d{7}$/ flags anything that is not exactly seven digits
+     (shown as an amber warning only, never a blocker). */
+  orgDefinedIdPattern: null,
+
+  requestTimeoutMs: 30000,
+  maxRetries: 3,
+  retryBaseMs: 700,
+};
+
+/* ================================= helpers ================================ */
+function $(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
+
+function banner(kind, title, body) {
+  var d = document.createElement('div');
+  d.className = 'banner ' + kind;
+  d.innerHTML = (title ? '<b>' + esc(title) + '</b>' : '') + body;
+  $('banners').appendChild(d);
+  return d;
+}
+
+/* ============================== fetch chassis =============================
+   Session authentication — the signed-in user's own Brightspace session is the
+   credential, so there are no API keys anywhere in this file.
+
+   Two lessons from the sibling tools are baked in:
+     * this tenant does not send usable X-Rate-Limit-* headers on session
+       calls, so a missing or zero "remaining" on a 200 is a placeholder, not
+       an exhausted quota. Real exhaustion answers 429.
+     * a request can stall with no response and no error, so every call gets
+       an AbortController timeout and a bounded retry.
+   ========================================================================= */
+function xsrf() {
+  try { return localStorage.getItem('XSRF.Token') || ''; } catch (e) { return ''; }
+}
+
+function rlFetch(url, opts) {
+  opts = opts || {};
+  var attempt = 0;
+
+  function go() {
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, CONFIG.requestTimeoutMs);
+    var headers = Object.assign({ 'Accept': 'application/json' }, opts.headers || {});
+    var tok = xsrf();
+    if (tok) headers['X-Csrf-Token'] = tok;
+
+    return fetch(CONFIG.host + url, {
+      method: opts.method || 'GET',
+      credentials: 'same-origin',
+      headers: headers,
+      body: opts.body,
+      signal: ctl.signal
+    }).then(function (res) {
+      clearTimeout(timer);
+      if (res.status === 429) {
+        var ra = parseFloat(res.headers.get('Retry-After'));
+        var wait = (isFinite(ra) && ra > 0) ? ra * 1000 : CONFIG.retryBaseMs * Math.pow(2, attempt);
+        if (attempt++ < CONFIG.maxRetries) return sleep(Math.min(wait, 15000)).then(go);
+        throw new Error('Brightspace is rate limiting this account. Wait a minute and try again.');
+      }
+      return res;
+    }).catch(function (err) {
+      clearTimeout(timer);
+      var aborted = err && (err.name === 'AbortError');
+      if (attempt++ < CONFIG.maxRetries) {
+        return sleep(CONFIG.retryBaseMs * Math.pow(2, attempt)).then(go);
+      }
+      if (aborted) throw new Error("Brightspace didn't respond. Wait a moment, then reload the page.");
+      throw err;
+    });
+  }
+  return Promise.resolve().then(go);
+}
+
+function getJSON(url) {
+  return rlFetch(url).then(function (res) {
+    if (!res.ok) {
+      var e = new Error('HTTP ' + res.status + ' on ' + url);
+      e.status = res.status;
+      throw e;
+    }
+    return res.json();
+  });
+}
+
+/* Run `worker` over `items`, `n` in flight at a time. */
+function runPool(items, n, worker, onTick) {
+  var i = 0, done = 0, out = new Array(items.length);
+  n = Math.max(1, Math.min(n, items.length || 1));
+
+  function next() {
+    if (i >= items.length) return Promise.resolve();
+    var idx = i++;
+    return Promise.resolve(worker(items[idx], idx)).then(function (v) {
+      out[idx] = v;
+    }).catch(function () {
+      out[idx] = null;
+    }).then(function () {
+      done++;
+      if (onTick) onTick(done, items.length);
+      return next();
+    });
+  }
+  var runners = [];
+  for (var k = 0; k < n; k++) runners.push(next());
+  return Promise.all(runners).then(function () { return out; });
+}
+
+/* ================================== state ================================= */
+var state = {
+  demo: false,
+  lp: CONFIG.fallbackLP,
+  le: CONFIG.fallbackLE,
+  courses: [],          // {ou, name, code, dept, termId, termName, offeringName}
+  terms: [],            // {id, name, count}
+  pickedTerms: {},      // termId -> true
+  shown: [],            // courses currently displayed (term-filtered)
+  selected: {},         // ou -> true            (survives filtering)
+  rows: {},             // ou -> [{user, cid, role}, …] one entry per person
+  fill: [],             // the people in the fill strip, same shape
+  openDepts: {}         // deptCode -> false when collapsed
+};
+
+/* Typed values live in state, never only in the DOM, so filtering the table or
+   searching it cannot quietly throw away what somebody has already keyed in.
+   Each course holds a LIST of people — always at least one. */
+function peopleOf(ou) {
+  if (!state.rows[ou] || !state.rows[ou].length) state.rows[ou] = [blankPerson()];
+  return state.rows[ou];
+}
+function blankPerson() { return { user: '', cid: '', role: '' }; }
+function personOf(ou, i) {
+  var list = peopleOf(ou);
+  return list[i] || list[0];
+}
+function addPerson(ou) {
+  peopleOf(ou).push(blankPerson());
+  return state.rows[ou].length - 1;
+}
+function removePerson(ou, i) {
+  var list = peopleOf(ou);
+  if (list.length <= 1) return;          // the first person is the course row itself
+  list.splice(i, 1);
+}
+function hasAnything(p) { return !!(p.user.trim() || p.cid.trim() || p.role); }
+
+/* ============================= department code ============================
+   CPT_101_I01_2026FA -> CPT.  Falls back to the letters in front of the
+   course number when the code isn't underscore-delimited, then to the
+   department name Brightspace reports.
+   ========================================================================= */
+function deptOf(code, fallbackName) {
+  var c = String(code || '').trim();
+  if (c) {
+    var first = c.split(/[_\-\s]/)[0];
+    if (first && /^[A-Za-z]{2,6}$/.test(first)) return first.toUpperCase();
+    var m = c.match(/^([A-Za-z]{2,6})/);
+    if (m) return m[1].toUpperCase();
+  }
+  return (fallbackName || 'Other').toUpperCase();
+}
+
+/* ================================== boot ================================== */
+function boot() {
+  renderFill();
+
+  detectSession()
+    .then(function (live) {
+      state.demo = !live;
+      if (state.demo) return loadDemo();
+      return loadVersions().then(loadWhoami).then(loadCourses);
+    })
+    .then(buildTerms)
+    .catch(function (err) {
+      $('scanState').textContent = '';
+      $('mineCount').textContent = 'Could not read your courses';
+      banner('bad', "Couldn't read your courses",
+        esc(err && err.message ? err.message : String(err)) +
+        ' Make sure you are signed in to Brightspace in this browser, then reload.');
+    });
+}
+
+function detectSession() {
+  return getJSON('/d2l/api/versions/').then(function () { return true; })
+    .catch(function () { return false; });
+}
+
+function loadVersions() {
+  return getJSON('/d2l/api/versions/').then(function (list) {
+    (list || []).forEach(function (p) {
+      if (p.ProductCode === 'lp' && p.LatestVersion) state.lp = p.LatestVersion;
+      if (p.ProductCode === 'le' && p.LatestVersion) state.le = p.LatestVersion;
+    });
+    paintVersions();
+  }).catch(paintVersions);
+}
+
+function paintVersions() {
+  $('versions').innerHTML = 'LP <code>' + esc(state.lp) + '</code> &middot; LE <code>' + esc(state.le) + '</code>';
+}
+
+function loadWhoami() {
+  return getJSON('/d2l/api/lp/' + state.lp + '/users/whoami').then(function (me) {
+    var nm = [me.FirstName, me.LastName].filter(Boolean).join(' ') || me.UniqueName || 'Signed in';
+    $('whoami').innerHTML = 'Signed in as <b>' + esc(nm) + '</b>';
+  }).catch(function () {
+    $('whoami').textContent = 'Signed in';
+  });
+}
+
+/* enrollments -> the account's own course offerings -> each offering's term */
+function loadCourses() {
+  $('scanState').textContent = 'Reading your enrollments…';
+  return readEnrollments().then(function (offerings) {
+    if (!offerings.length) {
+      $('mineCount').textContent = 'No course offerings found on your account';
+      return [];
+    }
+    $('barWrap').hidden = false;
+    var n = parseInt($('speed').value, 10) || 8;
+
+    return runPool(offerings, n, function (o) {
+      return getJSON('/d2l/api/lp/' + state.lp + '/courses/' + o.Id)
+        .then(function (c) { return { ou: o.Id, raw: c, fallbackName: o.Name, fallbackCode: o.Code }; })
+        .catch(function () { return null; });
+    }, function (done, total) {
+      $('bar').style.width = Math.round((done / total) * 100) + '%';
+      $('scanState').textContent = 'Reading course details… ' + done + ' of ' + total;
+    }).then(function (rows) {
+      var kept = [], inactive = 0, unread = 0;
+
+      rows.forEach(function (r) {
+        if (!r || !r.raw) { unread++; return; }
+        var c = r.raw;
+        if (c.IsActive === false) { inactive++; return; }
+        var termName = (c.Semester && c.Semester.Name) || '';
+        var termId = (c.Semester && (c.Semester.Identifier != null ? c.Semester.Identifier : c.Semester.Id));
+        var code = c.Code || r.fallbackCode || '';
+        var name = c.Name || r.fallbackName || '';
+        kept.push({
+          ou: String(r.ou),
+          name: name,
+          code: code,
+          dept: deptOf(code, c.Department && c.Department.Name),
+          termId: termId != null ? String(termId) : '0',
+          termName: termName || 'No term',
+          offeringName: String(name || '').trim()
+        });
+      });
+
+      state.courses = kept;
+      $('barWrap').hidden = true;
+      $('scanState').textContent = '';
+      $('mineCount').textContent =
+        plural(kept.length, 'active course offering') +
+        (inactive ? ' · ' + inactive + ' inactive skipped' : '') +
+        (unread ? ' · ' + unread + " couldn't be read" : '');
+      return kept;
+    });
+  });
+}
+
+function readEnrollments() {
+  var out = [], bookmark = null, guard = 0;
+
+  function page() {
+    var url = '/d2l/api/lp/' + state.lp + '/enrollments/myenrollments/?orgUnitTypeId=' +
+      CONFIG.courseOfferingTypeId + (bookmark ? '&bookmark=' + encodeURIComponent(bookmark) : '');
+    return getJSON(url).then(function (res) {
+      (res.Items || []).forEach(function (it) {
+        var ou = it.OrgUnit || {};
+        if (ou.Id != null) out.push({ Id: ou.Id, Name: ou.Name, Code: ou.Code });
+      });
+      $('scanState').textContent = 'Reading your enrollments… ' + out.length + ' found';
+      var pi = res.PagingInfo || {};
+      if (pi.HasMoreItems && pi.Bookmark && guard++ < 200) {
+        bookmark = pi.Bookmark;
+        return page();
+      }
+      return out;
+    });
+  }
+  return page();
+}
+
+/* ================================== terms ================================= */
+function buildTerms() {
+  var map = {};
+  state.courses.forEach(function (c) {
+    if (!map[c.termId]) map[c.termId] = { id: c.termId, name: c.termName, count: 0 };
+    map[c.termId].count++;
+  });
+  // larger org unit id = newer term
+  state.terms = Object.keys(map).map(function (k) { return map[k]; })
+    .sort(function (a, b) { return (parseInt(b.id, 10) || 0) - (parseInt(a.id, 10) || 0); });
+
+  renderTermList();
+  $('termBtn').disabled = state.terms.length === 0;
+  $('termBtnLabel').textContent = state.terms.length ? 'Pick one or more terms' : 'No terms found';
+  $('termFoot').textContent = plural(state.terms.length, 'term') + ', newest first';
+  syncRunBtn();
+}
+
+function renderTermList() {
+  var q = ($('termSearch').value || '').trim().toLowerCase();
+  $('termList').innerHTML = state.terms.filter(function (t) {
+    return !q || t.name.toLowerCase().indexOf(q) !== -1;
+  }).map(function (t) {
+    return '<label class="menu-row"><input type="checkbox" data-term="' + esc(t.id) + '"' +
+      (state.pickedTerms[t.id] ? ' checked' : '') + '>' +
+      '<span>' + esc(t.name) + '<small>' + plural(t.count, 'course') + '</small></span></label>';
+  }).join('') || '<div class="empty-note" style="padding:16px">No terms match.</div>';
+}
+
+/* The list is never rebuilt from inside a click — rebuilding innerHTML mid-click
+   detaches the clicked element and the menu closes on the outside-click handler. */
+$('termList').addEventListener('change', function (e) {
+  var cb = e.target.closest('input[data-term]');
+  if (!cb) return;
+  var id = cb.getAttribute('data-term');
+  if (cb.checked) state.pickedTerms[id] = true; else delete state.pickedTerms[id];
+  renderPicks();
+  syncRunBtn();
+});
+
+function renderPicks() {
+  var ids = Object.keys(state.pickedTerms);
+  $('picks').innerHTML = ids.map(function (id) {
+    var t = state.terms.filter(function (x) { return x.id === id; })[0];
+    return '<span class="pick">' + esc(t ? t.name : id) +
+      '<button type="button" data-drop="' + esc(id) + '" aria-label="Remove">&times;</button></span>';
+  }).join('');
+  $('termBtnLabel').textContent = ids.length
+    ? plural(ids.length, 'term') + ' selected'
+    : (state.terms.length ? 'Pick one or more terms' : 'No terms found');
+}
+
+$('picks').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-drop]');
+  if (!b) return;
+  delete state.pickedTerms[b.getAttribute('data-drop')];
+  renderPicks();
+  renderTermList();
+  syncRunBtn();
+});
+
+function openMenu(open) {
+  var m = $('termMenu'), btn = $('termBtn');
+  if (open) {
+    var r = btn.getBoundingClientRect();
+    m.style.left = r.left + 'px';
+    m.style.top = (r.bottom + 6) + 'px';
+    m.style.width = Math.max(r.width, 280) + 'px';
+    m.setAttribute('data-open', '1');
+    btn.setAttribute('aria-expanded', 'true');
+    $('termSearch').focus();
+  } else {
+    m.removeAttribute('data-open');
+    btn.setAttribute('aria-expanded', 'false');
+  }
+}
+$('termBtn').addEventListener('click', function () {
+  openMenu($('termMenu').getAttribute('data-open') !== '1');
+});
+$('termDone').addEventListener('click', function () { openMenu(false); });
+$('termSearch').addEventListener('input', renderTermList);
+$('termAll').addEventListener('click', function () {
+  state.terms.forEach(function (t) { state.pickedTerms[t.id] = true; });
+  renderTermList(); renderPicks(); syncRunBtn();
+});
+$('termNone').addEventListener('click', function () {
+  state.pickedTerms = {};
+  renderTermList(); renderPicks(); syncRunBtn();
+});
+document.addEventListener('mousedown', function (e) {
+  if ($('termMenu').getAttribute('data-open') !== '1') return;
+  if (e.target.closest('#termMenu') || e.target.closest('#termBtn')) return;
+  openMenu(false);
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { openMenu(false); hideHelp(); }
+});
+window.addEventListener('resize', function () { openMenu(false); hideHelp(); });
+
+function syncRunBtn() {
+  var n = Object.keys(state.pickedTerms).length;
+  $('runBtn').disabled = n === 0 || state.courses.length === 0;
+  $('runNote').textContent = n === 0 ? 'Pick at least one term.' : '';
+}
+
+/* ============================= display courses ============================ */
+$('runBtn').addEventListener('click', function () {
+  state.shown = state.courses.filter(function (c) { return state.pickedTerms[c.termId]; })
+    .sort(function (a, b) {
+      return a.dept.localeCompare(b.dept) ||
+        (a.code || '').localeCompare(b.code || '') ||
+        (a.name || '').localeCompare(b.name || '');
+    });
+
+  // drop selections for courses no longer on screen
+  Object.keys(state.selected).forEach(function (ou) {
+    if (!state.shown.some(function (c) { return c.ou === ou; })) delete state.selected[ou];
+  });
+
+  buildDeptFilter();
+  $('resultsCard').hidden = false;
+  $('csvCard').hidden = false;
+  $('resultState').textContent = plural(state.shown.length, 'course') + ' in ' +
+    plural(Object.keys(state.pickedTerms).length, 'term');
+  renderDepts();
+  $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+function buildDeptFilter() {
+  var seen = {}, list = [];
+  state.shown.forEach(function (c) { if (!seen[c.dept]) { seen[c.dept] = 1; list.push(c.dept); } });
+  list.sort();
+  var cur = $('deptFilter').value;
+  $('deptFilter').innerHTML = '<option value="">All departments</option>' +
+    list.map(function (d) { return '<option value="' + esc(d) + '">' + esc(d) + '</option>'; }).join('');
+  if (list.indexOf(cur) !== -1) $('deptFilter').value = cur;
+}
+
+function visibleCourses() {
+  var dept = $('deptFilter').value;
+  var q = ($('search').value || '').trim().toLowerCase();
+  return state.shown.filter(function (c) {
+    if (dept && c.dept !== dept) return false;
+    if (!q) return true;
+    return (c.offeringName + ' ' + c.code + ' ' + c.termName).toLowerCase().indexOf(q) !== -1;
+  });
+}
+
+/* ================================ the table =============================== */
+function roleOptions(current, blankLabel) {
+  return '<option value="">' + esc(blankLabel || 'Select role…') + '</option>' +
+    CONFIG.roles.map(function (r) {
+      return '<option value="' + esc(r) + '"' + (r === current ? ' selected' : '') + '>' + esc(r) + '</option>';
+    }).join('');
+}
+
+/* Every department table carries the same colgroup, so the seven columns sit
+   on the same vertical lines all the way down the page. */
+var COLGROUP =
+  '<colgroup>' +
+    '<col style="width:var(--w-pick)">' +
+    '<col>' +
+    '<col style="width:var(--w-code)">' +
+    '<col style="width:var(--w-user)">' +
+    '<col style="width:var(--w-cid)">' +
+    '<col style="width:var(--w-role)">' +
+    '<col style="width:var(--w-act)">' +
+  '</colgroup>';
+
+var ADD_HELP = 'click here to add another user to this course';
+var DEL_HELP = 'click here to remove this user';
+
+function addButtonHtml(ou) {
+  return '<button type="button" class="rowbtn add" data-add="' + esc(ou) + '"' +
+    ' data-help="' + esc(ADD_HELP) + '" aria-label="' + esc(ADD_HELP) + '">+</button>';
+}
+
+/* One <tr> per person. The first person's row carries the checkbox, the course
+   name and — once the course is checked — the + button. Every person added
+   after that gets their own row with the course code repeated and an X. */
+function personRow(c, p, i, selected, isLast) {
+  var lead = (i === 0);
+  var who = (lead ? '' : 'additional user ' + (i + 1) + ' for ') + c.offeringName;
+  var cls = [];
+  if (selected) cls.push('sel');
+  if (!lead) cls.push('extra');
+  if (isLast) cls.push('grp-end');
+
+  var act = '';
+  if (lead) {
+    // the + only exists on a checked course, as asked
+    if (selected) act = addButtonHtml(c.ou);
+  } else {
+    act = '<button type="button" class="rowbtn del" data-del="' + esc(c.ou) + '" data-i="' + i + '"' +
+      ' data-help="' + esc(DEL_HELP) + '" aria-label="' + esc(DEL_HELP) + '">&times;</button>';
+  }
+
+  return '<tr class="' + cls.join(' ') + '" data-ou="' + esc(c.ou) + '" data-i="' + i + '">' +
+    '<td class="pick-cell">' + (lead
+      ? '<input type="checkbox" data-pick="' + esc(c.ou) + '"' + (selected ? ' checked' : '') +
+        ' aria-label="Select ' + esc(c.offeringName) + '">'
+      : '') + '</td>' +
+    '<td>' + (lead ? '<div class="cname">' + esc(c.offeringName) + '</div>' : '') + '</td>' +
+    '<td class="ccode">' + (lead ? '' : '<span class="cont">&#8627;</span>') + esc(c.code || '—') + '</td>' +
+    '<td><input type="text" class="txt" data-f="user" data-ou="' + esc(c.ou) + '" data-i="' + i + '" value="' + esc(p.user) +
+      '" placeholder="Username" autocomplete="off" spellcheck="false" aria-label="Username for ' + esc(who) + '"></td>' +
+    '<td><input type="text" class="txt mono" data-f="cid" data-ou="' + esc(c.ou) + '" data-i="' + i + '" value="' + esc(p.cid) +
+      '" placeholder="Org Defined ID" inputmode="numeric" autocomplete="off" aria-label="Org Defined ID for ' + esc(who) + '"></td>' +
+    '<td><select class="sel" data-f="role" data-ou="' + esc(c.ou) + '" data-i="' + i + '" aria-label="Classlist Role for ' +
+      esc(who) + '">' + roleOptions(p.role) + '</select></td>' +
+    '<td class="act-cell">' + act + '</td>' +
+  '</tr>';
+}
+
+function renderDepts() {
+  var rows = visibleCourses();
+  var groups = [], byDept = {};
+  rows.forEach(function (c) {
+    if (!byDept[c.dept]) { byDept[c.dept] = { dept: c.dept, courses: [] }; groups.push(byDept[c.dept]); }
+    byDept[c.dept].courses.push(c);
+  });
+
+  $('noMatch').hidden = rows.length > 0;
+  $('depts').innerHTML = groups.map(function (g) {
+    var picked = g.courses.filter(function (c) { return state.selected[c.ou]; }).length;
+    var allOn = picked === g.courses.length && picked > 0;
+
+    var body = g.courses.map(function (c) {
+      var on = !!state.selected[c.ou];
+      var people = peopleOf(c.ou);
+      return people.map(function (p, i) {
+        var tr = personRow(c, p, i, on, i === people.length - 1);
+        return (i === 0 && people.length > 1) ? tr.replace('<tr class="', '<tr class="has-more ') : tr;
+      }).join('');
+    }).join('');
+
+    var open = state.openDepts[g.dept] !== false;
+    return '<div class="dept' + (open ? ' open' : '') + '" data-dept="' + esc(g.dept) + '">' +
+      '<button type="button" class="dept-h" aria-expanded="' + (open ? 'true' : 'false') + '">' +
+        '<span><span class="dc">' + esc(g.dept) + '</span>' +
+          '<span class="dn">' + plural(g.courses.length, 'course') + '</span></span>' +
+        '<span class="rt">' +
+          (picked ? '<span class="dept-badge on">' + picked + ' selected</span>' : '<span class="dept-badge">none selected</span>') +
+          '<span class="arrow">&#9662;</span>' +
+        '</span>' +
+      '</button>' +
+      '<div class="dept-b"><table class="gt">' + COLGROUP + '<thead><tr>' +
+        '<th class="pick-cell"><input type="checkbox" data-pickall="' + esc(g.dept) + '"' + (allOn ? ' checked' : '') +
+          ' aria-label="Select every ' + esc(g.dept) + ' course shown"></th>' +
+        '<th>Course Name</th><th>Course Code</th><th>Username</th><th>Org Defined ID</th><th>Classlist Role</th><th></th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+    '</div>';
+  }).join('');
+
+  syncSelection();
+}
+
+/* Adding or removing a person changes the row count, so the table is rebuilt.
+   That is safe here — the click landed on a button, not on a text box — but
+   the caret has to be put back where the user would expect it. */
+function repaintAndFocus(ou, i, field) {
+  renderDepts();
+  var el = $('depts').querySelector('[data-f="' + (field || 'user') + '"][data-ou="' + ou + '"][data-i="' + i + '"]');
+  if (el) { el.focus(); if (el.select) el.select(); }
+}
+
+$('depts').addEventListener('click', function (e) {
+  var head = e.target.closest('.dept-h');
+  if (head && !e.target.closest('input')) {
+    var panel = head.closest('.dept');
+    var d = panel.getAttribute('data-dept');
+    var open = !panel.classList.contains('open');
+    panel.classList.toggle('open', open);
+    head.setAttribute('aria-expanded', String(open));
+    state.openDepts[d] = open;
+  }
+});
+
+/* --------------------------- row edits and picks -------------------------
+   Typing must never rebuild the table. Rebuilding innerHTML mid-keystroke
+   detaches the input the caret is sitting in — the same class of bug as the
+   term menu closing on itself. Everything here updates state and touches only
+   the one element that changed.
+   ------------------------------------------------------------------------ */
+$('depts').addEventListener('input', function (e) {
+  var f = e.target.closest('[data-f]');
+  if (!f || f.getAttribute('data-f') === 'role') return;
+  writeCell(f);
+});
+
+$('depts').addEventListener('change', function (e) {
+  var f = e.target.closest('[data-f]');
+  if (f) { writeCell(f); return; }
+
+  var one = e.target.closest('[data-pick]');
+  if (one) {
+    var ou = one.getAttribute('data-pick');
+    if (one.checked) state.selected[ou] = true; else delete state.selected[ou];
+    syncSelection();
+    return;
+  }
+  var all = e.target.closest('[data-pickall]');
+  if (all) {
+    var dept = all.getAttribute('data-pickall');
+    var on = all.checked;
+    visibleCourses().forEach(function (c) {
+      if (c.dept !== dept) return;
+      if (on) state.selected[c.ou] = true; else delete state.selected[c.ou];
+    });
+    syncSelection();
+  }
+});
+
+/* + adds another person to this course, X removes one. Both change how many
+   rows exist, so both repaint. */
+$('depts').addEventListener('click', function (e) {
+  var add = e.target.closest('[data-add]');
+  if (add) {
+    var ou = add.getAttribute('data-add');
+    var i = addPerson(ou);
+    hideHelp();
+    repaintAndFocus(ou, i, 'user');
+    return;
+  }
+  var del = e.target.closest('[data-del]');
+  if (del) {
+    var dou = del.getAttribute('data-del');
+    var di = parseInt(del.getAttribute('data-i'), 10);
+    removePerson(dou, di);
+    hideHelp();
+    renderDepts();
+  }
+});
+
+/* Filling anything in on a row is a clear signal the row is wanted, so the
+   checkbox follows the typing instead of making it a separate step. */
+function writeCell(el) {
+  var ou = el.getAttribute('data-ou');
+  var idx = parseInt(el.getAttribute('data-i'), 10) || 0;
+  var field = el.getAttribute('data-f');
+  var val = el.value;
+  var p = personOf(ou, idx);
+
+  if (field === 'user') p.user = val;
+  else if (field === 'cid') p.cid = val;
+  else if (field === 'role') p.role = val;
+
+  // typing on an unpicked course picks it. syncSelection swaps the + in
+  // without rebuilding the table, so the caret stays where it is.
+  if (String(val).trim() && !state.selected[ou]) {
+    state.selected[ou] = true;
+    syncSelection();
+    return;
+  }
+
+  // otherwise only this row changed; walking every row on every keystroke is
+  // what makes a long list feel laggy
+  var tr = el.closest('tr');
+  if (tr) markRow(tr, ou, !!state.selected[ou]);
+  updateCounts();
+  updateCsv();
+}
+
+/* Selection and validity changes update the existing table in place. */
+function syncSelection() {
+  Array.prototype.forEach.call($('depts').querySelectorAll('.dept'), function (panel) {
+    var rows = panel.querySelectorAll('tbody tr[data-ou]');
+    var picked = 0, courses = 0;
+    Array.prototype.forEach.call(rows, function (tr) {
+      var ou = tr.getAttribute('data-ou');
+      var on = !!state.selected[ou];
+      var cb = tr.querySelector('[data-pick]');
+      if (cb) {                       // only a lead row carries the checkbox
+        courses++;
+        if (on) picked++;
+        if (cb.checked !== on) cb.checked = on;
+        // the + follows the checkbox. Swapping just this cell beats a full
+        // repaint: the table can be hundreds of rows, and a repaint would
+        // also drop whatever the user was typing in.
+        var cell = tr.querySelector('.act-cell');
+        if (cell) {
+          var hasAdd = !!cell.querySelector('[data-add]');
+          if (on && !hasAdd) cell.innerHTML = addButtonHtml(ou);
+          else if (!on && hasAdd) cell.innerHTML = '';
+        }
+      }
+      tr.classList.toggle('sel', on);
+      markRow(tr, ou, on);
+    });
+    var badge = panel.querySelector('.dept-badge');
+    if (badge) {
+      badge.className = 'dept-badge' + (picked ? ' on' : '');
+      badge.textContent = picked ? picked + ' selected' : 'none selected';
+    }
+    var head = panel.querySelector('[data-pickall]');
+    if (head) head.checked = picked > 0 && picked === courses;
+  });
+  updateCounts();
+  updateCsv();
+}
+
+/* Red = the CSV can't be built without it. Amber = probably a typo, but it
+   still goes in the file if that is what was meant. */
+function markRow(tr, ou, selected) {
+  var p = personOf(ou, parseInt(tr.getAttribute('data-i'), 10) || 0);
+  var u = tr.querySelector('[data-f="user"]');
+  var c = tr.querySelector('[data-f="cid"]');
+  var s = tr.querySelector('[data-f="role"]');
+  if (!u || !c || !s) return;
+
+  u.classList.toggle('err', selected && !p.user.trim());
+  s.classList.toggle('err', selected && !p.role);
+
+  var cid = p.cid.trim();
+  c.classList.toggle('err', selected && !cid);
+  // Optional Org Defined ID format check (CONFIG.orgDefinedIdPattern) — amber, not blocking
+  c.classList.toggle('soft', selected && !!cid && !!CONFIG.orgDefinedIdPattern && !CONFIG.orgDefinedIdPattern.test(cid));
+}
+
+/* Counts PEOPLE, not courses — a course with three people has three chances
+   to be incomplete, and an empty extra row left behind by a stray + click is
+   one of them. Removing it is what the X button is for. */
+function gaps() {
+  var n = 0;
+  selectedCourses().forEach(function (c) {
+    peopleOf(c.ou).forEach(function (p) {
+      if (!p.user.trim() || !p.cid.trim() || !p.role) n++;
+    });
+  });
+  return n;
+}
+
+function updateCounts() {
+  var n = Object.keys(state.selected).length;
+  var g = gaps();
+  $('selCount').textContent = n;
+  $('gapPill').hidden = g === 0;
+  $('gapCount').textContent = g;
+}
+
+$('deptFilter').addEventListener('change', renderDepts);
+$('search').addEventListener('input', renderDepts);
+$('selAllBtn').addEventListener('click', function () {
+  visibleCourses().forEach(function (c) { state.selected[c.ou] = true; });
+  syncSelection();
+});
+$('selNoneBtn').addEventListener('click', function () {
+  state.selected = {};
+  syncSelection();
+});
+
+/* ----------------------------- fill selected -----------------------------
+   The strip holds its own list of people, built the same way as a course's:
+   + on the first row, X on the rest. Apply walks the list position by
+   position, so person 1 up here lands on person 1 of every checked course,
+   person 2 on person 2 — adding rows to a course that doesn't have that many
+   yet. Only the boxes actually filled in are copied, so the strip can be used
+   to set just a role across everything without wiping usernames.
+   ------------------------------------------------------------------------ */
+var FILL_ADD_HELP = 'click here to add another user to apply to the selected courses';
+
+function fillPeople() {
+  if (!state.fill.length) state.fill = [blankPerson()];
+  return state.fill;
+}
+
+function renderFill() {
+  $('fillRows').innerHTML = fillPeople().map(function (p, i) {
+    var act = (i === 0)
+      ? '<button type="button" class="rowbtn add" data-fadd="1" data-help="' + esc(FILL_ADD_HELP) +
+        '" aria-label="' + esc(FILL_ADD_HELP) + '">+</button>'
+      : '<button type="button" class="rowbtn del" data-fdel="' + i + '" data-help="' + esc(DEL_HELP) +
+        '" aria-label="' + esc(DEL_HELP) + '">&times;</button>';
+
+    return '<div class="fill-row" data-i="' + i + '">' +
+      '<input type="text" class="txt f-user" data-ff="user" data-i="' + i + '" value="' + esc(p.user) +
+        '" placeholder="Username" autocomplete="off" spellcheck="false" aria-label="Username to fill down">' +
+      '<input type="text" class="txt mono f-cid" data-ff="cid" data-i="' + i + '" value="' + esc(p.cid) +
+        '" placeholder="Org Defined ID" inputmode="numeric" autocomplete="off" aria-label="Org Defined ID to fill down">' +
+      '<select class="sel f-role" data-ff="role" data-i="' + i + '" aria-label="Classlist Role to fill down">' +
+        roleOptions(p.role, 'Classlist Role') + '</select>' +
+      act +
+    '</div>';
+  }).join('');
+}
+
+// typing here only updates state — rebuilding would drop the caret
+$('fillRows').addEventListener('input', function (e) {
+  var f = e.target.closest('[data-ff]');
+  if (f) writeFillCell(f);
+});
+$('fillRows').addEventListener('change', function (e) {
+  var f = e.target.closest('[data-ff]');
+  if (f) writeFillCell(f);
+});
+function writeFillCell(el) {
+  var p = fillPeople()[parseInt(el.getAttribute('data-i'), 10) || 0];
+  if (!p) return;
+  var field = el.getAttribute('data-ff');
+  if (field === 'user') p.user = el.value;
+  else if (field === 'cid') p.cid = el.value;
+  else if (field === 'role') p.role = el.value;
+}
+
+$('fillRows').addEventListener('click', function (e) {
+  if (e.target.closest('[data-fadd]')) {
+    fillPeople().push(blankPerson());
+    hideHelp();
+    renderFill();
+    var last = $('fillRows').querySelector('.fill-row:last-child [data-ff="user"]');
+    if (last) last.focus();
+    return;
+  }
+  var del = e.target.closest('[data-fdel]');
+  if (del) {
+    var i = parseInt(del.getAttribute('data-fdel'), 10);
+    if (fillPeople().length > 1) state.fill.splice(i, 1);
+    hideHelp();
+    renderFill();
+  }
+});
+
+$('fillBtn').addEventListener('click', function () {
+  var targets = selectedCourses();
+  var filled = fillPeople().filter(hasAnything);
+
+  if (!targets.length) {
+    $('fillNote').innerHTML = '<span style="color:var(--bad)">Check at least one course first.</span>';
+    return;
+  }
+  if (!filled.length) {
+    $('fillNote').innerHTML = '<span style="color:var(--bad)">Fill in a username, a Org Defined ID, or a role.</span>';
+    return;
+  }
+
+  targets.forEach(function (t) {
+    var list = peopleOf(t.ou);
+    filled.forEach(function (src, i) {
+      while (list.length <= i) list.push(blankPerson());
+      var dst = list[i];
+      if (src.user.trim()) dst.user = src.user.trim();
+      if (src.cid.trim()) dst.cid = src.cid.trim();
+      if (src.role) dst.role = src.role;
+    });
+  });
+
+  renderDepts();
+  $('fillNote').textContent = 'Added ' + plural(filled.length, 'person', 'people') +
+    ' to ' + plural(targets.length, 'course') + '.';
+});
+
+/* =================================== CSV ==================================
+   ENROLL,Username,Org Defined ID,Role Name,Org Unit Code — one line per PERSON
+   per selected course, no header row. The Org Unit Code is the Course Code
+   Brightspace reports for the offering.
+   ========================================================================= */
+function selectedCourses() {
+  return state.shown.filter(function (c) { return state.selected[c.ou]; });
+}
+
+function csvCell(v) {
+  var s = String(v == null ? '' : v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function csvLines() {
+  var out = [];
+  selectedCourses().forEach(function (c) {
+    peopleOf(c.ou).forEach(function (p) {
+      out.push([CONFIG.csvPrefix, p.user.trim(), p.cid.trim(), p.role, c.code || '']
+        .map(csvCell).join(','));
+    });
+  });
+  return out;
+}
+
+function csvText() {
+  var lines = csvLines();
+  return lines.length ? lines.join('\r\n') + '\r\n' : '';
+}
+
+function fileName() {
+  var d = new Date();
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  return CONFIG.filePrefix + '-' + d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + '.csv';
+}
+
+function updateCsv() {
+  var n = selectedCourses().length;
+  var g = gaps();
+  var lines = csvLines();
+
+  if (!n) {
+    $('csvPreview').innerHTML = '<span class="ph">Select courses above to build the CSV.</span>';
+    $('csvCount').textContent = '';
+    $('csvNote').textContent = '';
+    $('dlBtn').disabled = true;
+    $('mailBtn').disabled = true;
+    return;
+  }
+
+  var head = lines.slice(0, CONFIG.previewLines);
+  $('csvPreview').textContent = head.join('\n') +
+    (lines.length > head.length ? '\n… ' + (lines.length - head.length) + ' more rows' : '');
+  $('csvCount').textContent = plural(lines.length, 'row') + ' across ' + plural(n, 'course');
+
+  var blocked = g > 0;
+  $('dlBtn').disabled = blocked;
+  $('mailBtn').disabled = blocked;
+  $('csvNote').innerHTML = blocked
+    ? '<span style="color:var(--bad)">' + plural(g, 'row') +
+      ' still ' + (g === 1 ? 'needs' : 'need') + ' a username, Org Defined ID, and role.</span>'
+    : '';
+}
+
+function downloadCSV() {
+  var text = csvText();
+  if (!text) return null;
+  var name = fileName();
+  // no BOM — a strict importer would read the first field as "\ufeffENROLL"
+  var blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+  return name;
+}
+
+$('dlBtn').addEventListener('click', function () {
+  var name = downloadCSV();
+  if (name) $('csvState').textContent = 'Downloaded ' + name;
+});
+
+/* Opens a draft only. Downloading the file is the Download CSV button's job,
+   and a browser can't attach a file to a draft either way. */
+$('mailBtn').addEventListener('click', function () {
+  var text = csvText();
+  if (!text) return;
+  var rows = csvLines().length;
+
+  var subject = 'Brightspace enrollment CSV — ' + plural(rows, 'row');
+  var body =
+    'Hello,\n' +
+    'Attached is the CSV file to be uploaded to the Bulk User Management tool.\n' +
+    'Thank you!\n' +
+    '——— Summary ——— \n' +
+    plural(rows, 'enrollment row') + ' for bulk processing.\n\n';
+  if (text.length <= CONFIG.mailInlineMax) body += text;
+
+  $('csvState').textContent = 'Opening a mail draft';
+  window.location.href = 'mailto:' + encodeURIComponent(CONFIG.mailTo) +
+    '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+});
+
+$('clearBtn').addEventListener('click', function () {
+  var dirty = Object.keys(state.selected).length ||
+    state.fill.some(hasAnything) ||
+    Object.keys(state.rows).some(function (ou) {
+      return (state.rows[ou] || []).some(hasAnything);
+    });
+  if (dirty && !confirm('Clear the selected courses and everything typed into the rows?')) return;
+  state.selected = {};
+  state.rows = {};
+  state.fill = [blankPerson()];
+  renderFill();
+  $('fillNote').textContent = '';
+  $('csvState').textContent = '';
+  renderDepts();
+});
+
+/* ================================== help ================================== */
+function hideHelp() { $('helpPop').removeAttribute('data-open'); }
+
+/* Any element carrying data-help gets the popover — the "?" markers and the
+   row + / X buttons alike. A title line is optional. */
+function showHelp(el) {
+  var pop = $('helpPop');
+  var title = el.getAttribute('data-help-title');
+  pop.innerHTML = (title ? '<b>' + esc(title) + '</b>' : '') + el.getAttribute('data-help');
+  pop.setAttribute('data-open', '1');
+  var r = el.getBoundingClientRect();
+  var w = pop.offsetWidth;
+  var left = Math.min(Math.max(8, r.left - 8), window.innerWidth - w - 8);
+  var top = r.bottom + 8;
+  if (top + pop.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - pop.offsetHeight - 8);
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+document.addEventListener('mouseover', function (e) {
+  var h = e.target.closest('[data-help]');
+  if (h) showHelp(h);
+});
+document.addEventListener('mouseout', function (e) {
+  if (!e.target.closest('[data-help]')) return;
+  var to = e.relatedTarget;
+  if (to && to.closest && to.closest('.help-pop')) return;
+  hideHelp();
+});
+document.addEventListener('focusin', function (e) {
+  var h = e.target.closest('[data-help]');
+  if (h) showHelp(h); else if (!e.target.closest('.help-pop')) hideHelp();
+});
+document.addEventListener('click', function (e) {
+  var h = e.target.closest('.help');
+  if (h) { e.preventDefault(); showHelp(h); }
+});
+// the table repaints on add/remove, which leaves the popover pointing at a
+// button that no longer exists
+$('depts').addEventListener('scroll', hideHelp, true);
+
+/* ================================ demo mode ===============================
+   Opened outside a Brightspace session the page still demonstrates itself on
+   sample data, so it can be reviewed before it goes into Manage Files.
+   ========================================================================= */
+function loadDemo() {
+  banner('warn', 'Preview mode',
+    'No Brightspace session was found, so this page is showing sample courses. ' +
+    'Everything works — the course list is invented. Put the file in Manage Files and open it from inside Brightspace for real data.');
+
+  var terms = [
+    { id: '996612', name: 'Fall 2026-FULL Semester', tag: '2026FA' },
+    { id: '994310', name: 'Summer 2026-7 Wk Session', tag: '2026SU' }
+  ];
+  var seeds = [
+    ['CPT', '101', 'Intro to Computers'], ['CPT', '168', 'Programming Logic'],
+    ['ENG', '101', 'English Composition I'], ['ENG', '102', 'English Composition II'],
+    ['PSY', '201', 'General Psychology'], ['PSY', '203', 'Human Growth & Develop'],
+    ['MAT', '110', 'College Algebra'], ['BIO', '210', 'Anatomy & Physiology I'],
+    ['ACC', '101', 'Accounting Principles I'], ['IST', '200', 'Cisco LAN']
+  ];
+  var sections = ['I01', 'A1Y', 'B02'];
+  var ou = 1200000, list = [];
+
+  terms.forEach(function (t) {
+    seeds.forEach(function (s, si) {
+      sections.slice(0, (si % 3) + 1).forEach(function (sec) {
+        var code = s[0] + '_' + s[1] + '_' + sec + '_' + t.tag;
+        var name = s[2] + ' (' + s[0] + '-' + s[1] + '-' + sec + ') ' + t.name;
+        list.push({
+          ou: String(ou++),
+          name: name,
+          code: code,
+          dept: s[0],
+          termId: t.id,
+          termName: t.name,
+          offeringName: name
+        });
+      });
+    });
+  });
+
+  state.courses = list;
+  state.lp = '1.62';
+  state.le = '1.97';
+  $('whoami').innerHTML = 'Preview — <b>not signed in</b>';
+  paintVersions();
+  $('mineCount').textContent = plural(list.length, 'sample course offering');
+  $('scanState').textContent = '';
+  return Promise.resolve(list);
+}
+
+boot();
+})();
+</script>
+</body>
+</html>

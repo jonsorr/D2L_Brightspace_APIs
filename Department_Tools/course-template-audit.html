@@ -1,0 +1,1722 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Course Template Audit
+  Checks each course's Content area for the modules your course template requires and flags outdated ones.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Course Template Audit</title>
+<style>
+  :root{
+    --ink:#10151c;
+    --muted:#5b6673;
+    --faint:#8a94a1;
+    --line:#e2e6ec;
+    --line-soft:#eef1f5;
+    --bg:#ffffff;
+    --surface:#f7f8fa;
+    --accent:#1d4d7f;
+    --accent-soft:#e8eff6;
+    --ok:#146c43; --ok-bg:#e7f4ec; --ok-line:#b9dfc9;
+    --warn:#8a5200; --warn-bg:#fdf1de; --warn-line:#f0d3a0;
+    --none:#5b6673; --none-bg:#f0f2f5; --none-line:#dce0e6;
+    --bad:#a52a1f; --bad-bg:#fcebe9; --bad-line:#f2c2bc;
+    --radius:8px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:var(--sans);color:var(--ink);background:var(--surface);
+    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1240px;margin:0 auto;padding:20px 16px 56px}
+
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+  .head h1{margin:0;font-size:19px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+  .head h1 .mark{width:22px;height:22px;border-radius:5px;background:var(--accent);display:inline-flex;align-items:center;justify-content:center;color:#fff;flex:0 0 auto}
+  .head .sub{margin:4px 0 0 31px;color:var(--muted);font-size:12.5px;max-width:62ch}
+  .head .meta{text-align:right;font-size:11.5px;color:var(--faint);line-height:1.6}
+  .head .meta b{color:var(--ink);font-weight:600}
+  .head .meta code{font-family:var(--mono);font-size:11px}
+
+  .card{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:14px}
+  .card-h{padding:11px 14px;border-bottom:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .card-h h2{margin:0;font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .card-b{padding:14px}
+
+  .banner{border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:13px;border:1px solid}
+  .banner b{display:block;margin-bottom:2px}
+  .banner.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+  .banner.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+  .banner.info{background:var(--accent-soft);border-color:#c7d8e8;color:var(--accent)}
+  .banner ul{margin:6px 0 0;padding-left:18px}
+  .banner code{font-family:var(--mono);font-size:11.5px}
+
+  .field{margin-bottom:16px}
+  .field:last-child{margin-bottom:0}
+  .lab{display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink)}
+  .hint{font-size:11.5px;color:var(--faint);margin-top:5px}
+
+  .row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start}
+  .col{flex:1 1 320px;min-width:280px}
+
+  .picker{position:relative}
+  .picker-btn{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 11px;border:1px solid var(--line);border-radius:6px;background:var(--bg);font:inherit;font-size:13px;text-align:left;cursor:pointer;color:var(--ink)}
+  .picker-btn:hover:not(:disabled){border-color:#c3ccd6}
+  .picker-btn:disabled{background:var(--surface);color:var(--faint);cursor:not-allowed}
+  .picker-btn .chev{color:var(--faint);flex:0 0 auto}
+  .menu{position:fixed;z-index:9999;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:0 12px 32px rgba(16,21,28,.16);display:none;flex-direction:column;overflow:hidden}
+  .menu[data-open="1"]{display:flex}
+  .menu-top{padding:8px;border-bottom:1px solid var(--line-soft);display:flex;gap:6px;align-items:center}
+  .menu-top input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:5px;font:inherit;font-size:12.5px}
+  .menu-top button{appearance:none;border:1px solid var(--line);background:var(--bg);border-radius:5px;font:inherit;font-size:11.5px;padding:6px 8px;cursor:pointer;color:var(--muted);white-space:nowrap}
+  .menu-top button:hover{background:var(--surface)}
+  .menu-list{overflow-y:auto;max-height:280px;padding:4px}
+  .menu-foot{padding:8px;border-top:1px solid var(--line-soft);display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .menu-foot span{font-size:11.5px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .menu-foot button{appearance:none;border:0;background:var(--accent);color:#fff;border-radius:5px;font:inherit;font-size:12px;font-weight:600;padding:6px 13px;cursor:pointer}
+  .menu-foot button:hover{background:#17416c}
+  .opt{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:5px;cursor:pointer;font-size:13px;user-select:none}
+  .opt:hover,.opt.cursor{background:var(--surface)}
+  .opt .box{width:15px;height:15px;border:1.5px solid #c3ccd6;border-radius:4px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+  .opt[aria-selected="true"] .box{background:var(--accent);border-color:var(--accent)}
+  .opt[aria-selected="true"] .box::after{content:"";width:8px;height:4px;border-left:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(-45deg) translate(1px,-1px)}
+  .opt .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .opt .id{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .menu-empty{padding:14px;text-align:center;color:var(--faint);font-size:12.5px}
+
+  .picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .pick{display:inline-flex;align-items:center;gap:5px;background:var(--accent-soft);color:var(--accent);border:1px solid #c7d8e8;border-radius:20px;padding:2px 6px 2px 9px;font-size:11.5px;font-weight:500}
+  .pick button{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;line-height:1;padding:2px;opacity:.65;border-radius:50%}
+  .pick button:hover{opacity:1;background:rgba(29,77,127,.12)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);min-height:38px}
+  .chips:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(29,77,127,.09)}
+  .chip{display:inline-flex;align-items:center;gap:5px;border-radius:5px;padding:3px 5px 3px 8px;font-size:12px;font-weight:500;border:1px solid}
+  .chip.req{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+  .chip.ban{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+  .chip button{appearance:none;border:0;background:transparent;color:inherit;cursor:pointer;font:inherit;line-height:1;padding:1px 2px;opacity:.6}
+  .chip button:hover{opacity:1}
+  .chips input{flex:1;min-width:110px;border:0;outline:0;font:inherit;font-size:12.5px;padding:4px 2px;background:transparent}
+
+  .opts{display:flex;flex-direction:column;gap:8px}
+  .check{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;cursor:pointer}
+  .check input{margin:2px 0 0;flex:0 0 auto;accent-color:var(--accent)}
+  .check span small{display:block;color:var(--faint);font-size:11.5px}
+  select.sel{padding:7px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12.5px;background:var(--bg)}
+
+  .btn{appearance:none;font:inherit;font-size:13px;font-weight:600;border-radius:6px;cursor:pointer;padding:9px 16px;display:inline-flex;align-items:center;gap:7px;border:1px solid transparent}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover:not(:disabled){background:#17416c}
+  .btn-primary:disabled{background:#a9b6c4;cursor:not-allowed}
+  .btn-ghost{background:var(--bg);border-color:var(--line);color:var(--ink)}
+  .btn-ghost:hover:not(:disabled){background:var(--surface)}
+  .btn-ghost:disabled{opacity:.5;cursor:not-allowed}
+  .btn-sm{padding:6px 11px;font-size:12px}
+  .actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding-top:2px}
+
+  .bar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);border-radius:3px;transition:width .18s linear}
+  .bar.credit i{background:var(--ok);transition:width .3s ease}
+  .bar.credit.low i{background:#c08a00}
+  .bar.credit.crit i{background:var(--bad)}
+  .prog-line{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;margin-bottom:6px;color:var(--muted)}
+  .prog-line b{color:var(--ink);font-weight:600}
+  .prog-sub{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:var(--faint);margin-top:6px;font-variant-numeric:tabular-nums}
+  .credit-line{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin:12px 0 5px}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:1px;background:var(--line-soft);border-radius:6px;overflow:hidden;border:1px solid var(--line-soft)}
+  .stat{background:var(--bg);padding:11px 13px}
+  .stat .n{font-size:21px;font-weight:650;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:11px;color:var(--faint);margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
+  .stat.ok .n{color:var(--ok)}
+  .stat.warn .n{color:var(--warn)}
+  .stat.none .n{color:var(--none)}
+
+  .tabs{display:flex;gap:2px;flex-wrap:wrap}
+  .tabs button{appearance:none;border:0;background:transparent;font:inherit;font-size:12.5px;padding:6px 10px;border-radius:5px;cursor:pointer;color:var(--muted)}
+  .tabs button:hover{background:var(--surface)}
+  .tabs button[aria-pressed="true"]{background:var(--ink);color:#fff;font-weight:600}
+  .tabs button .c{opacity:.6;font-variant-numeric:tabular-nums}
+  .search{padding:6px 9px;border:1px solid var(--line);border-radius:6px;font:inherit;font-size:12.5px;width:190px}
+
+  .legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:9px 14px;border-bottom:1px solid var(--line-soft);background:var(--surface);font-size:11.5px;color:var(--muted)}
+  .legend .lg{display:inline-flex;align-items:center;gap:6px}
+
+  .fp{display:inline-flex;gap:3px}
+  .pip{width:20px;height:20px;border-radius:4px;font-family:var(--mono);font-size:9.5px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;border:1px solid;letter-spacing:-.02em}
+  .pip.hit{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+  .pip.miss{background:var(--bg);border-color:#dfe3e9;color:#c0c7d0;border-style:dashed}
+  .pip.flag{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+  .pip.clear{background:var(--bg);border-color:#dfe3e9;color:#c0c7d0;border-style:dashed}
+
+  .tbl-wrap{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:650;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--bg);position:sticky;top:0;z-index:1}
+  td{padding:10px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  tbody tr:hover{background:var(--surface)}
+  tbody tr:last-child td{border-bottom:0}
+  .cname{font-weight:600;line-height:1.3}
+  .cname a{color:var(--ink);text-decoration:none}
+  .cname a:hover{color:var(--accent);text-decoration:underline}
+  .ccode{font-family:var(--mono);font-size:11px;color:var(--faint);margin-top:2px}
+  .term{font-size:12px;color:var(--muted);white-space:nowrap}
+  .nums{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);white-space:nowrap}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;border:1px solid}
+  .pill.ok{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+  .pill.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+  .pill.none{background:var(--none-bg);border-color:var(--none-line);color:var(--none)}
+  .why{font-size:12px;color:var(--muted);max-width:38ch}
+  .why .m{color:var(--warn);font-weight:600}
+  .why .f{color:var(--bad);font-weight:600}
+  .mods{font-size:11.5px;color:var(--faint);max-width:34ch;font-family:var(--mono);line-height:1.5}
+  .empty{padding:40px 20px;text-align:center;color:var(--faint);font-size:13px}
+
+  .foot{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:var(--faint);padding:4px 2px}
+  [hidden]{display:none !important}
+  @media (max-width:720px){ .head .meta{text-align:left} .mods{display:none} }
+  @media (prefers-reduced-motion:reduce){ *{transition:none !important;animation:none !important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div>
+      <h1>
+        <span class="mark" aria-hidden="true">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        </span>
+        Course template audit
+      </h1>
+      <p class="sub">Checks the sections you're attached to in Brightspace for the required top-level content modules, and flags the ones still carrying modules that shouldn't be there. No course content is read until you press Run audit.</p>
+    </div>
+    <div class="meta">
+      <div id="whoami">Checking your session…</div>
+      <div id="versions"></div>
+    </div>
+  </div>
+
+  <div class="banner info" id="scopeNote">
+    <b>What this report covers</b>
+    It audits the course sections your Brightspace account is attached to — nothing else. Your enrollments are read
+    when the page loads and grouped into the terms they belong to; only the sections in the terms you pick get their
+    content checked. It does not enumerate every section in a term, so a section you aren't enrolled in won't appear
+    here, administrator or not.
+  </div>
+
+  <div id="banners"></div>
+
+  <div class="card">
+    <div class="card-h">
+      <h2>What to check</h2>
+      <span class="hint" id="mineCount" style="margin:0">Reading your courses…</span>
+    </div>
+    <div class="card-b">
+
+      <div class="row">
+        <div class="col">
+          <div class="field">
+            <label class="lab" for="termBtn">Terms</label>
+            <div class="picker">
+              <button type="button" class="picker-btn" id="termBtn" disabled aria-haspopup="listbox" aria-expanded="false">
+                <span id="termBtnLabel">Loading terms…</span>
+                <svg class="chev" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+            </div>
+            <div class="picks" id="picks"></div>
+            <div class="hint" id="scopeHint">Newest terms first. Pick as many as you want.</div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="field">
+            <label class="lab" for="reqIn">Required top-level modules</label>
+            <div class="chips" id="reqChips">
+              <input id="reqIn" type="text" placeholder="Type a module name, press Enter" autocomplete="off">
+            </div>
+            <div class="hint">Every one of these must appear at the top level of Content.</div>
+          </div>
+          <div class="field">
+            <label class="lab" for="banIn">Modules that shouldn't be there</label>
+            <div class="chips" id="banChips">
+              <input id="banIn" type="text" placeholder="Type a module name, press Enter" autocomplete="off">
+            </div>
+            <div class="hint">Any of these at the top level fails the section.</div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="field">
+            <label class="lab" for="matchMode">Name matching</label>
+            <select class="sel" id="matchMode">
+              <option value="contains" selected>Module title contains the name</option>
+              <option value="exact">Module title matches exactly</option>
+            </select>
+            <div class="hint">"Contains" means "Getting Started (Read First)" counts as a hit.</div>
+          </div>
+          <div class="field">
+            <label class="lab">Skip rules</label>
+            <div class="opts">
+              <label class="check">
+                <input type="checkbox" id="optHighSchool">
+                <span>Skip high school sections<small>9th character of the course code is H</small></span>
+              </label>
+              <label class="check">
+                <input type="checkbox" id="optEmpty" checked>
+                <span>Skip sections with no content<small>Those belong to the no-content report</small></span>
+              </label>
+              <label class="check">
+                <input type="checkbox" id="optHidden" checked>
+                <span>Ignore hidden modules<small>A hidden "Getting Started" doesn't count as present</small></span>
+              </label>
+            </div>
+          </div>
+          <div class="field">
+            <label class="lab" for="speed">Speed</label>
+            <select class="sel" id="speed">
+              <option value="3">Gentle — 3 requests at a time</option>
+              <option value="6" selected>Normal — 6 at a time</option>
+              <option value="12">Fast — 12 at a time</option>
+            </select>
+            <div class="hint">Backs off on its own if Brightspace starts rate limiting.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top:16px">
+        <button class="btn btn-primary" id="runBtn" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Run audit
+        </button>
+        <button class="btn btn-ghost" id="refetchBtn" hidden>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refetch from Brightspace
+        </button>
+        <button class="btn btn-ghost" id="retryBtn" hidden>Reload my course list</button>
+        <button class="btn btn-ghost" id="cancelBtn" hidden>Stop</button>
+        <span class="hint" id="runHint" style="margin:0"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="progCard" hidden>
+    <div class="card-b">
+      <div class="prog-line">
+        <span id="scanMsg">Starting…</span>
+        <span id="scanCount"></span>
+      </div>
+      <div class="bar"><i id="scanBar"></i></div>
+      <div class="prog-sub">
+        <span id="scanRate"></span>
+        <span id="scanCalls"></span>
+      </div>
+      <div id="creditRow">
+        <div class="credit-line">
+          <span>API credits remaining</span>
+          <span id="creditTxt">—</span>
+        </div>
+        <div class="bar credit" id="creditBar"><i id="creditFill" style="width:100%"></i></div>
+      </div>
+      <div class="credit-line" id="creditNone" hidden>
+        <span>This tenant doesn't report an API quota — the scan only eases off if Brightspace pushes back.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="resCard" hidden>
+    <div class="card-h">
+      <h2>Results</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="search" id="search" type="search" placeholder="Filter by course or code…">
+        <button class="btn btn-ghost btn-sm" id="csvBtn">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          CSV
+        </button>
+        <button class="btn btn-ghost btn-sm" id="xlsxBtn">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Excel
+        </button>
+      </div>
+    </div>
+
+    <div class="card-b" style="padding-bottom:0">
+      <div class="stats" id="stats"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0 10px">
+        <div class="tabs" id="tabs"></div>
+        <span class="hint" id="skipNote" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div class="legend" id="legend"></div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="min-width:220px">Course</th>
+            <th>Term</th>
+            <th style="white-space:nowrap">Template</th>
+            <th>Status</th>
+            <th>What's wrong</th>
+            <th>Top-level modules</th>
+            <th style="text-align:right">Mod</th>
+            <th style="text-align:right">Top</th>
+            <th>Dates</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div class="empty" id="emptyRow" hidden>Nothing matches that filter.</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span id="footLeft"></span>
+    <span id="footRight"></span>
+  </div>
+</div>
+
+<div class="menu" id="termMenu" role="listbox" aria-multiselectable="true">
+  <div class="menu-top">
+    <input id="termSearch" type="search" placeholder="Search terms…" autocomplete="off">
+    <button type="button" id="selAll">All</button>
+    <button type="button" id="selNone">None</button>
+  </div>
+  <div class="menu-list" id="termList"></div>
+  <div class="menu-foot">
+    <span id="menuCount">None selected</span>
+    <button type="button" id="menuDone">Done</button>
+  </div>
+</div>
+
+<script>
+/* =====================================================================
+   Course Template Audit — self-contained Brightspace widget.
+   Session-authenticated (no keys, no ID/Key signing).
+
+   One path only: the account's own enrollments. On load it reads the course
+   list and groups it into terms — the list, not the content. Nothing under
+   /orgstructure/ is ever touched, so there is no permission to lack and no
+   403 to handle. The trade is real and deliberate: an administrator sees the
+   sections they are attached to, not every section in a term.
+
+   No table of contents is read until Run audit is pressed. The scan then runs
+   several requests in parallel and slows down only when the tenant says to.
+   ===================================================================== */
+
+const CONFIG = {
+  courseOfferingTypeId: 3,              // D2L org unit type id for a course offering
+  fallbackVersions:     { lp:'1.52', le:'1.86' },
+
+  /* EDIT: the default module lists for YOUR course template. Users can also
+     add or remove names on the page before running the audit. */
+  requiredModules:  ['Before you Begin', 'Getting Started', 'Schedule of Activities'],
+  forbiddenModules: ['Learning Content'],
+
+  timeZone:       Intl.DateTimeFormat().resolvedOptions().timeZone,   // dates render in the viewer's own time zone
+  concurrency:    6,                    // parallel requests during a scan
+  minConcurrency: 2,
+  maxConcurrency: 12,
+  lowCredits:     15,                   // pause when the tenant says we're nearly out
+  maxRetries:     5,
+  demoMode:       'auto',               // 'auto' | 'on' | 'off'
+  debug:          false
+};
+
+const ORIGIN = location.origin;
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const dbg = (...a) => { if (CONFIG.debug && window.console) console.log('[Template Audit]', ...a); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const NO_TERM_ID = 0;   // enrolled courses that don't sit under any semester
+
+const state = {
+  demo:      false,
+  booted:    false,
+  versions:  { lp:null, le:null },
+  vsource:   {},
+  mine:      null,               // the signed-in user's own course records, read once
+  unread:    0,                  // enrolled courses Brightspace wouldn't hand over
+  terms:     [],
+  picked:    new Set(),
+  cached:    new Map(),          // term id -> [section record]
+  required:  CONFIG.requiredModules.slice(),
+  forbidden: CONFIG.forbiddenModules.slice(),
+  rows:      [],
+  filter:    'all',
+  search:    '',
+  running:   false,
+  cancelled: false,
+  t0:        0,
+  stats:     { total:0, done:0, scanned:0, ok:0, review:0, empty:0, inactive:0, highSchool:0 }
+};
+
+/* ======================= NETWORK: parallel + adaptive =======================
+   No fixed delay between calls. Requests run net.n at a time, and the pool
+   only slows down when the tenant says so — a 429, or a low credit header.
+   That is the difference between a twelve-minute term and a one-minute one. */
+const net = {
+  n:         CONFIG.concurrency,   // live concurrency; halves on a 429
+  gate:      0,                    // epoch ms — nothing fires before this
+  streak:    0,                    // clean responses since the last 429
+  inflight:  0,
+  peak:      0,
+  calls:     0,
+  quota:     'unknown',            // 'unknown' | 'live' | 'absent'
+  limit:     null,
+  remaining: null
+};
+
+class ApiError extends Error {
+  constructor(status, msg, path) { super(msg); this.status = status; this.path = path; }
+}
+
+async function rlFetch(url, init) {
+  for (let attempt = 0; ; attempt++) {
+    const wait = net.gate - Date.now();
+    if (wait > 0) await sleep(wait);
+
+    net.inflight++; net.calls++;
+    if (net.inflight > net.peak) net.peak = net.inflight;
+    let res;
+    try {
+      res = await fetch(url, Object.assign(
+        { credentials:'same-origin', headers:{ Accept:'application/json' } }, init || {}));
+    } finally { net.inflight--; }
+
+    readCredits(res);
+
+    if (res.status !== 429) {
+      if (++net.streak >= 40 && net.n < CONFIG.maxConcurrency) { net.n++; net.streak = 0; }
+      return res;
+    }
+    if (attempt >= CONFIG.maxRetries) return res;
+
+    const ra = Number(res.headers.get('Retry-After'));
+    const pause = (Number.isFinite(ra) && ra > 0) ? ra * 1000 : Math.min(8000, 500 * Math.pow(2, attempt));
+    net.gate = Math.max(net.gate, Date.now() + pause);
+    net.n = Math.max(CONFIG.minConcurrency, Math.floor(net.n / 2));
+    net.streak = 0;
+    note('Brightspace is rate limiting — easing back to ' + net.n + ' at a time…');
+  }
+}
+
+/* The API credit headers belong to ID/Key app quotas. A session-authenticated
+   call often carries none at all, and some tenants stamp a placeholder zero on
+   them. Either way there is no quota here to respect — so believe a number only
+   when it is really a number, and treat a "0 remaining" that came back on a
+   successful response as the placeholder it is: a genuinely exhausted quota
+   answers 429, not 200.
+
+   (Careful: Number(null) is 0, and Number.isFinite(0) is true. Reading the
+   header straight into Number() is what made this tool throttle itself to a
+   standstill against a quota that was never there.)                          */
+function quotaAbsent() {
+  if (net.quota === 'absent') return;
+  const spurious = net.quota === 'unknown';   // no real quota was ever seen, so
+  net.quota = 'absent';                       // any pause on the clock is bogus.
+  net.remaining = null;                       // a 429 backoff, on the other hand,
+  net.limit = null;                           // is real and must survive this.
+  if (spurious) net.gate = 0;
+  $('creditRow').hidden = true;
+  $('creditNone').hidden = false;
+  dbg('tenant reports no usable API quota — leaning on 429s alone');
+}
+
+function readCredits(res) {
+  const raw = res.headers.get('X-Rate-Limit-Remaining');
+  const rem = (raw == null || String(raw).trim() === '') ? NaN : Number(raw);
+
+  if (!Number.isFinite(rem) || (rem <= 0 && res.status !== 429)) { quotaAbsent(); return; }
+
+  if (net.quota !== 'live') {          // a real number showed up — start trusting it
+    net.quota = 'live';
+    $('creditRow').hidden = false;
+    $('creditNone').hidden = true;
+  }
+
+  net.remaining = rem;
+  const lim = Number(res.headers.get('X-Rate-Limit-Limit'));
+  if (Number.isFinite(lim) && lim > 0) net.limit = lim;
+
+  if (rem <= CONFIG.lowCredits) {
+    // Reset arrives as seconds-from-now on most tenants, epoch seconds on some.
+    const rst = Number(res.headers.get('X-Rate-Limit-Reset'));
+    let until = Date.now() + 3000;
+    if (Number.isFinite(rst) && rst > 0) until = rst > 1e9 ? rst * 1000 : Date.now() + rst * 1000;
+    net.gate = Math.max(net.gate, Math.min(until, Date.now() + 65000));
+    note('Only ' + rem + ' API credits left — waiting for the reset…');
+  }
+
+  const lm = net.limit || Math.max(rem, 1);
+  const pct = Math.max(0, Math.min(100, (rem / lm) * 100));
+  $('creditFill').style.width = pct + '%';
+  $('creditTxt').textContent = rem + (net.limit ? ' / ' + net.limit : '');
+  const bar = $('creditBar');
+  bar.classList.toggle('low',  pct <= 30 && pct > 10);
+  bar.classList.toggle('crit', pct <= 10);
+}
+
+async function getJSON(path, o) {
+  o = o || {};
+  if (state.demo) return demoJSON(path);
+  const url = /^https?:/i.test(path) ? path : ORIGIN + path;
+  const res = await rlFetch(url);
+
+  if (res.status === 404 && 'ok404' in o) return o.ok404;
+  if (!res.ok) {
+    let body = '';
+    try { body = (await res.text()).slice(0, 160); } catch (e) {}
+    throw new ApiError(res.status, res.status + ' ' + res.statusText + (body ? ' — ' + body : ''), path);
+  }
+  const text = await res.text();
+  if (!text.trim()) return ('ok404' in o) ? o.ok404 : null;
+  return JSON.parse(text);
+}
+
+/* Walks a D2L paged result (PagingInfo/Items) or a plain array. */
+async function getPaged(path) {
+  const items = [];
+  let bookmark = null, guard = 0;
+  do {
+    const sep = path.indexOf('?') >= 0 ? '&' : '?';
+    const url = path + (bookmark ? sep + 'bookmark=' + encodeURIComponent(bookmark) : '');
+    const data = await getJSON(url);
+    if (Array.isArray(data)) { items.push(...data); break; }
+    const batch = (data && Array.isArray(data.Items)) ? data.Items : [];
+    items.push(...batch);
+    const pi = (data && data.PagingInfo) || {};
+    bookmark = pi.HasMoreItems ? pi.Bookmark : null;
+  } while (bookmark && ++guard < 400);
+  return items;
+}
+
+/* Runs fn over items, net.n at a time. Honours a shrinking pool and Stop. */
+function mapPool(items, fn) {
+  return new Promise(resolve => {
+    let i = 0, active = 0, done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    const pump = () => {
+      if (state.cancelled) { if (active === 0) finish(); return; }
+      while (active < net.n && i < items.length) {
+        const item = items[i++];
+        active++;
+        Promise.resolve()
+          .then(() => fn(item))
+          .catch(e => dbg('task failed', e && e.message))
+          .then(() => { active--; pump(); });
+      }
+      if (active === 0 && i >= items.length) finish();
+    };
+    if (!items.length) finish(); else pump();
+  });
+}
+
+/* ------------------------------ VERSIONS ------------------------------ */
+async function resolveVersions() {
+  const found = {}, source = {};
+  let list = null;
+  try { list = await getJSON('/d2l/api/versions/'); }
+  catch (e) { dbg('/d2l/api/versions/ unavailable', e.message); }
+
+  const pickFrom = codes => {
+    if (!Array.isArray(list)) return null;
+    for (const code of codes) {
+      const hit = list.find(x => x && String(x.ProductCode || '').toLowerCase() === code);
+      if (hit) return hit.LatestVersion || hit.Version || null;
+    }
+    return null;
+  };
+
+  const wanted = { lp:['lp'], le:['le'] };   // Data Hub isn't used by this tool
+
+  for (const key of Object.keys(wanted)) {
+    let v = pickFrom(wanted[key]);
+    if (v) { found[key] = v; source[key] = 'tenant'; continue; }
+    for (const code of wanted[key]) {
+      try {
+        const p = await getJSON('/d2l/api/' + code + '/versions/');
+        const val = p && (p.LatestVersion || p.Version || (Array.isArray(p) && p[0] && p[0].LatestVersion));
+        if (val) { v = val; break; }
+      } catch (e) { /* try the next code */ }
+    }
+    if (v) { found[key] = v; source[key] = 'product'; }
+    else   { found[key] = CONFIG.fallbackVersions[key]; source[key] = 'fallback'; }
+  }
+
+  state.versions = found;
+  state.vsource  = source;
+  dbg('versions', found, source);
+}
+
+function paintVersions() {
+  const v = state.versions, s = state.vsource;
+  const tag = k => v[k] + (s[k] === 'fallback' ? '*' : '');
+  $('versions').innerHTML = 'API <code>LP ' + esc(tag('lp')) + ' · LE ' + esc(tag('le')) + '</code>';
+}
+
+/* --------------------------- ORG UNITS --------------------------- */
+function normalizeOUs(list, typeFilter) {
+  const seen = new Map();
+  for (const o of (list || [])) {
+    const src = o && o.OrgUnit ? o.OrgUnit : o;
+    if (!src) continue;
+    if (typeFilter != null && src.Type && Number(src.Type.Id) !== Number(typeFilter)) continue;
+    const id = Number(src.Identifier != null ? src.Identifier : src.Id);
+    if (!Number.isFinite(id) || seen.has(id)) continue;
+    seen.set(id, { id, name: String(src.Name || '').trim() || ('Org unit ' + id), code: String(src.Code || '').trim() });
+  }
+  return [...seen.values()].sort((a, b) => b.id - a.id);   // larger OU id = newer term
+}
+
+/* ------------------------------ CONTENT ------------------------------ */
+async function getToc(orgUnitId) {
+  return (await getJSON('/d2l/api/le/' + state.versions.le + '/' + orgUnitId + '/content/toc', { ok404:{} })) || {};
+}
+
+/* Compress a table of contents to the few facts the audit needs, keeping the
+   hidden flags so the "ignore hidden" toggle can be re-applied without a
+   refetch. A few hundred of these is a few hundred KB, not tens of MB.     */
+function reduceToc(toc) {
+  const count = (m, all) => {
+    let n = (m.Topics || []).filter(t => all || !t.IsHidden).length;
+    for (const c of (m.Modules || [])) if (all || !c.IsHidden) n += count(c, all);
+    return n;
+  };
+  return ((toc && toc.Modules) || []).map(m => ({
+    t: String(m.Title || '').trim(),
+    h: !!m.IsHidden,
+    v: count(m, false),   // visible topics beneath
+    a: count(m, true)     // every topic beneath
+  }));
+}
+
+function readReduced(reduced, ignoreHidden) {
+  const tops = (reduced || []).filter(m => !(ignoreHidden && m.h));
+  return {
+    moduleCount: tops.length,
+    topicCount:  tops.reduce((n, m) => n + (ignoreHidden ? m.v : m.a), 0),
+    topNames:    tops.map(m => m.t).filter(Boolean)
+  };
+}
+
+/* ---------------------------- THE AUDIT RULE ---------------------------- */
+function evaluate(topNames, required, forbidden, mode) {
+  const fold  = s => String(s || '').trim().toLowerCase();
+  const names = topNames.map(fold);
+  const hit   = needle => {
+    const n = fold(needle);
+    if (!n) return false;
+    return mode === 'exact' ? names.some(x => x === n) : names.some(x => x.includes(n));
+  };
+
+  const present = required.map(r => ({ name:r, ok:hit(r) }));
+  const missing = present.filter(p => !p.ok).map(p => p.name);
+  const found   = forbidden.filter(f => hit(f));
+
+  const clean = !missing.length && !found.length;
+  const bits  = [];
+  if (missing.length) bits.push('Missing: ' + missing.join(', '));
+  if (found.length)   bits.push('Still has: ' + found.join(', '));
+
+  return {
+    present, missing, found,
+    status:  clean ? 'OK' : 'Needs Review',
+    details: clean ? 'Passed audit' : bits.join(' · ')
+  };
+}
+
+/* =============================== THE SCAN ===============================
+   Two phases, and neither starts before the button is pressed.
+   Fetch — pull each section's course record and, if it's active, its table
+           of contents. Runs in parallel. Keeps one compact record per section.
+   Judge — apply the rules to those records. Pure client-side, so changing a
+           rule and running again costs zero API calls.                      */
+function selectedTerms() { return state.terms.filter(t => state.picked.has(t.id)); }
+function selectionKeys()  { return selectedTerms().map(t => t.id); }
+
+/* ---- the courses that belong to the signed-in user ----
+   myenrollments carries no parent term, so each enrolled offering is read once
+   to find the semester it sits under. That's the course *list* — no content is
+   touched here. The records are kept, so the audit itself then only has to
+   fetch a table of contents per section.                                     */
+function semIdOf(co) {
+  const s = co && co.Semester;
+  const id = s && Number(s.Identifier != null ? s.Identifier : s.Id);
+  return (Number.isFinite(id) && id > 0) ? id : NO_TERM_ID;
+}
+
+async function loadMine() {
+  if (state.mine) return state.mine;
+  const lp = state.versions.lp;
+
+  state.cancelled = false;
+  state.running = true;
+  state.t0 = Date.now();
+  state.stats.total = 0;
+  state.stats.done  = 0;
+  net.calls = 0;
+  net.n = Number($('speed').value) || CONFIG.concurrency;
+  $('progCard').hidden = false;
+  $('cancelBtn').hidden = false;
+  setScan('Finding the courses you\'re enrolled in…');
+
+  const stubs = normalizeOUs(
+    await getPaged('/d2l/api/lp/' + lp + '/enrollments/myenrollments/?orgUnitTypeId=' + CONFIG.courseOfferingTypeId),
+    CONFIG.courseOfferingTypeId);
+
+  state.stats.total = stubs.length;
+  setScan('Reading your course list to find its terms — no content yet…');
+
+  const out = [];
+  let unread = 0;
+  await mapPool(stubs, async st => {
+    try {
+      const co = await getJSON('/d2l/api/lp/' + lp + '/courses/' + st.id, { ok404:null });
+      if (co) out.push(co); else unread++;
+    } catch (e) { unread++; dbg('course read failed', st.id, e.message); }
+    bump();
+  });
+  state.unread = unread;
+
+  state.running = false;
+  $('progCard').hidden = true;
+  $('cancelBtn').hidden = true;
+
+  if (state.cancelled) return null;
+  state.mine = out;
+  return out;
+}
+
+/* The terms the user's own courses sit in — newest first, with a count each. */
+function termsFromMine(mine) {
+  const seen = new Map();
+  for (const co of mine) {
+    const id = semIdOf(co);
+    if (!seen.has(id)) {
+      const s = co.Semester;
+      seen.set(id, {
+        id,
+        name: id === NO_TERM_ID ? 'No term' : (String((s && s.Name) || '').trim() || ('Term ' + id)),
+        code: String((s && s.Code) || '').trim(),
+        n: 0
+      });
+    }
+    seen.get(id).n++;
+  }
+  return [...seen.values()].sort((a, b) => b.id - a.id);
+}
+
+/* The sections to audit: the user's own courses that sit in the chosen terms.
+   No listing call — the course list is already in hand from load.           */
+async function collectWork(terms, refetch) {
+  const mine = state.mine || (await loadMine()) || [];
+  const want = new Set(terms.map(t => t.id));
+  const work = [];
+
+  for (const co of mine) {
+    const id = semIdOf(co);
+    if (!want.has(id)) continue;
+    const term = state.terms.find(t => t.id === id) || { id, name: 'Term ' + id };
+    work.push({
+      key:    id,
+      term:   term,
+      stub:   { Identifier: String(co.Identifier), Name: co.Name, Code: co.Code },
+      course: refetch ? null : co     // a refetch re-reads the course record too
+    });
+  }
+  return work;
+}
+
+async function fetchSection(item) {
+  const lp = state.versions.lp;
+
+  // In enrollment scope the course record is already in hand from the course
+  // list, so a section costs one call — its table of contents.
+  let co = item.course;
+  if (!co) {
+    try { co = await getJSON('/d2l/api/lp/' + lp + '/courses/' + item.stub.Identifier, { ok404:null }); }
+    catch (e) { dbg('course read failed', item.stub.Identifier, e.message); }
+  }
+
+  if (!co) { bump(); return null; }
+
+  const rec = {
+    key:      item.key,
+    termId:   item.term.id,
+    termName: item.term.name,
+    id:       String(co.Identifier),
+    name:     String(co.Name || ''),
+    code:     String(co.Code || ''),
+    active:   !!co.IsActive,
+    start:    fmtDate(co.StartDate),
+    end:      fmtDate(co.EndDate),
+    reduced:  null
+  };
+
+  // An inactive section can never be reported, so don't spend a call on its TOC.
+  if (!rec.active) { bump(); return rec; }
+
+  try { rec.reduced = reduceToc(await getToc(rec.id)); }
+  catch (e) { dbg('toc failed', rec.id, e.message); rec.reduced = []; }
+
+  bump();
+  return rec;
+}
+
+function judge() {
+  const mode         = $('matchMode').value;
+  const skipHS       = $('optHighSchool').checked;
+  const skipEmpty    = $('optEmpty').checked;
+  const ignoreHidden = $('optHidden').checked;
+  const required     = state.required.slice();
+  const forbidden    = state.forbidden.slice();
+
+  state.rows = [];
+  const s = state.stats;
+  s.scanned = s.ok = s.review = s.empty = s.inactive = s.highSchool = 0;
+
+  for (const key of selectionKeys()) {
+    for (const r of (state.cached.get(key) || [])) {
+      s.scanned++;
+
+      if (!r.active) { s.inactive++; continue; }
+      if (skipHS && r.code.length >= 9 && r.code[8].toUpperCase() === 'H') { s.highSchool++; continue; }
+
+      const read  = readReduced(r.reduced, ignoreHidden);
+      const empty = (read.moduleCount + read.topicCount) === 0;
+      if (empty) { s.empty++; if (skipEmpty) continue; }
+
+      const v = empty
+        ? { present: required.map(n => ({ name:n, ok:false })), missing: required.slice(), found: [],
+            status: 'No content', details: 'Content is empty' }
+        : evaluate(read.topNames, required, forbidden, mode);
+
+      if (v.status === 'OK') s.ok++;
+      else if (v.status === 'Needs Review') s.review++;
+
+      state.rows.push({
+        termName: r.termName, termId: r.termId,
+        name: r.name, code: r.code, id: r.id,
+        url: ORIGIN + '/d2l/le/content/' + r.id + '/Home',
+        start: r.start, end: r.end,
+        modules: read.moduleCount, topics: read.topicCount, topNames: read.topNames,
+        present: v.present, missing: v.missing, found: v.found,
+        status: v.status, details: v.details
+      });
+    }
+  }
+}
+
+async function runAudit(refetch) {
+  if (state.running) return;
+  const terms = selectedTerms();
+  if (!terms.length) return;
+
+  if (!state.required.length && !state.forbidden.length) {
+    clearBanners();
+    setBanner('warn', 'No rules to check', 'Add at least one required module, or one module that shouldn\'t be there.');
+    return;
+  }
+
+  const keys = selectionKeys();
+  if (refetch) keys.forEach(k => state.cached.delete(k));
+  const need = keys.filter(k => !state.cached.has(k));
+
+  clearBanners();
+  state.cancelled = false;
+  net.n = Number($('speed').value) || CONFIG.concurrency;
+  net.gate = 0;
+  net.streak = 0;
+
+  // Everything already in hand — judging is instant and costs nothing.
+  if (!need.length) {
+    judge();
+    show(state.rows.length
+      ? 'Re-checked ' + state.stats.scanned.toLocaleString() + ' cached sections against the current rules — no API calls needed.'
+      : null);
+    return;
+  }
+
+  state.running = true;
+  state.stats.total = 0;
+  state.stats.done  = 0;
+  state.t0 = Date.now();
+  net.calls = 0;
+  $('runBtn').disabled = true;
+  $('refetchBtn').hidden = true;
+  $('cancelBtn').hidden = false;
+  $('progCard').hidden = false;
+  $('resCard').hidden = true;
+
+  try {
+    const wanted = terms.filter(t => need.includes(t.id));
+
+    setScan('Gathering your sections in ' + wanted.length + ' term' + (wanted.length === 1 ? '' : 's') + '…');
+
+    const work = await collectWork(wanted, refetch);
+    state.stats.total = work.length;
+    tick(true);
+
+    if (!work.length) {
+      state.running = false;
+      finish('You have no course sections in the selected terms.');
+      return;
+    }
+
+    setScan('Checking sections…');
+    const buckets = new Map(need.map(k => [k, []]));
+    await mapPool(work, async item => {
+      const rec = await fetchSection(item);
+      if (rec && buckets.has(rec.key)) buckets.get(rec.key).push(rec);
+    });
+
+    // A cancelled run caches nothing — a half-scanned term would lie later.
+    if (!state.cancelled) for (const [k, list] of buckets) state.cached.set(k, list);
+
+    state.running = false;
+    judge();
+    finish(state.cancelled ? 'Stopped early — showing the sections that were checked.' : null);
+  } catch (e) {
+    state.running = false;
+    setBanner('bad', 'The audit stopped', esc(e.message || String(e)));
+    finish(null);
+  }
+}
+
+function finish(msg) {
+  state.running = false;
+  $('cancelBtn').hidden = true;
+  $('progCard').hidden = true;
+  $('runBtn').disabled = !selectedTerms().length;
+
+  if (!state.cancelled && state.stats.total) {
+    const secs = Math.max(1, Math.round((Date.now() - state.t0) / 1000));
+    $('footRight').textContent = state.stats.total.toLocaleString() + ' sections · ' +
+      net.calls.toLocaleString() + ' API calls · ' + fmtSecs(secs);
+  }
+
+  show(msg);
+}
+
+function show(msg) {
+  if (msg) setBanner('info', msg, '');
+
+  if (!state.rows.length) {
+    $('resCard').hidden = true;
+    const s = state.stats;
+    const why = [
+      s.empty      ? s.empty + ' had no content'                  : '',
+      s.inactive   ? s.inactive + ' were inactive'                : '',
+      s.highSchool ? s.highSchool + ' were high school sections'  : ''
+    ].filter(Boolean).join(', ');
+    setBanner('info', 'Nothing to report',
+      why ? 'Every one of your sections was skipped by your rules — ' + why + '.' : 'No sections came back.');
+    return;
+  }
+
+  $('resCard').hidden = false;
+  $('refetchBtn').hidden = false;
+  renderResults();
+  $('runHint').textContent = state.stats.scanned.toLocaleString() +
+    ' sections held in memory — change a rule and run again, it re-checks instantly.';
+}
+
+/* ------------------------------ RENDERING ------------------------------ */
+const DATE_FMT = new Intl.DateTimeFormat('en-US', { timeZone:CONFIG.timeZone, month:'2-digit', day:'2-digit', year:'numeric' });
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : DATE_FMT.format(d);
+}
+function fmtSecs(s) {
+  s = Math.round(s);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  return m + 'm ' + String(s % 60).padStart(2, '0') + 's';
+}
+
+/* Two-letter tag for a module, from its capitals: "Before you Begin" -> BB */
+function pipLabel(name) {
+  const caps = String(name).match(/[A-Z]/g);
+  if (caps && caps.length >= 2) return caps.slice(0, 2).join('');
+  const words = String(name).trim().split(/\s+/);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return String(name).slice(0, 2).toUpperCase();
+}
+
+function renderLegend() {
+  const req = state.required.map(r =>
+    '<span class="lg"><span class="pip hit">' + esc(pipLabel(r)) + '</span> ' + esc(r) + '</span>').join('');
+  const ban = state.forbidden.map(f =>
+    '<span class="lg"><span class="pip flag">' + esc(pipLabel(f)) + '</span> ' + esc(f) + ' <i>(shouldn\'t be there)</i></span>').join('');
+  $('legend').innerHTML = req + ban +
+    '<span class="lg" style="margin-left:auto"><span class="pip miss">··</span> not found</span>';
+}
+
+function renderStats() {
+  const s = state.stats;
+  const cells = [
+    { n:state.rows.length, k:'Reported',     c:'' },
+    { n:s.ok,              k:'Passing',      c:'ok' },
+    { n:s.review,          k:'Needs review', c:'warn' },
+    { n:s.empty,           k:'No content',   c:'none' },
+    { n:s.inactive,        k:'Inactive',     c:'none' },
+    { n:s.highSchool,      k:'High school',  c:'none' }
+  ];
+  $('stats').innerHTML = cells.map(c =>
+    '<div class="stat ' + c.c + '"><div class="n">' + c.n.toLocaleString() + '</div><div class="k">' + c.k + '</div></div>').join('');
+
+  const pct = state.rows.length ? Math.round((s.ok / state.rows.length) * 100) : 0;
+  $('skipNote').textContent = state.rows.length ? pct + '% of reported sections are on template' : '';
+}
+
+function renderTabs() {
+  const counts = {
+    all:    state.rows.length,
+    review: state.rows.filter(r => r.status === 'Needs Review').length,
+    ok:     state.rows.filter(r => r.status === 'OK').length,
+    none:   state.rows.filter(r => r.status === 'No content').length
+  };
+  const defs = [
+    { k:'all',    t:'All' },
+    { k:'review', t:'Needs review' },
+    { k:'ok',     t:'Passing' },
+    { k:'none',   t:'No content' }
+  ].filter(d => d.k !== 'none' || counts.none > 0);
+
+  $('tabs').innerHTML = defs.map(d =>
+    '<button type="button" data-k="' + d.k + '" aria-pressed="' + (state.filter === d.k) + '">' +
+      d.t + ' <span class="c">' + counts[d.k].toLocaleString() + '</span></button>').join('');
+
+  [...$('tabs').querySelectorAll('button')].forEach(b => b.onclick = () => {
+    state.filter = b.dataset.k;
+    renderTabs(); renderTable();
+  });
+}
+
+function visibleRows() {
+  const q = state.search.trim().toLowerCase();
+  return state.rows.filter(r => {
+    if (state.filter === 'review' && r.status !== 'Needs Review') return false;
+    if (state.filter === 'ok'     && r.status !== 'OK') return false;
+    if (state.filter === 'none'   && r.status !== 'No content') return false;
+    if (q && !(r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q) || r.termName.toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((a, b) =>
+    a.termName.localeCompare(b.termName) ||
+    a.status.localeCompare(b.status) ||
+    a.code.localeCompare(b.code) ||
+    a.name.localeCompare(b.name));
+}
+
+function renderTable() {
+  const rows = visibleRows();
+  $('emptyRow').hidden = rows.length > 0;
+
+  $('tbody').innerHTML = rows.map(r => {
+    const pips = r.present.map(p =>
+        '<span class="pip ' + (p.ok ? 'hit' : 'miss') + '" title="' + esc(p.name) + (p.ok ? ' — found' : ' — missing') + '">' +
+        esc(pipLabel(p.name)) + '</span>').join('') +
+      state.forbidden.map(f => {
+        const bad = r.found.includes(f);
+        return '<span class="pip ' + (bad ? 'flag' : 'clear') + '" title="' + esc(f) + (bad ? ' — still present' : ' — gone') + '">' +
+          esc(pipLabel(f)) + '</span>';
+      }).join('');
+
+    const cls = r.status === 'OK' ? 'ok' : (r.status === 'Needs Review' ? 'warn' : 'none');
+    const why = r.status === 'OK'
+      ? '<span style="color:var(--faint)">—</span>'
+      : [
+          r.missing.length ? '<span class="m">Missing:</span> ' + esc(r.missing.join(', ')) : '',
+          r.found.length   ? '<span class="f">Still has:</span> ' + esc(r.found.join(', ')) : '',
+          r.status === 'No content' ? '<span class="m">Content is empty</span>' : ''
+        ].filter(Boolean).join('<br>');
+
+    const mods = r.topNames.length
+      ? esc(r.topNames.slice(0, 4).join(' / ')) + (r.topNames.length > 4 ? ' <span style="color:#c0c7d0">+' + (r.topNames.length - 4) + '</span>' : '')
+      : '<span style="color:#c0c7d0">none</span>';
+
+    return '<tr>' +
+      '<td><div class="cname"><a href="' + esc(r.url) + '" target="_blank" rel="noopener">' + esc(r.name) + '</a></div>' +
+        '<div class="ccode">' + esc(r.code || '—') + ' · ' + esc(r.id) + '</div></td>' +
+      '<td class="term">' + esc(r.termName) + '</td>' +
+      '<td><span class="fp">' + pips + '</span></td>' +
+      '<td><span class="pill ' + cls + '">' + esc(r.status) + '</span></td>' +
+      '<td class="why">' + why + '</td>' +
+      '<td class="mods">' + mods + '</td>' +
+      '<td class="nums" style="text-align:right">' + r.modules + '</td>' +
+      '<td class="nums" style="text-align:right">' + r.topics + '</td>' +
+      '<td class="nums">' + esc(r.start) + (r.end ? ' – ' + esc(r.end) : '') + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function renderResults() { renderStats(); renderTabs(); renderLegend(); renderTable(); }
+
+/* ------------------------------- EXPORTS ------------------------------- */
+function columns() {
+  return [
+    ['SemesterName',       r => r.termName],
+    ['SemesterOrgUnitId',  r => r.termId],
+    ['CourseName',         r => r.name],
+    ['CourseCode',         r => r.code],
+    ['CourseOrgUnitId',    r => r.id],
+    ['CourseLink',         r => r.url],
+    ['IsActive',           r => 'Yes'],
+    ['StartDate',          r => r.start],
+    ['EndDate',            r => r.end],
+    ['ContentModuleCount', r => r.modules],
+    ['ContentTopicCount',  r => r.topics],
+    ...state.required.map(m => ['Has_' + m.replace(/\s+/g, '_'), r => {
+      const p = r.present.find(x => x.name === m); return p && p.ok ? 'TRUE' : 'FALSE';
+    }]),
+    ...state.forbidden.map(m => ['HasOutdated_' + m.replace(/\s+/g, '_'), r => r.found.includes(m) ? 'TRUE' : 'FALSE']),
+    ['TopLevelModules',    r => r.topNames.join(' | ')],
+    ['TemplateStatus',     r => r.status],
+    ['TemplateDetails',    r => r.details]
+  ];
+}
+
+function stamp() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+function exportCSV() {
+  const cols = columns(), rows = visibleRows();
+  const q = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [cols.map(c => q(c[0])).join(',')];
+  for (const r of rows) lines.push(cols.map(c => q(c[1](r))).join(','));
+  download(new Blob(['\uFEFF' + lines.join('\r\n')], { type:'text/csv;charset=utf-8' }),
+    'brightspace_template_audit_' + stamp() + '.csv');
+}
+
+/* ---- minimal XLSX writer (store-only zip, no dependencies) ---- */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const u16 = n => [n & 255, (n >>> 8) & 255];
+  const u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+  const bytes = arr => new Uint8Array(arr);
+  const join = list => {
+    const out = new Uint8Array(list.reduce((n, c) => n + c.length, 0));
+    let p = 0;
+    for (const c of list) { out.set(c, p); p += c.length; }
+    return out;
+  };
+
+  const local = [], central = [];
+  let offset = 0;
+
+  for (const f of files) {
+    const nameBytes = enc.encode(f.name);
+    const data = enc.encode(f.data);
+    const crc = crc32(data);
+
+    const head = bytes([].concat(
+      u32(0x04034b50), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length), u16(nameBytes.length), u16(0)));
+    local.push(head, nameBytes, data);
+
+    central.push(bytes([].concat(
+      u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(0), u16(0),
+      u32(crc), u32(data.length), u32(data.length),
+      u16(nameBytes.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset))), nameBytes);
+
+    offset += head.length + nameBytes.length + data.length;
+  }
+
+  const cd = join(central);
+  const end = bytes([].concat(
+    u32(0x06054b50), u16(0), u16(0),
+    u16(files.length), u16(files.length), u32(cd.length), u32(offset), u16(0)));
+
+  return join([join(local), cd, end]);
+}
+const xesc = s => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+
+function colRef(i) {
+  let s = '';
+  i += 1;
+  while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); }
+  return s;
+}
+function sheetXml(header, rows) {
+  const line = (cells, rowNum) => '<row r="' + rowNum + '">' + cells.map((v, i) => {
+    const ref = colRef(i) + rowNum;
+    if (typeof v === 'number' && Number.isFinite(v)) return '<c r="' + ref + '"><v>' + v + '</v></c>';
+    return '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + xesc(v) + '</t></is></c>';
+  }).join('') + '</row>';
+
+  const body = [line(header, 1)].concat(rows.map((r, i) => line(r, i + 2))).join('');
+  const cols = '<cols>' + header.map((h, i) =>
+    '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + Math.min(46, Math.max(11, String(h).length + 4)) + '"/>').join('') + '</cols>';
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    cols + '<sheetData>' + body + '</sheetData></worksheet>';
+}
+function safeSheetName(name, used) {
+  let s = String(name || 'Sheet').replace(/[\\\/\?\*\[\]:]/g, '-').slice(0, 28).trim() || 'Sheet';
+  const base = s;
+  let n = 2;
+  while (used.has(s.toLowerCase())) s = (base + ' ' + n++).slice(0, 31);
+  used.add(s.toLowerCase());
+  return s;
+}
+
+function exportXLSX() {
+  const cols = columns(), rows = visibleRows();
+  const header = cols.map(c => c[0]);
+  const toRow = r => cols.map(c => {
+    const v = c[1](r);
+    return (typeof v === 'number') ? v : String(v == null ? '' : v);
+  });
+
+  const used = new Set();
+  const sheets = [{ name: safeSheetName('Template Audit', used), header, rows: rows.map(toRow) }];
+
+  const byTerm = new Map();
+  for (const r of rows) {
+    if (!byTerm.has(r.termName)) byTerm.set(r.termName, []);
+    byTerm.get(r.termName).push(r);
+  }
+  if (byTerm.size > 1) for (const [term, list] of byTerm) {
+    sheets.push({ name: safeSheetName(term, used), header, rows: list.map(toRow) });
+  }
+
+  const files = [
+    { name:'[Content_Types].xml', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      sheets.map((s, i) => '<Override PartName="/xl/worksheets/sheet' + (i + 1) +
+        '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('') +
+      '</Types>' },
+    { name:'_rels/.rels', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      '</Relationships>' },
+    { name:'xl/workbook.xml', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' +
+      sheets.map((s, i) => '<sheet name="' + xesc(s.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>').join('') +
+      '</sheets></workbook>' },
+    { name:'xl/_rels/workbook.xml.rels', data:
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      sheets.map((s, i) => '<Relationship Id="rId' + (i + 1) +
+        '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>').join('') +
+      '</Relationships>' }
+  ];
+  sheets.forEach((s, i) => files.push({ name:'xl/worksheets/sheet' + (i + 1) + '.xml', data: sheetXml(s.header, s.rows) }));
+
+  download(new Blob([zipStore(files)], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    'brightspace_template_audit_' + stamp() + '.xlsx');
+}
+
+/* ------------------------------ UI PLUMBING ------------------------------ */
+function setBanner(kind, title, html) {
+  const d = document.createElement('div');
+  d.className = 'banner ' + kind;
+  d.innerHTML = '<b>' + esc(title) + '</b>' + (html || '');
+  $('banners').appendChild(d);
+}
+function clearBanners() { $('banners').innerHTML = ''; }
+
+let lastPaint = 0;
+function setScan(msg) { $('scanMsg').textContent = msg; tick(true); }
+function note(msg) { if (state.running) $('scanMsg').textContent = msg; }
+function bump() { state.stats.done++; tick(false); }
+
+function tick(force) {
+  const now = Date.now();
+  if (!force && now - lastPaint < 120) return;
+  lastPaint = now;
+
+  const s = state.stats;
+  $('scanCount').innerHTML = s.total ? '<b>' + s.done.toLocaleString() + '</b> / ' + s.total.toLocaleString() : '';
+  $('scanBar').style.width = s.total ? Math.round((s.done / s.total) * 100) + '%' : '0%';
+
+  const elapsed = (now - state.t0) / 1000;
+  const rate = elapsed > 0.5 ? s.done / elapsed : 0;
+  const left = Math.max(0, s.total - s.done);
+  const bits = [];
+  if (rate > 0) bits.push(rate.toFixed(1) + ' sections/sec');
+  if (rate > 0.2 && left) bits.push('about ' + fmtSecs(left / rate) + ' left');
+  $('scanRate').textContent = bits.join(' · ');
+  $('scanCalls').textContent = net.calls.toLocaleString() + ' API calls · ' + net.n + ' at a time';
+}
+
+/* ---- chip inputs ---- */
+function renderChips(box, list, cls, onRemove) {
+  [...box.querySelectorAll('.chip')].forEach(c => c.remove());
+  const input = box.querySelector('input');
+  list.forEach((name, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip ' + cls;
+    chip.innerHTML = esc(name) + '<button type="button" aria-label="Remove ' + esc(name) + '">&times;</button>';
+    chip.querySelector('button').onclick = () => onRemove(i);
+    box.insertBefore(chip, input);
+  });
+}
+function wireChips(boxId, inputId, list, cls) {
+  const box = $(boxId), input = $(inputId);
+  const paint = () => renderChips(box, list, cls, i => { list.splice(i, 1); paint(); });
+
+  const add = raw => {
+    String(raw).split(/[;,]/).map(s => s.trim()).filter(Boolean).forEach(v => {
+      if (!list.some(x => x.toLowerCase() === v.toLowerCase())) list.push(v);
+    });
+    input.value = '';
+    paint();
+  };
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ';') { e.preventDefault(); if (input.value.trim()) add(input.value); }
+    else if (e.key === 'Backspace' && !input.value && list.length) { list.pop(); paint(); }
+  });
+  input.addEventListener('blur', () => { if (input.value.trim()) add(input.value); });
+  box.addEventListener('click', e => { if (e.target === box) input.focus(); });
+  paint();
+}
+
+/* ---- term picker ---- */
+let cursor = -1;
+function menuOpen() { return $('termMenu').dataset.open === '1'; }
+function placeMenu() {
+  const b = $('termBtn').getBoundingClientRect();
+  const m = $('termMenu');
+  m.style.left  = b.left + 'px';
+  m.style.width = Math.max(280, b.width) + 'px';
+  const below = window.innerHeight - b.bottom;
+  if (below < 240 && b.top > below) { m.style.top = ''; m.style.bottom = (window.innerHeight - b.top + 4) + 'px'; }
+  else { m.style.bottom = ''; m.style.top = (b.bottom + 4) + 'px'; }
+}
+function openMenu(on) {
+  const m = $('termMenu');
+  m.dataset.open = on ? '1' : '0';
+  $('termBtn').setAttribute('aria-expanded', String(!!on));
+  if (on) { placeMenu(); $('termSearch').value = ''; cursor = -1; renderTermOptions(); $('termSearch').focus(); }
+}
+function renderTermOptions() {
+  const q = $('termSearch').value.trim().toLowerCase();
+  const list = state.terms.filter(t => !q || t.name.toLowerCase().includes(q) || String(t.id).includes(q));
+  const host = $('termList');
+
+  if (!list.length) { host.innerHTML = '<div class="menu-empty">No terms match.</div>'; return; }
+
+  host.innerHTML = list.map((t, i) =>
+    '<div class="opt" role="option" data-id="' + t.id + '" data-i="' + i + '" aria-selected="' + state.picked.has(t.id) + '">' +
+      '<span class="box"></span><span class="nm">' + esc(t.name) + '</span><span class="id">' +
+      (t.n != null ? t.n + (t.n === 1 ? ' course' : ' courses') : t.id) + '</span>' +
+    '</div>').join('');
+
+  [...host.querySelectorAll('.opt')].forEach(el => {
+    el.onclick = () => togglePick(Number(el.dataset.id));
+    el.onmouseenter = () => { cursor = Number(el.dataset.i); paintCursor(); };
+  });
+  paintCursor();
+}
+function paintCursor() {
+  [...$('termList').querySelectorAll('.opt')].forEach(el =>
+    el.classList.toggle('cursor', Number(el.dataset.i) === cursor));
+}
+
+/* This is a multi-select: picking a term must not close the menu.
+   So it updates the one row that changed instead of re-rendering the list.
+   Re-rendering here would replace the very element that was clicked while its
+   click event is still bubbling — the detached node then fails the "is this
+   inside the menu?" test in the outside-click handler, and the menu shuts
+   itself after every single pick.                                            */
+function togglePick(id) {
+  if (state.picked.has(id)) state.picked.delete(id); else state.picked.add(id);
+  const el = $('termList').querySelector('.opt[data-id="' + id + '"]');
+  if (el) el.setAttribute('aria-selected', String(state.picked.has(id)));
+  renderPicks();
+}
+function renderPicks() {
+  const picked = state.terms.filter(t => state.picked.has(t.id));
+  $('termBtnLabel').textContent = !picked.length
+    ? 'Select terms…'
+    : picked.length === 1 ? picked[0].name : picked.length + ' terms selected';
+
+  $('picks').innerHTML = picked.map(t =>
+    '<span class="pick">' + esc(t.name) +
+      '<button type="button" data-id="' + t.id + '" aria-label="Remove ' + esc(t.name) + '">&times;</button></span>').join('');
+
+  [...$('picks').querySelectorAll('button')].forEach(b => b.onclick = e => {
+    e.stopPropagation();          // this chip is about to be re-rendered out from under the click
+    togglePick(Number(b.dataset.id));
+  });
+
+  $('menuCount').textContent = picked.length ? picked.length + ' selected' : 'None selected';
+
+  const ready = selectedTerms().length > 0;
+  $('runBtn').disabled = state.running || !ready;
+
+  if (!state.rows.length) {
+    $('runHint').textContent = ready ? 'No content is read until you press Run.' : '';
+  }
+}
+
+/* ---- the one thing done up front: your course list, grouped into terms ---- */
+async function loadTerms() {
+  if (state.running) return;
+
+  state.rows = [];
+  state.picked.clear();
+  state.terms = [];
+  $('resCard').hidden = true;
+  $('refetchBtn').hidden = true;
+  $('retryBtn').hidden = true;
+  $('runBtn').disabled = true;
+  $('picks').innerHTML = '';
+  $('termBtn').disabled = true;
+  $('termBtnLabel').textContent = 'Finding your terms…';
+  $('mineCount').textContent = 'Reading your courses…';
+
+  let mine = null;
+  try { mine = await loadMine(); }
+  catch (e) { setBanner('bad', 'Couldn\'t read your course list', esc(e.message || String(e))); }
+
+  const stall = msg => {
+    $('termBtnLabel').textContent = 'No terms available';
+    $('mineCount').textContent = '';
+    $('retryBtn').hidden = false;
+    if (msg) setBanner('info', 'Stopped', msg);
+  };
+
+  if (!mine) {
+    stall(state.cancelled ? 'The course list didn\'t finish. Press Reload my course list to try again.' : null);
+    return;
+  }
+
+  state.terms = termsFromMine(mine);
+
+  if (!state.terms.length) {
+    $('termBtnLabel').textContent = 'No terms available';
+    $('mineCount').textContent = '';
+    setBanner('warn', 'No courses found',
+      'Your Brightspace account isn\'t attached to any course offerings, so there\'s nothing to audit.');
+    return;
+  }
+
+  if (state.unread) {
+    setBanner('warn', state.unread + ' of your courses couldn\'t be read',
+      'Brightspace wouldn\'t return details for ' + state.unread + ' enrolled course' +
+      (state.unread === 1 ? '' : 's') + ', so ' + (state.unread === 1 ? 'it is' : 'they are') +
+      ' missing from the terms below. Everything else is here.');
+  }
+
+  const courses = mine.length, terms = state.terms.length;
+  $('termBtn').disabled = false;
+  $('termBtnLabel').textContent = 'Select terms…';
+  $('mineCount').textContent = courses + ' course' + (courses === 1 ? '' : 's') +
+    ' · ' + terms + ' term' + (terms === 1 ? '' : 's');
+  $('scopeHint').textContent = 'The terms your own courses sit in, newest first. Pick as many as you want.';
+  $('footRight').textContent = (state.demo ? 'demo mode' : 'session auth') +
+    ' · ' + courses + ' courses · ' + terms + ' terms';
+  renderTermOptions();
+  renderPicks();
+}
+
+/* ------------------------------- DEMO MODE ------------------------------- */
+const DEMO = (() => {
+  const terms = [
+    { id:14210, name:'Fall 2026-FULL Semester' },
+    { id:14180, name:'Summer 2026 - 7 Wk Session' },
+    { id:14150, name:'Summer 2026-FULL Semester' },
+    { id:13990, name:'Spring 2026-FULL Semester' }
+  ];
+  const subjects = ['ACC','BIO','CPT','ENG','HIS','MAT','NUR','PSY','SPC','WLD'];
+  const titles = ['Introduction to','Principles of','Applied','Advanced','Survey of','Foundations of'];
+  const nouns = ['Accounting','Biology','Programming','Composition','History','Algebra','Nursing','Psychology','Speech','Welding'];
+  const courses = {};
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+
+  terms.forEach((t, ti) => {
+    const list = [];
+    for (let i = 0; i < 40; i++) {
+      const s = subjects[Math.floor(rnd() * subjects.length)];
+      const num = 101 + Math.floor(rnd() * 180);
+      const sect = ['D01','D02','H01','W01','W02'][Math.floor(rnd() * 5)];
+      const id = 500000 + ti * 1000 + i;
+      list.push({
+        Identifier: String(id),
+        Name: titles[Math.floor(rnd() * titles.length)] + ' ' + nouns[Math.floor(rnd() * nouns.length)],
+        Code: s + '-' + num + '-' + sect + '-' + (14000 + ti),
+        IsActive: rnd() > 0.12,
+        StartDate: new Date(2026, ti * 2, 5).toISOString(),
+        EndDate: new Date(2026, ti * 2 + 2, 20).toISOString(),
+        Semester: { Identifier: t.id, Name: t.name }
+      });
+    }
+    courses[t.id] = list;
+  });
+
+  const tocFor = id => {
+    const r = ((Number(id) * 2654435761) % 100) / 100;
+    if (r < 0.10) return { Modules: [] };
+    const mods = [];
+    const push = title => mods.push({ Title:title, IsHidden:false, Topics:[{ Title:'Overview', IsHidden:false }], Modules:[] });
+    if (r > 0.22) push('Before you Begin');
+    if (r > 0.18) push('Getting Started');
+    if (r > 0.45) push('Schedule of Activities');
+    if (r < 0.40) push('Learning Content');
+    push('Unit 1'); push('Unit 2');
+    return { Modules: mods };
+  };
+
+  return { terms, courses, tocFor };
+})();
+
+async function demoJSON(path) {
+  await sleep(20);
+  net.calls++;
+  if (/\/versions\//.test(path)) return [{ ProductCode:'lp', LatestVersion:'1.52' }, { ProductCode:'le', LatestVersion:'1.86' }];
+  if (/users\/whoami/.test(path)) return { Identifier:'9999', FirstName:'Demo', LastName:'Admin' };
+  if (/myenrollments/.test(path)) {
+    const mine = [];
+    [0, 1, 2].forEach(ti => (DEMO.courses[DEMO.terms[ti].id] || [])
+      .slice(0, [3, 5, 2][ti]).forEach(c => mine.push(c)));
+    return { PagingInfo:{ HasMoreItems:false }, Items: mine.map(c => ({ OrgUnit:{ Id:c.Identifier, Name:c.Name, Code:c.Code, Type:{ Id:3 } } })) };
+  }
+  let m = path.match(/\/courses\/(\d+)/);
+  if (m) {
+    for (const t of DEMO.terms) {
+      const hit = (DEMO.courses[t.id] || []).find(c => c.Identifier === m[1]);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  m = path.match(/\/(\d+)\/content\/toc/);
+  if (m) return DEMO.tocFor(m[1]);
+  return null;
+}
+
+/* --------------------------------- BOOT --------------------------------- */
+async function boot() {
+  wireChips('reqChips', 'reqIn', state.required, 'req');
+  wireChips('banChips', 'banIn', state.forbidden, 'ban');
+
+  $('runBtn').onclick     = () => runAudit(false);
+  $('refetchBtn').onclick = () => runAudit(true);
+  $('cancelBtn').onclick  = () => { state.cancelled = true; setScan('Stopping…'); };
+  $('csvBtn').onclick     = exportCSV;
+  $('xlsxBtn').onclick    = exportXLSX;
+  $('retryBtn').onclick   = () => loadTerms();
+  $('search').oninput = e => { state.search = e.target.value; renderTable(); };
+  $('speed').onchange = e => { net.n = Number(e.target.value) || CONFIG.concurrency; };
+
+  $('termBtn').onclick = e => { e.stopPropagation(); openMenu(!menuOpen()); };
+  $('termSearch').oninput = renderTermOptions;
+  $('selAll').onclick  = () => { state.terms.forEach(t => state.picked.add(t.id)); renderTermOptions(); renderPicks(); };
+  $('selNone').onclick = () => { state.picked.clear(); renderTermOptions(); renderPicks(); };
+  $('menuDone').onclick = () => { openMenu(false); $('termBtn').focus(); };
+
+  // Anything inside the menu is the user working the multi-select, never a
+  // signal to close it. Belt and braces alongside the in-place toggle above.
+  $('termMenu').addEventListener('click', e => e.stopPropagation());
+
+  document.addEventListener('click', e => {
+    if (menuOpen() && !$('termMenu').contains(e.target) && !$('termBtn').contains(e.target)) openMenu(false);
+  });
+  document.addEventListener('keydown', e => {
+    if (!menuOpen()) return;
+    const opts = [...$('termList').querySelectorAll('.opt')];
+    if (e.key === 'Escape') { openMenu(false); $('termBtn').focus(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); cursor = Math.min(cursor + 1, opts.length - 1); paintCursor(); if (opts[cursor]) opts[cursor].scrollIntoView({ block:'nearest' }); }
+    else if (e.key === 'ArrowUp')   { e.preventDefault(); cursor = Math.max(cursor - 1, 0); paintCursor(); if (opts[cursor]) opts[cursor].scrollIntoView({ block:'nearest' }); }
+    else if ((e.key === 'Enter' || e.key === ' ') && cursor >= 0 && opts[cursor]) {
+      e.preventDefault(); togglePick(Number(opts[cursor].dataset.id));
+    }
+  });
+  window.addEventListener('resize', () => { if (menuOpen()) placeMenu(); });
+  window.addEventListener('scroll', () => { if (menuOpen()) placeMenu(); }, true);
+
+  $('footLeft').textContent = location.host;
+
+  if (CONFIG.demoMode === 'on') state.demo = true;
+  else if (CONFIG.demoMode === 'auto') {
+    try {
+      const r = await fetch(ORIGIN + '/d2l/api/versions/', { credentials:'same-origin', headers:{ Accept:'application/json' } });
+      state.demo = !r.ok;
+    } catch (e) { state.demo = true; }
+  }
+
+  if (state.demo) {
+    setBanner('info', 'Demo mode',
+      'This page isn\'t talking to a Brightspace session, so it\'s running on sample data. ' +
+      'Upload it to Manage Files and open it from inside Brightspace to audit real courses.');
+    $('whoami').innerHTML = 'Signed in as <b>Demo Admin</b>';
+  }
+
+  await resolveVersions();
+  paintVersions();
+
+  try {
+    const me = await getJSON('/d2l/api/lp/' + state.versions.lp + '/users/whoami');
+    if (me) {
+      const name = [me.FirstName, me.LastName].filter(Boolean).join(' ') || me.UniqueName || ('user ' + me.Identifier);
+      $('whoami').innerHTML = 'Signed in as <b>' + esc(name) + '</b>';
+    }
+  } catch (e) { dbg('whoami failed', e.message); }
+
+  // The course list is the only thing pulled up front — the list, not the
+  // content of anything in it.
+  await loadTerms();
+}
+
+boot().finally(() => { state.booted = true; });
+</script>
+</body>
+</html>
