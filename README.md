@@ -301,6 +301,24 @@ These tools are free and always will be. Building and testing them still costs m
 
 **If a tool saved your team time or money, please consider sponsoring.** Every sponsorship helps pay for more tools, faster updates, and better documentation for the whole Brightspace community.
 
+### 💰 Return on Investment
+
+Buying similar functionality directly from D2L or a vendor can cost **more than $2,000 per app**, and some features carry **annual fees of $2,000 or more per year**. These HTML files do many of the same jobs for **$0**, so your school avoids those costs up front.
+
+| | Paid add-on or custom work | These tools |
+|---|---|---|
+| **Up-front cost** | $2,000+ per app | **$0** |
+| **Yearly cost** | $2,000+ per year for some features | **$0** |
+| **Number of tools** | Usually priced one at a time | **21 included** |
+| **Setup** | Contracts, purchase orders, vendor timelines | Upload an HTML file and go |
+| **Code access** | Closed | Open and editable |
+
+Replacing even **one** paid app saves more than a **full year** of the $150/month sponsorship goal. Replacing a few saves **thousands of dollars every year**, plus the staff hours these tools give back.
+
+**If these tools save your school money, sponsoring is a small way to share the savings** and keep new tools coming for everyone.
+
+<sub>Cost figures are typical estimates. Actual pricing varies by institution, contract, and product.</sub>
+
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor%20on%20GitHub-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github)](https://github.com/sponsors/jonsorr)
 [![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal)](https://paypal.me/jonsorr)
 
