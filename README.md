@@ -8,6 +8,13 @@
 
 Every tool in this repository is a **single, self-contained HTML file** that runs inside your Brightspace site using the **Brightspace (Valence) API**. Upload the file, open it, and it works with your existing Brightspace login. You don't need a server, an install, an API key, or a developer.
 
+<p align="center">
+  <img src="Department_Tools/screenshots/department-dashboard.png" alt="The Department Tools Dashboard: eight reports and batch tools on one page" width="800"><br>
+  <sub>The Department Tools Dashboard: 8 reports and batch tools sharing a single course scan (demo data).</sub>
+</p>
+
+**Jump to a folder:** [🔧 Admin Tools](Admin_Tools/) · [🏫 Department Tools](Department_Tools/) · [🏠 Homepage Widgets](Course_Homepages/) · [📄 Content Page Templates](Content_Templates/)
+
 ---
 
 ## 📑 Table of Contents
@@ -23,6 +30,7 @@ Every tool in this repository is a **single, self-contained HTML file** that run
 - [Roadmap](#-roadmap)
 - [Support This Project](#-support-this-project)
 - [Contributing](#-contributing)
+- [About the Author](#-about-the-author)
 - [License](#-license)
 - [Disclaimer](#-disclaimer)
 
@@ -57,59 +65,60 @@ These aren't experiments or demos. **Every tool listed below is running live in 
 
 ## 🧰 Available Tools
 
-> ✅ **All 21 tools are available now.** Click a category heading to open that folder's README, with screenshots and full details for every tool.
+> ✅ **All 21 tools are available now.** Click a tool's name for screenshots, setup steps, and settings, or click its file name to view and download the code.
 
 ### 🔧 [Admin Tools](Admin_Tools/)
 *Bulk tools for LMS administrators: change thousands of records in minutes instead of days.*
 
-| Tool | File | What it does | Status |
-|------|------|--------------|--------|
-| **Summary Notification Settings Updater** | `d2l_notification_updater.html` | Paste a list of usernames and bulk-update their Summary Notification settings, with parallel workers for very large lists | ✅ |
-| **Correct User Emails** | `d2l_correct_user_emails.html` | Stop bounce-backs by correcting user email addresses in bulk based on each user's role | ✅ |
-| **Adjusted Grade Config Updater** | `adjusted-grade-config-update.html` | Bulk-change a course-level config variable override (set by default for Release Adjusted Final Grade) across 50,000+ courses, with preview mode and a one-course test run | ✅ |
-| **Create Org Units** | `d2l_create_org_units.html` | Create Departments, Course Templates, and Course Offerings in bulk | ✅ |
-| **Set Active Status** | `d2l_set_active_status.html` | Set Courses Active or Inactive in bulk, and clean up unused Divisions, Departments, Templates, and Semesters; built to handle 100,000+ courses | ✅ |
-| **Delete Groups** | `d2l_delete_groups.html` | Clean up thousands of groups and group categories, deleting a group only after checking that no Content, Quiz, Discussion, or Assignment uses it | ✅ |
+| Tool | File | What it does |
+|------|------|--------------|
+| **[Summary Notification Settings Updater](Admin_Tools/README.md#summary-notification-settings-updater)** | [`d2l_notification_updater.html`](Admin_Tools/d2l_notification_updater.html) | Paste a list of usernames and bulk-update their Summary Notification settings, with parallel workers for very large lists |
+| **[Correct User Emails](Admin_Tools/README.md#correct-user-emails)** | [`d2l_correct_user_emails.html`](Admin_Tools/d2l_correct_user_emails.html) | Stop bounce-backs by correcting user email addresses in bulk based on each user's role |
+| **[Adjusted Grade Config Updater](Admin_Tools/README.md#adjusted-grade-config-updater)** | [`adjusted-grade-config-update.html`](Admin_Tools/adjusted-grade-config-update.html) | Bulk-change a course-level config variable override (set by default for Release Adjusted Final Grade) across 50,000+ courses, with preview mode and a one-course test run |
+| **[Create Org Units](Admin_Tools/README.md#create-org-units)** | [`d2l_create_org_units.html`](Admin_Tools/d2l_create_org_units.html) | Create Departments, Course Templates, and Course Offerings in bulk |
+| **[Set Active Status](Admin_Tools/README.md#set-active-status)** | [`d2l_set_active_status.html`](Admin_Tools/d2l_set_active_status.html) | Set Courses Active or Inactive in bulk, and clean up unused Divisions, Departments, Templates, and Semesters; built to handle 100,000+ courses |
+| **[Delete Groups](Admin_Tools/README.md#delete-groups)** | [`d2l_delete_groups.html`](Admin_Tools/d2l_delete_groups.html) | Clean up thousands of groups and group categories, deleting a group only after checking that no Content, Quiz, Discussion, or Assignment uses it |
 
 ### 🏫 [Department Tools](Department_Tools/)
 *Reports and batch tools for deans, department chairs, and program coordinators.*
 
-| Tool | File | What it does | Status |
-|------|------|--------------|--------|
-| ⭐ **Department Tools Dashboard** | `department-dashboard.html` | All 8 department tools on one page, sharing **one** course and term scan instead of eight | ✅ |
-| **Department Grades** | `d2l_dean_grade_widget.html` | Every active course in a department, with counts of at-risk and not-passing students, matched to Brightspace's own grade math | ✅ |
-| **Course Readiness Audit** | `course-content-check.html` | Find course sections with nothing in Content before students arrive | ✅ |
-| **Course Template Audit** | `course-template-audit.html` | Check courses for the Content modules your template requires and flag outdated ones | ✅ |
-| **Attendance Check** | `course-attendance-check.html` | Report attendance registers, session counts, and whether attendance is being marked | ✅ |
-| **Last Date Instructor Accessed** | `course-instructor-access.html` | Show when each faculty member last opened each course, in color-coded groups you can click to filter | ✅ |
-| **Copy Course Batch** | `course-copy-batch.html` | Copy one model course into many course offerings in a single run, with an option to target only empty courses | ✅ |
-| **Enrollment Batch CSV Builder** | `course-enrollment-batch.html` | Build a ready-to-upload ENROLL CSV for Bulk User Management: pick courses, enter people, choose roles | ✅ |
-| **Post News Batch** | `course-news-batch.html` | Write an announcement once and post it into many courses, with a rich-text editor and protection against duplicate posts | ✅ |
+| Tool | File | What it does |
+|------|------|--------------|
+| ⭐ **[Department Tools Dashboard](Department_Tools/README.md#-department-tools-dashboard)** | [`department-dashboard.html`](Department_Tools/department-dashboard.html) | All 8 department tools on one page, sharing **one** course and term scan instead of eight |
+| **[Department Grades](Department_Tools/README.md#department-grades)** | [`d2l_dean_grade_widget.html`](Department_Tools/d2l_dean_grade_widget.html) | Every active course in a department, with counts of at-risk and not-passing students, matched to Brightspace's own grade math |
+| **[Course Readiness Audit](Department_Tools/README.md#course-readiness-audit)** | [`course-content-check.html`](Department_Tools/course-content-check.html) | Find course sections with nothing in Content before students arrive |
+| **[Course Template Audit](Department_Tools/README.md#course-template-audit)** | [`course-template-audit.html`](Department_Tools/course-template-audit.html) | Check courses for the Content modules your template requires and flag outdated ones |
+| **[Attendance Check](Department_Tools/README.md#attendance-check)** | [`course-attendance-check.html`](Department_Tools/course-attendance-check.html) | Report attendance registers, session counts, and whether attendance is being marked |
+| **[Last Date Instructor Accessed](Department_Tools/README.md#last-date-instructor-accessed)** | [`course-instructor-access.html`](Department_Tools/course-instructor-access.html) | Show when each faculty member last opened each course, in color-coded groups you can click to filter |
+| **[Copy Course Batch](Department_Tools/README.md#copy-course-batch)** | [`course-copy-batch.html`](Department_Tools/course-copy-batch.html) | Copy one model course into many course offerings in a single run, with an option to target only empty courses |
+| **[Enrollment Batch CSV Builder](Department_Tools/README.md#enrollment-batch-csv-builder)** | [`course-enrollment-batch.html`](Department_Tools/course-enrollment-batch.html) | Build a ready-to-upload ENROLL CSV for Bulk User Management: pick courses, enter people, choose roles |
+| **[Post News Batch](Department_Tools/README.md#post-news-batch)** | [`course-news-batch.html`](Department_Tools/course-news-batch.html) | Write an announcement once and post it into many courses, with a rich-text editor and protection against duplicate posts |
 
 ### 🏠 [Homepage Widgets](Course_Homepages/)
 *Student- and instructor-facing widgets for course homepages and the org (main) homepage.*
 
-| Tool | File | What it does | Status |
-|------|------|--------------|--------|
-| **Student Grade Widget** | `d2l_grade_widget.html` | A student's current letter grade and percentage, a passing / at-risk badge, the lowest and highest possible final grade, and a privacy screen | ✅ |
-| **Instructor Grade Widget** | `d2l_instructor_grade_widget.html` | The whole class at a glance in five performance groups, with one-click email links; matches Brightspace's Class Progress exactly | ✅ |
-| **My Courses Widget** | `d2l_my_courses_widget.html` | Org homepage widget with Past / Last / This / Next Semester tabs and course cards showing what needs attention, based on your role | ✅ |
-| **Welcome Window** | `d2l_welcome_window_widget.html` | Course homepage pop-up that shows unread pages from the course's Announcements module; instructors just add pages | ✅ |
-| **Visual Table of Contents** | `visual-toc-widget.html` | Course modules shown as visual tiles with progress tracking; ADA / WCAG 2.1 AA reviewed | ✅ |
+| Tool | File | What it does |
+|------|------|--------------|
+| **[Student Grade Widget](Course_Homepages/README.md#student-grade-widget)** | [`d2l_grade_widget.html`](Course_Homepages/d2l_grade_widget.html) | A student's current letter grade and percentage, a passing / at-risk badge, the lowest and highest possible final grade, and a privacy screen |
+| **[Instructor Grade Widget](Course_Homepages/README.md#instructor-grade-widget)** | [`d2l_instructor_grade_widget.html`](Course_Homepages/d2l_instructor_grade_widget.html) | The whole class at a glance in five performance groups, with one-click email links; matches Brightspace's Class Progress exactly |
+| **[My Courses Widget](Course_Homepages/README.md#my-courses-widget)** | [`d2l_my_courses_widget.html`](Course_Homepages/d2l_my_courses_widget.html) | Org homepage widget with Past / Last / This / Next Semester tabs and course cards showing what needs attention, based on your role |
+| **[Welcome Window](Course_Homepages/README.md#welcome-window)** | [`d2l_welcome_window_widget.html`](Course_Homepages/d2l_welcome_window_widget.html) | Course homepage pop-up that shows unread pages from the course's Announcements module; instructors just add pages |
+| **[Visual Table of Contents](Course_Homepages/README.md#visual-table-of-contents)** | [`visual-toc-widget.html`](Course_Homepages/visual-toc-widget.html) | Course modules shown as visual tiles with progress tracking; ADA / WCAG 2.1 AA reviewed |
 
 ### 📄 [Content Page Templates](Content_Templates/)
 *Ready-made pages that instructors drop into a course's Content area.*
 
-| Tool | File | What it does | Status |
-|------|------|--------------|--------|
-| **Automated Assignment Schedule** | `90_Automated_Assignment_Builder.html` | A schedule that builds itself: every dated activity from Content, Assignments, Quizzes, and Discussions, grouped by due date, with the next group due highlighted | ✅ |
+| Tool | File | What it does |
+|------|------|--------------|
+| **[Automated Assignment Schedule](Content_Templates/README.md#automated-assignment-schedule)** | [`90_Automated_Assignment_Builder.html`](Content_Templates/90_Automated_Assignment_Builder.html) | A schedule that builds itself: every dated activity from Content, Assignments, Quizzes, and Discussions, grouped by due date, with the next group due highlighted |
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Download a tool
-Open the tool's folder in this repository (`Admin_Tools`, `Department_Tools`, `Course_Homepages`, or `Content_Templates`) and download the `.html` file (click the file, then **Download raw file**).
+### 1. Download the tools
+- **One tool:** open its folder (`Admin_Tools`, `Department_Tools`, `Course_Homepages`, or `Content_Templates`), click the `.html` file, then click **Download raw file**.
+- **Everything at once:** click the green **Code** button at the top of this page, then **Download ZIP**.
 
 ### 2. Upload it to D2L Brightspace
 
@@ -324,6 +333,14 @@ When you submit a tool, please keep it to **one self-contained HTML file** with 
 
 ---
 
+## 👤 About the Author
+
+Created and maintained by **Jonathan Sorrenti**, an instructional technology professional with an MEd in Instructional Technology and more than 15 years in educational technology. Every tool here started as a real problem at a real college and was built, tested, and used in production before being shared.
+
+Questions, ideas, or a tool that saved your team time? [Open an issue](../../issues) or [become a sponsor](https://github.com/sponsors/jonsorr). 💙
+
+---
+
 ## 📄 License
 
 This project is licensed under the **MIT License**. You're free to use, modify, and share these tools, including at your institution. See [LICENSE](LICENSE) for details.
@@ -339,7 +356,7 @@ These tools are provided **as-is, without warranty**. Always test in a non-produ
 ---
 
 <p align="center">
-  Made with 💙 for the Brightspace community<br>
+  Made with 💙 for the Brightspace community by Jonathan Sorrenti<br>
   <a href="https://github.com/sponsors/jonsorr">Sponsor</a> ·
   <a href="../../issues">Report an Issue</a> ·
   <a href="../../issues/new">Request a Tool</a>
