@@ -13,7 +13,7 @@ Every tool in this repository is a **single, self-contained HTML file** that run
   <sub>The Department Tools Dashboard: 8 reports and batch tools sharing a single course scan (demo data).</sub>
 </p>
 
-🌐 **Website:** [jonsorr.github.io/D2L_Brightspace_APIs/](https://jonsorr.github.io/D2L_Brightspace_APIs/)
+🌐 **Website:** [jonsorr.github.io/D2L_Brightspace_APIs](https://jonsorr.github.io/D2L_Brightspace_APIs/)
 
 **Jump to a folder:** [🔧 Admin Tools](Admin_Tools/) · [🏫 Department Tools](Department_Tools/) · [🏠 Homepage Widgets](Course_Homepages/) · [📄 Content Page Templates](Content_Templates/)
 
@@ -322,15 +322,13 @@ Replacing even **one** paid app saves more than a **full year** of the $150/mont
 
 Thank you to everyone who supports this work!
 
-<!-- SPONSORS-START -->
-*Be the first sponsor!*
-<!-- SPONSORS-END -->
+<!-- sponsors --><!-- sponsors -->
 
 ### 🏫 Institutional Partners
 
-<!-- PARTNERS-START -->
-*Your institution could be listed here.*
-<!-- PARTNERS-END -->
+Sponsors at the **$100/month** tier and above.
+
+<!-- partners --><!-- partners -->
 
 ---
 

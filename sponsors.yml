@@ -1,0 +1,52 @@
+# Updates the Sponsors and Institutional Partners lists in README.md
+# once a day, and any time you run it by hand from the Actions tab.
+name: Update sponsors in README
+
+on:
+  workflow_dispatch:          # adds a "Run workflow" button in the Actions tab
+  schedule:
+    - cron: '30 11 * * *'     # every day at 11:30 UTC (6:30 AM Eastern)
+
+permissions:
+  contents: write             # lets the workflow commit the updated README
+
+jobs:
+  update-sponsors:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Everyone below $100/month, shown as avatars with links
+      - name: Sponsors list
+        uses: JamesIves/github-sponsors-readme-action@v1
+        with:
+          token: ${{ secrets.SPONSORS_PAT }}
+          file: 'README.md'
+          marker: 'sponsors'
+          maximum: 9999       # amounts are in cents: 9999 = $99.99
+          template: '<a href="https://github.com/{{{ login }}}"><img src="https://github.com/{{{ login }}}.png" width="60" alt="{{{ name }}}" title="{{{ name }}}" /></a>&nbsp;'
+          fallback: '*Be the first sponsor!*'
+
+      # $100/month and up
+      - name: Institutional Partners list
+        uses: JamesIves/github-sponsors-readme-action@v1
+        with:
+          token: ${{ secrets.SPONSORS_PAT }}
+          file: 'README.md'
+          marker: 'partners'
+          minimum: 10000      # $100.00
+          template: '<a href="https://github.com/{{{ login }}}"><img src="https://github.com/{{{ login }}}.png" width="90" alt="{{{ name }}}" title="{{{ name }}}" /></a>&nbsp;'
+          fallback: '*Your institution could be listed here.*'
+
+      - name: Commit the README if it changed
+        run: |
+          if git diff --quiet README.md; then
+            echo "No sponsor changes."
+          else
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+            git add README.md
+            git commit -m "Update sponsors in README"
+            git push
+          fi
