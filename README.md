@@ -322,13 +322,13 @@ Replacing even **one** paid app saves more than a **full year** of the $150/mont
 
 Thank you to everyone who supports this work!
 
-<!-- sponsors --><!-- sponsors -->
+<!-- sponsors -->*Be the first sponsor!*<!-- sponsors -->
 
 ### 🏫 Institutional Partners
 
 Sponsors at the **$100/month** tier and above.
 
-<!-- partners --><!-- partners -->
+<!-- partners -->*Your institution could be listed here.*<!-- partners -->
 
 ---
 
