@@ -1,0 +1,1280 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Delete Groups
+  Bulk-deletes groups and group categories that are not used by Content, Quizzes, Discussions, or Assignments.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<meta name="author" content="Jonathan Sorrenti">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D2L Delete Groups</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #003366; --brand-light: #e6eef7; --brand-mid: #336699;
+      --success: #1a7a3c; --success-bg: #e8f5ee;
+      --error: #b91c1c; --error-bg: #fef2f2;
+      --warn: #92400e; --warn-bg: #fffbeb;
+      --skip: #374151; --skip-bg: #f3f4f6;
+      --dry: #6d28d9; --dry-bg: #f3effd;
+      --surface: #ffffff; --surface-2: #f8f9fb;
+      --border: #d1d5db; --border-light: #e5e7eb;
+      --text-primary: #111827; --text-secondary: #4b5563; --text-muted: #9ca3af;
+      --radius: 6px; --radius-lg: 10px;
+      --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: 'Consolas', 'Courier New', monospace;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    }
+
+    body { font-family: var(--font); background: #eef1f5; color: var(--text-primary); min-height: 100vh; }
+
+    .header { background: var(--brand); padding: 0 2rem; display: flex; align-items: center; height: 56px; gap: 14px; }
+    .header-logo { display: flex; align-items: center; gap: 10px; }
+    .header-title { color: #fff; font-size: 15px; font-weight: 600; }
+    .header-sub { color: rgba(255,255,255,.65); font-size: 13px; margin-left: auto; }
+    .version-badge { background: rgba(255,255,255,.15); color: rgba(255,255,255,.9); font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,.2); }
+
+    .page { max-width: 1180px; margin: 0 auto; padding: 2rem 1.5rem 3rem; display: grid; grid-template-columns: 350px 1fr; gap: 1.25rem; align-items: stretch; }
+    .col { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+    /* Right column takes the left column's height (height:0 keeps it from setting the row height),
+       and the course list stretches to fill whatever the Results card doesn't use */
+    .col-right { height: 0; min-height: 100%; }
+    .courses-card { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+    .results-card { flex: 0 0 auto; }
+
+    .card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+    .card-header { padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; gap: 8px; }
+    .card-header-icon { width: 28px; height: 28px; background: var(--brand-light); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--brand-mid); }
+    .card-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+    .card-header .hdr-right { margin-left: auto; display: flex; gap: 6px; }
+    .card-body { padding: 1.25rem; }
+
+    .lbl { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
+    input[type="text"], select { width: 100%; font-family: var(--font); font-size: 13px; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 7px 10px; outline: none; transition: border-color .15s, box-shadow .15s; }
+    input[type="text"]:focus, select:focus { border-color: var(--brand-mid); box-shadow: 0 0 0 3px rgba(51,102,153,.15); background: var(--surface); }
+    .field { margin-bottom: 1rem; }
+    .field:last-child { margin-bottom: 0; }
+    .field-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.45; }
+
+    .confirm-panel { margin: 1rem 1.25rem; padding: 1rem 1.1rem; border: 2px solid #f59e0b; background: var(--warn-bg); border-radius: var(--radius); }
+    .confirm-panel.notice { border-color: var(--brand-mid); background: var(--brand-light); }
+    .confirm-title { font-size: 13px; font-weight: 700; color: var(--warn); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+    .confirm-panel.notice .confirm-title { color: var(--brand); }
+    .confirm-msg { font-size: 13px; line-height: 1.55; color: var(--text-primary); white-space: pre-wrap; }
+    .confirm-btns { display: flex; gap: 8px; margin-top: .85rem; }
+    .btn-go { background: var(--error); color: #fff; }
+    .btn-go:hover:not(:disabled) { background: #991b1b; }
+    .btn-stop { background: var(--error-bg); color: var(--error); border: 1px solid #fca5a5; font-size: 12px; padding: 5px 12px; }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: .5rem 0; border-bottom: 1px solid var(--border-light); }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 13px; font-weight: 500; }
+    .toggle-desc { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .toggle { position: relative; width: 38px; height: 22px; flex-shrink: 0; margin-left: 12px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track { position: absolute; inset: 0; background: var(--border); border-radius: 11px; cursor: pointer; transition: background .2s; }
+    .toggle-track::after { content: ''; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .toggle input:checked + .toggle-track { background: var(--brand-mid); }
+    .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+
+    .term-list { max-height: 240px; overflow-y: auto; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-2); padding: 4px 0; }
+    .term-item { display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; cursor: pointer; }
+    .term-item:hover { background: var(--brand-light); }
+    .term-item input { accent-color: var(--brand-mid); }
+    .term-item .tcount { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    .term-empty { padding: 8px 10px; font-size: 13px; color: var(--text-muted); }
+    .mini-links { display: flex; gap: 6px; margin-top: 6px; }
+
+    .check-list { list-style: none; font-size: 13px; }
+    .check-list li { display: flex; gap: 8px; padding: 4px 0; align-items: flex-start; }
+    .check-list li svg { flex-shrink: 0; margin-top: 2px; color: var(--success); }
+    .check-list .cl-desc { font-size: 11px; color: var(--text-muted); }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: var(--font); font-size: 14px; font-weight: 600; border-radius: var(--radius); border: none; cursor: pointer; padding: 9px 18px; transition: background .15s, transform .1s, opacity .15s; }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-primary { background: var(--brand); color: #fff; width: 100%; }
+    .btn-primary:hover:not(:disabled) { background: #002952; }
+    .btn-primary.dry { background: var(--dry); }
+    .btn-primary.danger { background: var(--error); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); font-size: 12px; padding: 5px 12px; }
+    .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+
+    .scan-status { font-size: 13px; line-height: 1.5; }
+    .scan-status strong { color: var(--brand); }
+    .scan-track { height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; margin-top: 8px; position: relative; }
+    .scan-fill { height: 100%; background: linear-gradient(90deg, var(--brand-mid), var(--brand)); border-radius: 3px; transition: width .3s ease; width: 0%; }
+    .scan-track.indeterminate .scan-fill { width: 30% !important; position: absolute; animation: slide 1.2s ease-in-out infinite; }
+    @keyframes slide { from { left: -30%; } to { left: 100%; } }
+    .scan-meta { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; }
+    .scan-btns { display: flex; gap: 6px; margin-top: .85rem; }
+
+    /* Course table */
+    .tbl-tools { display: grid; grid-template-columns: 160px 1fr auto; gap: 8px; padding: .75rem 1.25rem; border-bottom: 1px solid var(--border-light); align-items: center; background: var(--surface-2); }
+    .sel-count { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+    .sel-count strong { color: var(--brand); }
+    .tbl-wrap { max-height: 430px; overflow: auto; }
+    .courses-card .tbl-wrap { flex: 1 1 0; min-height: 260px; max-height: none; }
+    table.ctable { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+    .ctable th { position: sticky; top: 0; background: var(--surface); z-index: 1; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary); padding: .55rem .6rem; border-bottom: 1px solid var(--border); }
+    .ctable td { padding: .5rem .6rem; border-bottom: 1px solid var(--border-light); vertical-align: top; }
+    .ctable tr.dept-row td { background: var(--brand-light); color: var(--brand); font-weight: 700; font-size: 12px; letter-spacing: .04em; padding: .35rem .6rem; vertical-align: middle; }
+    .ctable tr.dept-row { cursor: pointer; }
+    .ctable tr.dept-row:hover td { background: #d9e6f3; }
+    .dept-meta { font-weight: 500; color: var(--brand-mid); letter-spacing: 0; margin-left: 8px; }
+    .ctable tr.crow:hover td { background: var(--surface-2); }
+    .ctable tr.crow.sel td { background: #f0f6fc; }
+    .ctable input[type=checkbox] { accent-color: var(--brand-mid); width: 15px; height: 15px; cursor: pointer; }
+    .c-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .c-cats { font-size: 11px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .c-code { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .c-num { text-align: right; font-family: var(--font-mono); font-size: 12px; }
+    .c-inactive { display: inline-block; font-size: 10px; font-weight: 600; color: var(--skip); background: var(--skip-bg); border-radius: 10px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
+
+    .results-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted); }
+    .results-empty svg { margin: 0 auto 12px; display: block; opacity: .35; }
+    .results-empty p { font-size: 13px; }
+    .results-header { display: flex; align-items: center; justify-content: space-between; padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); }
+    .results-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+    .results-actions { display: flex; gap: 6px; }
+
+    .stats-bar { display: flex; gap: 1px; background: var(--border-light); border-bottom: 1px solid var(--border-light); }
+    .stat-cell { flex: 1; padding: .625rem .5rem; background: var(--surface); text-align: center; }
+    .stat-num { font-size: 20px; font-weight: 700; line-height: 1; margin-bottom: 2px; }
+    .stat-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat-ok .stat-num { color: var(--success); }
+    .stat-fail .stat-num { color: var(--error); }
+    .stat-skip .stat-num { color: var(--warn); }
+
+    .progress-wrap { padding: .75rem 1.25rem; background: var(--surface-2); border-bottom: 1px solid var(--border-light); }
+    .progress-track { height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--brand-mid), var(--brand)); border-radius: 3px; transition: width .3s ease; width: 0%; }
+    .progress-text { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; }
+
+    .result-list { max-height: 480px; overflow-y: auto; }
+    .result-row { display: grid; grid-template-columns: 28px minmax(0,1fr) 70px 110px; align-items: center; gap: 10px; padding: .65rem 1.25rem; border-bottom: 1px solid var(--border-light); font-size: 13px; animation: rowIn .2s ease; }
+    .result-row:last-child { border-bottom: none; }
+    @keyframes rowIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+    .row-icon { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .row-icon.ok { background: var(--success-bg); color: var(--success); }
+    .row-icon.fail { background: var(--error-bg); color: var(--error); }
+    .row-icon.inuse { background: var(--warn-bg); color: var(--warn); }
+    .row-icon.skip { background: var(--skip-bg); color: var(--skip); }
+    .row-icon.dry { background: var(--dry-bg); color: var(--dry); }
+    .row-user { overflow: hidden; }
+    .row-input { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-sub { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-detail { font-size: 11px; color: var(--text-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-userid { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); text-align: right; }
+
+    .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+    .badge-ok { background: var(--success-bg); color: var(--success); }
+    .badge-fail { background: var(--error-bg); color: var(--error); }
+    .badge-inuse { background: var(--warn-bg); color: var(--warn); }
+    .badge-skip { background: var(--skip-bg); color: var(--skip); }
+    .badge-dry { background: var(--dry-bg); color: var(--dry); }
+
+    .rl-bar { display: flex; align-items: center; gap: 10px; padding: .5rem 1.25rem; background: var(--surface-2); border-bottom: 1px solid var(--border-light); font-size: 11px; color: var(--text-muted); }
+    .rl-track { flex: 1; height: 5px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .rl-fill { height: 100%; border-radius: 3px; transition: width .4s ease, background .4s ease; }
+    .rl-fill.ok { background: var(--success); } .rl-fill.warn { background: #f59e0b; } .rl-fill.low { background: var(--error); }
+    .rl-count { font-family: var(--font-mono); white-space: nowrap; }
+    .rl-waiting { color: var(--warn); background: var(--warn-bg); border-radius: 4px; padding: 2px 7px; display: none; }
+
+    .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .api-info { background: var(--brand-light); border: 1px solid #c3d9ee; border-radius: var(--radius); padding: .625rem .875rem; font-size: 12px; color: var(--brand); display: flex; align-items: center; gap: 7px; margin-bottom: 1rem; }
+    .api-info strong { font-family: var(--font-mono); }
+    .alert { border-radius: var(--radius); padding: .75rem 1rem; font-size: 12px; margin-bottom: 1rem; line-height: 1.45; }
+    .alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fcd34d55; }
+    .alert-danger { background: var(--error-bg); color: var(--error); border: 1px solid #fca5a555; margin: 0; }
+
+    .export-row { padding: .875rem 1.25rem; border-top: 1px solid var(--border-light); display: flex; gap: 8px; background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .result-list::-webkit-scrollbar, .term-list::-webkit-scrollbar, .tbl-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+    .result-list::-webkit-scrollbar-thumb, .term-list::-webkit-scrollbar-thumb, .tbl-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .log-cap-note { text-align:center; font-size:11px; color:var(--text-muted); padding:.4rem; border-bottom:1px solid var(--border-light); background: var(--surface-2); }
+
+    .speed-slider-wrap input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 3px; background: var(--border); outline: none; cursor: pointer; }
+    .speed-slider-wrap input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--brand-mid); cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+    .speed-markers { display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-top:3px; }
+
+    @media (max-width: 860px) { .page { grid-template-columns: 1fr; } .col-right { height: auto; min-height: 0; } .courses-card .tbl-wrap { flex: none; max-height: 430px; } .header-sub { display: none; } .tbl-tools { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect width="26" height="26" rx="5" fill="rgba(255,255,255,.15)"/>
+      <path d="M7 19V7h5.5c3.5 0 5.5 1.8 5.5 4.5 0 1.8-1 3.2-2.6 3.9L19 19h-3.2l-2.8-3.2H10V19H7zm3-5.7h2.3c1.7 0 2.7-.8 2.7-2.1 0-1.3-1-2-2.7-2H10v4.1z" fill="white"/>
+    </svg>
+    <span class="header-title">Brightspace Admin — Delete Groups</span>
+  </div>
+  <span class="header-sub">Group &amp; Category Bulk Cleanup</span>
+  <span class="version-badge" id="versionBadge">LP … · LE …</span>
+</div>
+
+<div class="page">
+
+  <!-- ═════════ Left column ═════════ -->
+  <div class="col">
+
+    <!-- Scan card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <h2>Course Scan</h2>
+      </div>
+      <div class="card-body">
+        <div id="apiInfoBar" class="api-info" style="display:none">
+          Authenticated via session &nbsp;·&nbsp; LP <strong id="lpVersion">—</strong> · LE <strong id="leVersion">—</strong>
+        </div>
+        <div id="authAlert" class="alert alert-warn" style="display:none"></div>
+
+        <div class="scan-status" id="scanStatus">Starting…</div>
+        <div class="scan-track" id="scanTrack"><div class="scan-fill" id="scanFill"></div></div>
+        <div class="scan-meta"><span id="scanMetaL"></span><span id="scanMetaR"></span></div>
+        <div class="scan-btns">
+          <button class="btn btn-stop" id="scanStopBtn" onclick="scanStop = true" style="display:none">Stop Scan</button>
+          <button class="btn btn-ghost" id="rescanBtn" onclick="startScan()" style="display:none">Rescan Courses</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Term card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <h2>Term</h2>
+      </div>
+      <div class="card-body">
+        <div class="term-list" id="termList"><div class="term-empty">Terms appear once the scan finds courses with groups.</div></div>
+        <div class="mini-links">
+          <button class="btn btn-ghost" onclick="setAllTerms(true)">All</button>
+          <button class="btn btn-ghost" onclick="setAllTerms(false)">None</button>
+        </div>
+        <div class="toggle-row" style="margin-top:.75rem">
+          <div><div class="toggle-label">Include Inactive Courses</div></div>
+          <label class="toggle"><input type="checkbox" id="includeInactive" checked><span class="toggle-track"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Options card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h2>Usage Checks</h2>
+      </div>
+      <div class="card-body">
+        <ul class="check-list" style="margin-bottom:.75rem">
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><div>Assignments<div class="cl-desc">Group submission folders tied to the category</div></div></li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><div>Discussions<div class="cl-desc">Group topics, and topics restricted to a group</div></div></li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><div>Quizzes<div class="cl-desc">Quiz name, description or instructions naming the category</div></div></li>
+          <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><div>Content<div class="cl-desc">Topics linking to a group assignment or group discussion, or titled with the category name</div></div></li>
+        </ul>
+        <p class="field-hint" style="margin-bottom:.75rem">A category that is in use is skipped — its groups stay. Release conditions are not exposed by the API and cannot be checked.</p>
+
+        <div class="toggle-row">
+          <div><div class="toggle-label">Dry Run</div><div class="toggle-desc">Check usage and show what would be deleted — nothing is removed</div></div>
+          <label class="toggle"><input type="checkbox" id="dryRun" checked><span class="toggle-track"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="toggle-label">Delete Empty Category</div><div class="toggle-desc">Remove the category once its groups are gone</div></div>
+          <label class="toggle"><input type="checkbox" id="deleteCategory" checked><span class="toggle-track"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="toggle-label">Check Topic Restrictions</div><div class="toggle-desc">One extra call per discussion topic</div></div>
+          <label class="toggle"><input type="checkbox" id="checkRestrictions" checked><span class="toggle-track"></span></label>
+        </div>
+
+        <div style="margin-top:1rem">
+          <label class="lbl">Concurrent Workers &nbsp;<span id="concurrencyVal" style="font-size:15px;font-weight:800;color:var(--brand-mid);font-family:var(--font-mono)">12</span></label>
+          <div class="speed-slider-wrap">
+            <input type="range" id="concurrencySlider" min="1" max="25" value="12" oninput="document.getElementById('concurrencyVal').textContent=this.value">
+            <div class="speed-markers"><span>1</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span></div>
+          </div>
+          <p class="field-hint">The course scan starts at this number and adds 4 workers every 3 seconds (up to 60) while API credits stay above 50%, halving if credits drop below 15% or a rate-limit error appears. The delete run ramps the same way, up to 40.</p>
+        </div>
+
+        <button class="btn btn-primary dry" id="processBtn" onclick="processSelected()" style="margin-top:1rem" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="processBtnLabel">Check Usage (Dry Run)</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ Right column ═════════ -->
+  <div class="col col-right">
+
+    <!-- Courses card -->
+    <div class="card courses-card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h2>Courses With Groups</h2>
+        <div class="hdr-right">
+          <button class="btn btn-ghost" onclick="selectVisible(true)">Select Shown</button>
+          <button class="btn btn-ghost" onclick="selectVisible(false)">Clear</button>
+        </div>
+      </div>
+      <div class="tbl-tools">
+        <select id="deptFilter"><option value="">All departments</option></select>
+        <input type="text" id="searchBox" placeholder="Search name, code or category…" spellcheck="false">
+        <span class="sel-count" id="selCount"><strong>0</strong> selected</span>
+      </div>
+      <div class="tbl-wrap">
+        <table class="ctable">
+          <colgroup><col style="width:36px"><col><col style="width:200px"><col style="width:84px"><col style="width:70px"></colgroup>
+          <thead><tr><th></th><th>Course Offering Name</th><th>Code</th><th style="text-align:right">Categories</th><th style="text-align:right">Groups</th></tr></thead>
+          <tbody id="courseBody"><tr><td colspan="5" class="results-empty" style="padding:2.5rem 1rem"><p>Select a term to list its courses that have groups.</p></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Results card -->
+    <div class="card results-card">
+      <div class="results-header">
+        <h2>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-mid)"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Results
+        </h2>
+        <div class="results-actions">
+          <button class="btn btn-stop" id="stopBtn" onclick="requestStop()" style="display:none">Stop</button>
+          <button class="btn btn-ghost" id="exportBtn" onclick="exportCSV()" style="display:none">Export CSV</button>
+          <button class="btn btn-ghost" id="clearBtn" onclick="clearResults()" style="display:none">Clear</button>
+        </div>
+      </div>
+
+      <!-- In-page confirm / notice panel (Brightspace frames can block browser pop-ups) -->
+      <div id="confirmPanel" class="confirm-panel" style="display:none">
+        <div class="confirm-title" id="confirmTitle">Confirm</div>
+        <div class="confirm-msg" id="confirmMsg"></div>
+        <div class="confirm-btns">
+          <button class="btn btn-go" id="confirmYes">Continue</button>
+          <button class="btn btn-ghost" id="confirmNo">Cancel</button>
+        </div>
+      </div>
+
+      <div id="statsBar" class="stats-bar" style="display:none">
+        <div class="stat-cell"><div class="stat-num" id="statCourses">0</div><div class="stat-lbl">Courses</div></div>
+        <div class="stat-cell"><div class="stat-num" id="statCats">0</div><div class="stat-lbl">Categories</div></div>
+        <div class="stat-cell stat-ok"><div class="stat-num" id="statOk">0</div><div class="stat-lbl" id="statOkLbl">Deleted</div></div>
+        <div class="stat-cell stat-skip"><div class="stat-num" id="statInUse">0</div><div class="stat-lbl">In Use</div></div>
+        <div class="stat-cell stat-fail"><div class="stat-num" id="statFail">0</div><div class="stat-lbl">Failed</div></div>
+      </div>
+
+      <div id="progressWrap" class="progress-wrap" style="display:none">
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-text"><span id="progressLabel">Processing…</span><span id="progressPct">0%</span></div>
+      </div>
+
+      <div id="rlBar" class="rl-bar" style="display:none">
+        <span>API Credits</span>
+        <div class="rl-track"><div class="rl-fill ok" id="rlFill" style="width:100%"></div></div>
+        <span class="rl-count" id="rlCount">—</span>
+        <span class="rl-waiting" id="rlWaiting">⏸ Rate limited — waiting…</span>
+      </div>
+
+      <div id="emptyState" class="results-empty">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        <p>Results will appear here after processing</p>
+      </div>
+
+      <div id="logCapNote" class="log-cap-note" style="display:none"></div>
+      <div class="result-list" id="resultList" style="display:none"></div>
+
+      <div class="export-row" id="exportRow" style="display:none">
+        <button class="btn btn-ghost" onclick="exportCSV()">Download CSV Report (includes group names and IDs for the record)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  let lpVersion = '1.49';
+  let leVersion = '1.82';
+  let courses = [];            // courses that have at least one group category
+  let scanStats = { found: 0, checked: 0, noAccess: 0 };
+  let scanning = false, scanStop = false;
+  let selectedTerms = new Set();
+  let selected = new Set();    // org unit ids (strings)
+  let running = false, stopRequested = false;
+  let runOpts = {};
+  let results = [];
+  let stats = { courses: 0, coursesDone: 0, cats: 0, ok: 0, inuse: 0, fail: 0 };
+  let startTime = null;
+  let domRowCount = 0;
+  const MAX_DOM_ROWS = 300;
+
+  const RL = { remaining: null, limit: null };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const norm = s => String(s || '').trim().toLowerCase();
+  const lp = path => `/d2l/api/lp/${lpVersion}${path}`;
+  const le = path => `/d2l/api/le/${leVersion}${path}`;
+  const vnum = v => { const [a, b] = String(v).split('.').map(Number); return a * 1000 + (b || 0); };
+
+  class VerifyError extends Error {}
+
+  // ── Init: versions, then scan ─────────────────────────────
+  async function init() {
+    const problems = [];
+    try {
+      const r = await fetch('/d2l/api/versions/', { credentials: 'include' });
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      const pick = code => data.find(e => (e.ProductCode || '').toLowerCase() === code);
+      const lpv = pick('lp'), lev = pick('le');
+      if (lpv && lpv.LatestVersion) lpVersion = lpv.LatestVersion;
+      if (lev && lev.LatestVersion) leVersion = lev.LatestVersion;
+      if (vnum(leVersion) < vnum('1.82')) problems.push(`LE ${leVersion} is older than 1.82 — the assignment and discussion routes this tool uses may not exist on this server.`);
+      if (vnum(lpVersion) < vnum('1.49')) problems.push(`LP ${lpVersion} is older than 1.49 — the group routes this tool uses may not exist on this server.`);
+    } catch {
+      problems.push(`Could not detect API versions — using LP ${lpVersion} / LE ${leVersion}. This page must be hosted within Brightspace.`);
+    }
+    document.getElementById('versionBadge').textContent = `LP ${lpVersion} · LE ${leVersion}`;
+    document.getElementById('lpVersion').textContent = lpVersion;
+    document.getElementById('leVersion').textContent = leVersion;
+    document.getElementById('apiInfoBar').style.display = 'flex';
+    if (problems.length) {
+      const a = document.getElementById('authAlert');
+      a.innerHTML = problems.map(escHtml).join('<br>');
+      a.style.display = 'block';
+    }
+    startScan();
+  }
+
+  // ── CSRF token ────────────────────────────────────────────
+  function getCsrfToken() {
+    const fromStorage = localStorage.getItem('XSRF.Token');
+    if (fromStorage) return fromStorage;
+    try {
+      if (window.D2L && D2L.LP && D2L.LP.Web && D2L.LP.Web.Authentication && D2L.LP.Web.Authentication.Xsrf) {
+        const t = D2L.LP.Web.Authentication.Xsrf.GetValue();
+        if (t) return t;
+      }
+    } catch(e) {}
+    const meta = document.querySelector('meta[name="csrf-token"], meta[name="d2l-csrf-token"]');
+    return meta && meta.content ? meta.content : null;
+  }
+
+  // ── Rate-limit aware fetch ────────────────────────────────
+  function rlConsumeHeaders(res) {
+    const rem = res.headers.get('X-Rate-Limit-Remaining'), lim = res.headers.get('X-Rate-Limit-Limit');
+    if (rem !== null) RL.remaining = parseInt(rem, 10);
+    if (lim !== null) RL.limit = parseInt(lim, 10);
+  }
+  function computeDynamicDelay() {
+    if (RL.remaining === null) return 0;
+    const pct = RL.remaining / (RL.limit || 150);
+    if (pct > 0.30) return 0; if (pct > 0.15) return 100; if (pct > 0.05) return 300; return 800;
+  }
+  async function rlFetch(url, options, label) {
+    const delay = computeDynamicDelay();
+    if (delay > 0) await sleep(delay);
+    const MAX_RETRIES = 5;
+    let attempt = 0;
+    while (true) {
+      const res = await fetch(url, options);
+      rlConsumeHeaders(res);
+      if (res.status !== 429) return res;
+      rl429++;
+      if (++attempt > MAX_RETRIES) return res;
+      const ra = res.headers.get('Retry-After');
+      const waitMs = ra ? parseInt(ra, 10) * 1000 : Math.min(1000 * Math.pow(2, attempt - 1), 30000);
+      rlSetWaiting(true, `⏸ 429 on ${label} — retry ${attempt}/${MAX_RETRIES} in ${waitMs/1000}s…`);
+      await sleep(waitMs);
+      rlSetWaiting(false);
+    }
+  }
+  const apiGet = (url, label) => rlFetch(url, { method: 'GET', credentials: 'include', headers: { 'Accept': 'application/json' } }, label);
+  const apiDelete = (url, label) => rlFetch(url, {
+    method: 'DELETE', credentials: 'include',
+    headers: { 'Accept': 'application/json', 'X-Csrf-Token': getCsrfToken() || '' }
+  }, label);
+  async function errText(res) { const t = await res.text().catch(() => res.statusText); return `${res.status}: ${t.substring(0, 80)}`; }
+
+  // GET that treats 404 as "nothing there" and anything else non-OK as a verification failure
+  async function getListOrEmpty(url, label) {
+    const res = await apiGet(url, label);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new VerifyError(`${label} — ${await errText(res)}`);
+    return res.json();
+  }
+
+  function rlUpdateUI() {
+    const fill = document.getElementById('rlFill'), count = document.getElementById('rlCount');
+    if (RL.remaining === null) { count.textContent = '—'; fill.style.width = '100%'; fill.className = 'rl-fill ok'; return; }
+    const cap = RL.limit || 150, pct = Math.max(0, Math.min(100, (RL.remaining / cap) * 100));
+    fill.style.width = pct + '%';
+    count.textContent = `${RL.remaining.toLocaleString()} / ${cap.toLocaleString()} credits`;
+    fill.className = 'rl-fill ' + (pct > 30 ? 'ok' : pct > 10 ? 'warn' : 'low');
+  }
+  function rlSetWaiting(on, msg = '') {
+    const el = document.getElementById('rlWaiting');
+    el.style.display = on ? 'inline-block' : 'none';
+    if (on) el.textContent = msg;
+    rlUpdateUI();
+  }
+
+  const workers = () => parseInt(document.getElementById('concurrencySlider').value, 10);
+  async function runPool(items, size, fn, shouldStop) {
+    let i = 0;
+    await Promise.all(Array.from({ length: Math.min(size, items.length) }, async () => {
+      while (!shouldStop() && i < items.length) { const it = items[i++]; await fn(it); }
+    }));
+  }
+
+  // Adaptive pool for the scan: starts at `start` workers, then every few seconds adds
+  // more while API credits stay healthy, and halves when credits run low or a 429 appears.
+  const SCAN_MAX_WORKERS = 60, SCAN_MIN_WORKERS = 4, SCAN_STEP = 4, SCAN_ADJUST_MS = 3000;
+  let rl429 = 0;
+  let poolWorkers = 0;
+  // Run fn over items with at most n in flight; results come back in item order.
+  async function mapLimit(items, n, fn) {
+    const out = new Array(items.length); let i = 0;
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
+    }));
+    return out;
+  }
+  const IN_COURSE_PARALLEL = 4;   // simultaneous calls inside one course (topic reads, group deletes)
+  const RUN_MAX_WORKERS = 40;     // the delete run makes several parallel calls per course, so it tops out lower
+
+  function runAdaptivePool(items, start, fn, shouldStop, max = SCAN_MAX_WORKERS) {
+    return new Promise(resolve => {
+      if (!items.length) { resolve(); return; }
+      let i = 0, active = 0, target = start, seen429 = rl429;
+      poolWorkers = target;
+      const finish = () => { clearInterval(timer); poolWorkers = 0; resolve(); };
+      const worker = async () => {
+        active++;
+        try {
+          // a worker retires when the target drops below the number running
+          while (!shouldStop() && i < items.length && active <= target) await fn(items[i++]);
+        } finally {
+          active--;
+          if (active === 0) finish();
+        }
+      };
+      const timer = setInterval(() => {
+        if (shouldStop() || i >= items.length) return;
+        const pct = RL.remaining === null ? 1 : RL.remaining / (RL.limit || 150);
+        if (rl429 > seen429 || pct < 0.15) target = Math.max(SCAN_MIN_WORKERS, Math.floor(target / 2));
+        else if (pct > 0.5) target = Math.min(max, target + SCAN_STEP);
+        seen429 = rl429;
+        poolWorkers = target;
+        while (active < target && i < items.length) worker();
+      }, SCAN_ADJUST_MS);
+      for (let n = 0; n < Math.min(target, items.length); n++) worker();
+    });
+  }
+
+  // ── Scan: every course the user can see → which have groups ──
+  function setScan(statusHtml, pct, metaL = '', metaR = '') {
+    document.getElementById('scanStatus').innerHTML = statusHtml;
+    const track = document.getElementById('scanTrack');
+    track.classList.toggle('indeterminate', pct === null);
+    document.getElementById('scanFill').style.width = (pct === null ? 0 : pct) + '%';
+    document.getElementById('scanMetaL').textContent = metaL;
+    document.getElementById('scanMetaR').textContent = metaR;
+  }
+
+  async function startScan() {
+    if (scanning || running) return;
+    scanning = true; scanStop = false;
+    courses = []; selected.clear(); selectedTerms.clear();
+    scanStats = { found: 0, checked: 0, noAccess: 0 };
+    renderTerms(); renderCourses(); updateRunButton();
+    document.getElementById('scanStopBtn').style.display = 'inline-flex';
+    document.getElementById('rescanBtn').style.display = 'none';
+
+    // Phase 1: walk myenrollments for course offerings
+    const offerings = new Map();
+    let bookmark = '';
+    setScan('Reading your course list…', null, '0 found');
+    try {
+      while (!scanStop) {
+        const res = await apiGet(lp(`/enrollments/myenrollments/?orgUnitTypeId=3${bookmark ? '&bookmark=' + encodeURIComponent(bookmark) : ''}`), 'GET myenrollments');
+        if (!res.ok) throw new Error(await errText(res));
+        const page = await res.json();
+        for (const it of (page.Items || [])) {
+          const ou = it.OrgUnit;
+          if (ou && ou.Id && !offerings.has(String(ou.Id))) offerings.set(String(ou.Id), { ou: String(ou.Id), name: ou.Name || '', code: ou.Code || '' });
+        }
+        setScan('Reading your course list…', null, `${offerings.size.toLocaleString()} found`);
+        const info = page.PagingInfo || {};
+        if (!info.HasMoreItems || !info.Bookmark) break;
+        bookmark = info.Bookmark;
+      }
+    } catch (e) {
+      setScan(`<span style="color:var(--error)">Could not read your course list (${escHtml(e.message)}).</span>`, 0);
+      finishScan(); return;
+    }
+    scanStats.found = offerings.size;
+
+    // Phase 2: course details (term, active) + group categories, N at a time
+    const list = [...offerings.values()];
+    const t0 = Date.now();
+    const tick = () => {
+      const pct = list.length ? Math.round(scanStats.checked / list.length * 100) : 100;
+      const el = (Date.now() - t0) / 1000;
+      const rate = scanStats.checked / Math.max(el, .001);
+      const eta = scanStats.checked > 5 && rate > 0 ? 'ETA ' + formatDuration((list.length - scanStats.checked) / rate * 1000) : '';
+      setScan(`Checking courses for groups… <strong>${courses.length.toLocaleString()}</strong> have groups`, pct,
+        `${scanStats.checked.toLocaleString()} / ${list.length.toLocaleString()} courses · ${rate.toFixed(1)}/sec`,
+        `${poolWorkers} workers${eta ? ' · ' + eta : ''}`);
+    };
+    const ticker = setInterval(() => { tick(); rlUpdateUI(); }, 250);
+
+    await runAdaptivePool(list, workers(), async off => {
+      try {
+        // Groups first — most courses have none, so the course-details call is only made when needed
+        const gr = await apiGet(lp(`/${off.ou}/groupcategories/`), 'GET groupcategories');
+        if (!gr.ok) { scanStats.noAccess++; return; }
+        const cats = await gr.json();
+        if (!Array.isArray(cats) || !cats.length) return;
+        let info = null;
+        const cr = await apiGet(lp(`/courses/${off.ou}`), 'GET course');
+        if (cr.ok) info = await cr.json();
+        const sem = info && info.Semester;
+        courses.push({
+          ou: off.ou,
+          name: (info && info.Name) || off.name,
+          code: (info && info.Code) || off.code,
+          isActive: info ? info.IsActive !== false : true,
+          term: sem && sem.Name ? sem.Name : '(No term)',
+          termKey: sem && sem.Identifier ? String(sem.Identifier) : 'none',
+          start: info && info.StartDate ? Date.parse(info.StartDate) || 0 : 0,
+          dept: deptOf((info && info.Code) || off.code, info),
+          cats: cats.map(c => ({ id: String(c.GroupCategoryId), name: c.Name || '', groups: (c.Groups || []).map(String) }))
+        });
+      } catch (e) { scanStats.noAccess++; }
+      finally { scanStats.checked++; }
+    }, () => scanStop);
+
+    clearInterval(ticker);
+    const groupTotal = courses.reduce((n, c) => n + c.cats.reduce((m, k) => m + k.groups.length, 0), 0);
+    setScan(`${scanStop ? 'Scan stopped' : 'Scan complete'} — <strong>${courses.length.toLocaleString()}</strong> of ${scanStats.checked.toLocaleString()} courses have groups (${groupTotal.toLocaleString()} groups).`,
+      100, scanStats.noAccess ? `${scanStats.noAccess.toLocaleString()} could not be read` : '', '');
+    finishScan();
+  }
+  function finishScan() {
+    scanning = false;
+    document.getElementById('scanStopBtn').style.display = 'none';
+    document.getElementById('rescanBtn').style.display = 'inline-flex';
+    renderTerms(); renderCourses(); updateRunButton();
+  }
+
+  function deptOf(code, info) {
+    const c = String(code || '');
+    if (c.includes('_')) return c.split('_')[0].toUpperCase();
+    const m = c.match(/^[A-Za-z]+/);
+    if (m) return m[0].toUpperCase();
+    return (info && info.Department && info.Department.Name) || 'Other';
+  }
+
+  // ── Terms ─────────────────────────────────────────────────
+  const inactiveOk = () => document.getElementById('includeInactive').checked;
+  function visibleByStatus() { return courses.filter(c => inactiveOk() || c.isActive); }
+
+  function renderTerms() {
+    const box = document.getElementById('termList');
+    const pool = visibleByStatus();
+    if (!pool.length) {
+      box.innerHTML = `<div class="term-empty">${scanning ? 'Terms appear as courses with groups are found…' : 'No courses with groups found.'}</div>`;
+      return;
+    }
+    const terms = new Map();
+    for (const c of pool) {
+      const t = terms.get(c.termKey) || { key: c.termKey, name: c.term, start: 0, courses: 0, groups: 0 };
+      t.start = Math.max(t.start, c.start); t.courses++;
+      t.groups += c.cats.reduce((m, k) => m + k.groups.length, 0);
+      terms.set(c.termKey, t);
+    }
+    const sorted = [...terms.values()].sort((a, b) => (b.start - a.start) || a.name.localeCompare(b.name));
+    box.innerHTML = sorted.map(t => `
+      <label class="term-item">
+        <input type="checkbox" class="term-cb" value="${escHtml(t.key)}" ${selectedTerms.has(t.key) ? 'checked' : ''}>
+        ${escHtml(t.name)}
+        <span class="tcount">${t.courses.toLocaleString()} · ${t.groups.toLocaleString()} grp</span>
+      </label>`).join('');
+  }
+  document.getElementById('termList').addEventListener('change', e => {
+    if (!e.target.classList.contains('term-cb')) return;
+    e.target.checked ? selectedTerms.add(e.target.value) : selectedTerms.delete(e.target.value);
+    renderCourses();
+  });
+  function setAllTerms(on) {
+    document.querySelectorAll('.term-cb').forEach(cb => { cb.checked = on; on ? selectedTerms.add(cb.value) : selectedTerms.delete(cb.value); });
+    renderCourses();
+  }
+  document.getElementById('includeInactive').addEventListener('change', () => { renderTerms(); renderCourses(); });
+
+  // ── Course table ──────────────────────────────────────────
+  function coursesInTerms() { return visibleByStatus().filter(c => selectedTerms.has(c.termKey)); }
+  function shownCourses() {
+    const dept = document.getElementById('deptFilter').value;
+    const q = norm(document.getElementById('searchBox').value);
+    return coursesInTerms().filter(c =>
+      (!dept || c.dept === dept) &&
+      (!q || norm(c.name).includes(q) || norm(c.code).includes(q) || c.cats.some(k => norm(k.name).includes(q))));
+  }
+
+  function renderCourses() {
+    // keep the department filter in sync with the chosen terms
+    const sel = document.getElementById('deptFilter');
+    const cur = sel.value;
+    const depts = [...new Set(coursesInTerms().map(c => c.dept))].sort();
+    sel.innerHTML = '<option value="">All departments</option>' + depts.map(d => `<option value="${escHtml(d)}">${escHtml(d)}</option>`).join('');
+    if (depts.includes(cur)) sel.value = cur;
+
+    // drop selections that are no longer reachable through the term/status filter
+    const reachable = new Set(coursesInTerms().map(c => c.ou));
+    [...selected].forEach(ou => { if (!reachable.has(ou)) selected.delete(ou); });
+
+    const body = document.getElementById('courseBody');
+    const groupsIn = c => c.cats.reduce((m, k) => m + k.groups.length, 0);
+    // Departments A–Z; inside each, the courses with the most groups first
+    const list = shownCourses().sort((a, b) =>
+      a.dept.localeCompare(b.dept) || groupsIn(b) - groupsIn(a) || b.cats.length - a.cats.length || a.name.localeCompare(b.name));
+    if (!list.length) {
+      const msg = !selectedTerms.size ? 'Select a term to list its courses that have groups.' : 'No courses with groups match.';
+      body.innerHTML = `<tr><td colspan="5" class="results-empty" style="padding:2.5rem 1rem"><p>${msg}</p></td></tr>`;
+    } else {
+      const deptTotals = new Map();
+      for (const c of list) {
+        const t = deptTotals.get(c.dept) || { courses: 0, groups: 0 };
+        t.courses++; t.groups += groupsIn(c); deptTotals.set(c.dept, t);
+      }
+      let html = '', lastDept = null;
+      for (const c of list) {
+        if (c.dept !== lastDept) {
+          const t = deptTotals.get(c.dept);
+          html += `<tr class="dept-row" data-dept="${escHtml(c.dept)}">
+            <td><input type="checkbox" class="dept-cb" value="${escHtml(c.dept)}" title="Select / remove all ${escHtml(c.dept)} courses"></td>
+            <td colspan="4">${escHtml(c.dept)}<span class="dept-meta">${t.courses.toLocaleString()} course${t.courses === 1 ? '' : 's'} · ${t.groups.toLocaleString()} groups</span></td>
+          </tr>`;
+          lastDept = c.dept;
+        }
+        const nGroups = c.cats.reduce((m, k) => m + k.groups.length, 0);
+        const isSel = selected.has(c.ou);
+        html += `<tr class="crow${isSel ? ' sel' : ''}" data-ou="${escHtml(c.ou)}" data-dept="${escHtml(c.dept)}">
+          <td><input type="checkbox" class="course-cb" value="${escHtml(c.ou)}" ${isSel ? 'checked' : ''}></td>
+          <td><div class="c-name" title="${escHtml(c.name)}">${escHtml(c.name)}${c.isActive ? '' : '<span class="c-inactive">Inactive</span>'}</div>
+              <div class="c-cats" title="${escHtml(c.cats.map(k => k.name).join(', '))}">${escHtml(c.cats.map(k => k.name).join(' · '))}</div></td>
+          <td><div class="c-code" title="${escHtml(c.code)}">${escHtml(c.code)}</div><div class="c-cats">OU ${escHtml(c.ou)}</div></td>
+          <td class="c-num">${c.cats.length}</td>
+          <td class="c-num">${nGroups}</td>
+        </tr>`;
+      }
+      body.innerHTML = html;
+    }
+    updateSelCount();
+  }
+  // Selection changes update rows in place — no rebuild, so the clicked checkbox stays attached
+  const courseBoxesIn = dept => [...document.querySelectorAll('#courseBody tr.crow')]
+    .filter(tr => tr.dataset.dept === dept).map(tr => tr.querySelector('.course-cb'));
+  function setCourseBox(cb, on) {
+    cb.checked = on; on ? selected.add(cb.value) : selected.delete(cb.value);
+    cb.closest('tr').classList.toggle('sel', on);
+  }
+  // Department box: checked when every listed course in it is selected, dash when only some are
+  function syncDeptBoxes() {
+    document.querySelectorAll('#courseBody .dept-cb').forEach(d => {
+      const boxes = courseBoxesIn(d.value), n = boxes.filter(b => b.checked).length;
+      d.checked = n > 0 && n === boxes.length;
+      d.indeterminate = n > 0 && n < boxes.length;
+    });
+  }
+  document.getElementById('courseBody').addEventListener('change', e => {
+    if (e.target.classList.contains('dept-cb')) {
+      // anything less than all selected → select all; all selected → remove all
+      courseBoxesIn(e.target.value).forEach(cb => setCourseBox(cb, e.target.checked));
+      updateSelCount(); return;
+    }
+    if (!e.target.classList.contains('course-cb')) return;
+    setCourseBox(e.target, e.target.checked);
+    updateSelCount();
+  });
+  document.getElementById('courseBody').addEventListener('click', e => {
+    const tr = e.target.closest('tr.crow, tr.dept-row');
+    if (!tr || e.target.tagName === 'INPUT') return;
+    const cb = tr.querySelector('.course-cb, .dept-cb');
+    cb.checked = !(cb.checked && !cb.indeterminate);
+    cb.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  function selectVisible(on) {
+    document.querySelectorAll('.course-cb').forEach(cb => setCourseBox(cb, on));
+    updateSelCount();
+  }
+  function updateSelCount() {
+    const cs = courses.filter(c => selected.has(c.ou));
+    const g = cs.reduce((n, c) => n + c.cats.reduce((m, k) => m + k.groups.length, 0), 0);
+    document.getElementById('selCount').innerHTML = `<strong>${cs.length.toLocaleString()}</strong> selected · ${g.toLocaleString()} groups`;
+    syncDeptBoxes();
+    updateRunButton();
+  }
+  ['deptFilter', 'searchBox'].forEach(id => document.getElementById(id).addEventListener('input', renderCourses));
+
+  function updateRunButton() {
+    const btn = document.getElementById('processBtn');
+    if (!running) btn.disabled = scanning || !selected.size;
+    btn.title = scanning ? 'Wait for the course scan to finish.' : !selected.size ? 'Select at least one course.' : '';
+  }
+  document.getElementById('dryRun').addEventListener('change', e => {
+    document.getElementById('processBtnLabel').textContent = e.target.checked ? 'Check Usage (Dry Run)' : 'Check Usage & Delete Groups';
+    const b = document.getElementById('processBtn');
+    b.classList.toggle('dry', e.target.checked);
+    b.classList.toggle('danger', !e.target.checked);
+  });
+
+  // ── In-page confirm / notice ──────────────────────────────
+  let pendingAnswer = null;
+  function showPanel(title, msg, yesLabel, noLabel, isNotice) {
+    return new Promise(resolve => {
+      const p = document.getElementById('confirmPanel');
+      const yes = document.getElementById('confirmYes'), no = document.getElementById('confirmNo');
+      document.getElementById('confirmTitle').textContent = title;
+      document.getElementById('confirmMsg').textContent = msg;
+      p.classList.toggle('notice', !!isNotice);
+      yes.style.display = yesLabel ? '' : 'none';
+      yes.textContent = yesLabel || '';
+      no.textContent = noLabel;
+      const done = val => { p.style.display = 'none'; pendingAnswer = null; resolve(val); };
+      pendingAnswer = done;
+      yes.onclick = () => done(true);
+      no.onclick = () => done(false);
+      p.style.display = 'block';
+      p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+  const askConfirm = (msg, yesLabel) => showPanel('Confirm deletion', msg, yesLabel, 'Cancel', false);
+  const notify = msg => { showPanel('Heads up', msg, null, 'OK', true); };
+
+  function requestStop() {
+    stopRequested = true;
+    document.getElementById('stopBtn').textContent = 'Stopping…';
+    if (pendingAnswer) pendingAnswer(false);
+  }
+
+  // ── Usage check for one course ────────────────────────────
+  // Returns Map(catId -> [reasons]) plus non-blocking notes. Any read failure throws VerifyError.
+  async function checkUsage(ou, cats, groupNames) {
+    const usage = new Map(cats.map(c => [c.id, []]));
+    const notes = [];
+    const groupToCat = new Map();
+    cats.forEach(c => c.groups.forEach(g => groupToCat.set(g, c.id)));
+    const add = (catId, why) => { const k = String(catId); if (usage.has(k)) usage.get(k).push(why); };
+
+    const activities = new Map();   // ActivityId -> { cat, label }
+    const folders = new Map();      // folderId -> { cat, label }
+    const topics = new Map();       // topicId -> { cat, label }
+
+    const named = cats.filter(c => c.name.trim().length >= 4);
+
+    // Read all four tools at the same time
+    const readAssignments = async () => (await getListOrEmpty(le(`/${ou}/dropbox/folders/`), 'Assignments')) || [];
+    const readDiscussions = async () => {
+      const forums = (await getListOrEmpty(le(`/${ou}/discussions/forums/`), 'Discussion forums')) || [];
+      const perForum = await mapLimit(forums, IN_COURSE_PARALLEL, async fo => {
+        if (stopRequested) throw new VerifyError('Stopped before the check finished');
+        const tl = (await getListOrEmpty(le(`/${ou}/discussions/forums/${fo.ForumId}/topics/`), 'Discussion topics')) || [];
+        return tl.map(t => ({ fo, t }));
+      });
+      const all = perForum.flat();
+      if (runOpts.checkRestrictions) {
+        await mapLimit(all, IN_COURSE_PARALLEL, async x => {
+          if (stopRequested) throw new VerifyError('Stopped before the check finished');
+          x.restrictions = (await getListOrEmpty(le(`/${ou}/discussions/forums/${x.fo.ForumId}/topics/${x.t.TopicId}/groupRestrictions/`), 'Topic restrictions')) || [];
+        });
+      }
+      return all;
+    };
+    const readQuizzes = async () => {
+      const list = []; let next = le(`/${ou}/quizzes/`);
+      while (next) {
+        const page = await getListOrEmpty(next, 'Quizzes');
+        if (!page) break;
+        list.push(...(page.Objects || []));
+        next = page.Next || null;
+      }
+      return list;
+    };
+    const readContent = () => getListOrEmpty(le(`/${ou}/content/toc`), 'Content');
+    const [fl, discTopics, quizzes, toc] = await Promise.all([readAssignments(), readDiscussions(), readQuizzes(), readContent()]);
+
+    // Assignments
+    for (const f of fl) {
+      if (f.GroupTypeId == null) continue;
+      const label = `assignment “${f.Name}”`;
+      add(f.GroupTypeId, `Group ${label}`);
+      folders.set(String(f.Id), { cat: String(f.GroupTypeId), label });
+      if (f.ActivityId) activities.set(String(f.ActivityId), { cat: String(f.GroupTypeId), label });
+    }
+
+    // Discussions
+    for (const { t, restrictions } of discTopics) {
+      const label = `discussion topic “${t.Name}”`;
+      if (t.GroupTypeId != null) {
+        add(t.GroupTypeId, `Group ${label}`);
+        topics.set(String(t.TopicId), { cat: String(t.GroupTypeId), label });
+        if (t.ActivityId) activities.set(String(t.ActivityId), { cat: String(t.GroupTypeId), label });
+      }
+      for (const r of (restrictions || [])) {
+        const cat = groupToCat.get(String(r.GroupId));
+        if (!cat) continue;
+        add(cat, `Discussion topic “${t.Name}” is restricted to group “${groupNames.get(String(r.GroupId)) || r.GroupId}”`);
+        if (!topics.has(String(t.TopicId))) topics.set(String(t.TopicId), { cat, label });
+      }
+    }
+
+    // Quizzes (no group field exists — match the category name in the quiz text)
+    for (const q of quizzes) {
+      const text = JSON.stringify(q).toLowerCase();
+      for (const c of named) if (text.includes(c.name.trim().toLowerCase())) add(c.id, `Quiz “${q.Name}” mentions “${c.name}”`);
+    }
+
+    // Content
+    const walk = (mods, path) => {
+      for (const m of (mods || [])) {
+        const p = path ? `${path} › ${m.Title}` : m.Title;
+        for (const t of (m.Topics || [])) {
+          const where = `Content “${p} › ${t.Title}”`;
+          const url = String(t.Url || '');
+          let hit = t.ActivityId && activities.get(String(t.ActivityId));
+          if (!hit) {
+            const db = url.match(/[?&]db=(\d+)/i) || url.match(/\/dropbox\/[^?#]*?folders?\/(\d+)/i);
+            if (db) hit = folders.get(db[1]);
+          }
+          if (!hit) {
+            const tp = url.match(/\/topics\/(\d+)/i) || url.match(/[?&]topicId=(\d+)/i);
+            if (tp) hit = topics.get(tp[1]);
+          }
+          if (hit) add(hit.cat, `${where} links to group ${hit.label}`);
+          const title = norm(t.Title);
+          for (const c of named) if (title.includes(norm(c.name))) add(c.id, `${where} is titled with “${c.name}”`);
+          if (/\/d2l\/lms\/group\//i.test(url) || /\/groups?\/?(\?|$)/i.test(url)) notes.push(`${where} links to the Groups tool`);
+        }
+        walk(m.Modules, p);
+      }
+    };
+    if (toc) walk(toc.Modules, '');
+
+    return { usage, notes };
+  }
+
+  // ── Main orchestrator ─────────────────────────────────────
+  async function processSelected() {
+    if (running || scanning) return;
+    if (pendingAnswer) pendingAnswer(false);
+    const targets = courses.filter(c => selected.has(c.ou));
+    if (!targets.length) { notify('Select at least one course.'); return; }
+
+    runOpts = {
+      dry: document.getElementById('dryRun').checked,
+      deleteCategory: document.getElementById('deleteCategory').checked,
+      checkRestrictions: document.getElementById('checkRestrictions').checked
+    };
+
+    if (!runOpts.dry) {
+      if (!getCsrfToken()) { notify('No XSRF token found — refresh this page while logged in to Brightspace, then try again.'); return; }
+      const g = targets.reduce((n, c) => n + c.cats.reduce((m, k) => m + k.groups.length, 0), 0);
+      const k = targets.reduce((n, c) => n + c.cats.length, 0);
+      const ok = await askConfirm(
+        `Delete groups in ${targets.length.toLocaleString()} course(s)?\n\n` +
+        `Up to ${g.toLocaleString()} groups in ${k.toLocaleString()} categories. Each course is checked first — any category used by an assignment, discussion, quiz or content topic is skipped and its groups stay.` +
+        (runOpts.deleteCategory ? `\nEmptied categories are deleted too.` : `\nCategories are kept (empty).`) +
+        `\n\nDeleting a group removes its member enrollments and any group workspace. There is no undo. The CSV report records what was removed.` +
+        `\n\nDO NOT LEAVE OR REFRESH THIS PAGE UNTIL THE RUN IS COMPLETE.`,
+        `Delete groups in ${targets.length.toLocaleString()} course(s)`);
+      if (!ok) return;
+    }
+
+    running = true; stopRequested = false;
+    results = []; domRowCount = 0;
+    stats = { courses: targets.length, coursesDone: 0, cats: 0, ok: 0, inuse: 0, fail: 0 };
+    RL.remaining = null; RL.limit = null;
+    startTime = Date.now();
+
+    document.getElementById('statOkLbl').textContent = runOpts.dry ? 'Would Delete' : 'Deleted';
+    const btn = document.getElementById('processBtn');
+    const btnHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin"></span> ${runOpts.dry ? 'Checking…' : 'Deleting…'}`;
+    document.getElementById('rescanBtn').disabled = true;
+
+    ['emptyState','logCapNote','exportBtn','clearBtn','exportRow'].forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById('resultList').style.display = 'block';
+    document.getElementById('statsBar').style.display = 'flex';
+    document.getElementById('progressWrap').style.display = 'block';
+    document.getElementById('rlBar').style.display = 'flex';
+    document.getElementById('resultList').innerHTML = '';
+    document.getElementById('stopBtn').textContent = 'Stop';
+    document.getElementById('stopBtn').style.display = 'inline-flex';
+    updateStats(); rlUpdateUI(); startUiTicker();
+
+    await runAdaptivePool(targets, workers(), async c => {
+      try { await processCourse(c); }
+      catch (e) { recordResult({ course: c, status: 'fail', detail: `Error: ${e.message}` }); }
+      stats.coursesDone++;
+    }, () => stopRequested, RUN_MAX_WORKERS);
+
+    stopUiTicker();
+    rlSetWaiting(false); rlUpdateUI(); updateStats(); updateProgress();
+    document.getElementById('progressLabel').textContent =
+      `${stopRequested ? 'Stopped' : 'Completed'} in ${formatDuration(Date.now() - startTime)} — ${stats.ok.toLocaleString()} categor${stats.ok === 1 ? 'y' : 'ies'} ${runOpts.dry ? 'would be deleted' : 'deleted'}, ` +
+      `${stats.inuse.toLocaleString()} in use, ${stats.fail.toLocaleString()} failed`;
+
+    document.getElementById('stopBtn').style.display = 'none';
+    btn.innerHTML = btnHtml; running = false; updateRunButton();
+    document.getElementById('rescanBtn').disabled = false;
+    document.getElementById('exportBtn').style.display = 'inline-flex';
+    document.getElementById('clearBtn').style.display = 'inline-flex';
+    document.getElementById('exportRow').style.display = 'flex';
+    if (!runOpts.dry) { renderTerms(); renderCourses(); }
+  }
+
+  async function processCourse(c) {
+    // Fresh read of the categories — the scan may be minutes old
+    const res = await apiGet(lp(`/${c.ou}/groupcategories/`), 'GET groupcategories');
+    if (!res.ok) { recordResult({ course: c, status: 'fail', detail: `Could not read group categories — ${await errText(res)}` }); return; }
+    const raw = await res.json();
+    const cats = (raw || []).map(k => ({ id: String(k.GroupCategoryId), name: k.Name || '', groups: (k.Groups || []).map(String), raw: k }));
+    if (!cats.length) { recordResult({ course: c, status: 'skip', detail: 'No group categories remain in this course' }); c.cats = []; return; }
+
+    // Group names (for the report and restriction messages)
+    const groupNames = new Map(), groupMembers = new Map();
+    const groupLists = await mapLimit(cats, IN_COURSE_PARALLEL, async k => {
+      const gr = await apiGet(lp(`/${c.ou}/groupcategories/${k.id}/groups/`), 'GET groups');
+      return gr.ok ? ((await gr.json()) || []) : [];
+    });
+    for (const list of groupLists) {
+      for (const g of list) {
+        groupNames.set(String(g.GroupId), g.Name || String(g.GroupId));
+        groupMembers.set(String(g.GroupId), (g.Enrollments || []).length);
+      }
+    }
+
+    let check;
+    try { check = await checkUsage(c.ou, cats, groupNames); }
+    catch (e) {
+      const msg = e instanceof VerifyError ? e.message : `Error: ${e.message}`;
+      for (const k of cats) recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'fail', detail: `Not verified, nothing deleted — ${msg}` });
+      return;
+    }
+    const noteTxt = check.notes.length ? ` · Note: ${check.notes[0]}${check.notes.length > 1 ? ` (+${check.notes.length - 1} more)` : ''}` : '';
+
+    const remaining = [];
+    for (const k of cats) {
+      const reasons = [...new Set(check.usage.get(k.id) || [])];
+      if (reasons.length) {
+        recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'inuse', usedBy: reasons, detail: reasons.join(' · ') });
+        remaining.push(k); continue;
+      }
+      if (runOpts.dry) {
+        recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'dry',
+          detail: `Not in use — would delete ${k.groups.length} group(s)${runOpts.deleteCategory ? ' and the category' : ''}${noteTxt}` });
+        remaining.push(k); continue;
+      }
+      if (stopRequested) { recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'skip', detail: 'Stopped before this category' }); remaining.push(k); continue; }
+
+      // Delete every group, then the category
+      let gone = 0; const failures = [];
+      await mapLimit(k.groups, IN_COURSE_PARALLEL, async gid => {
+        const d = await apiDelete(lp(`/${c.ou}/groupcategories/${k.id}/groups/${gid}`), 'DELETE group');
+        if (d.ok || d.status === 404) gone++;
+        else failures.push(`${groupNames.get(gid) || gid}: ${await errText(d)}`);
+      });
+      if (failures.length) {
+        recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'fail', deleted: gone,
+          detail: `Deleted ${gone} of ${k.groups.length} group(s); failed — ${failures.join('; ')}` });
+        remaining.push(k); continue;
+      }
+      if (runOpts.deleteCategory) {
+        const d = await apiDelete(lp(`/${c.ou}/groupcategories/${k.id}`), 'DELETE category');
+        if (!(d.ok || d.status === 404)) {
+          recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'fail', deleted: gone,
+            detail: `${gone} group(s) deleted, but the category was not — ${await errText(d)}` });
+          remaining.push({ ...k, groups: [] }); continue;
+        }
+        recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'ok', deleted: gone, detail: `Deleted ${gone} group(s) and the category ✓${noteTxt}` });
+      } else {
+        recordResult({ course: c, cat: k, groupNames, groupMembers, status: 'ok', deleted: gone, detail: `Deleted ${gone} group(s) — category kept ✓${noteTxt}` });
+        remaining.push({ ...k, groups: [] });
+      }
+    }
+    if (!runOpts.dry) {
+      c.cats = remaining;
+      if (!c.cats.length) { courses = courses.filter(x => x !== c); selected.delete(c.ou); }
+    }
+  }
+
+  // ── Progress ──────────────────────────────────────────────
+  let uiTimer = null;
+  function startUiTicker() { uiTimer = setInterval(() => { updateStats(); rlUpdateUI(); updateProgress(); }, 200); }
+  function stopUiTicker() { if (uiTimer) { clearInterval(uiTimer); uiTimer = null; } }
+  function updateProgress() {
+    const { coursesDone: done, courses: total } = stats;
+    if (!total) return;
+    const pct = Math.round((done / total) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressPct').textContent = pct + '%';
+    if (!running) return;
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (done > 2 && elapsed > 1) {
+      const rate = done / elapsed;
+      document.getElementById('progressLabel').textContent =
+        `${done.toLocaleString()} / ${total.toLocaleString()} courses — ${rate.toFixed(1)}/sec — ${poolWorkers} workers — ETA: ${formatDuration((total - done) / rate * 1000)}`;
+    } else {
+      document.getElementById('progressLabel').textContent = `${done.toLocaleString()} / ${total.toLocaleString()} courses — checking usage…`;
+    }
+  }
+  function formatDuration(ms) {
+    const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`; if (m > 0) return `${m}m ${sec}s`; return `${sec}s`;
+  }
+
+  // ── Results ───────────────────────────────────────────────
+  function recordResult(r) {
+    if (r.cat) stats.cats++;
+    if (r.status === 'ok' || r.status === 'dry') stats.ok++;
+    else if (r.status === 'inuse') stats.inuse++;
+    else if (r.status === 'fail') stats.fail++;
+    results.push(r);
+    addToDOM(r);
+  }
+
+  // Results are kept in groups: Failed, In Use, Deleted / Would Delete, then Skipped.
+  const STATUS_RANK = { fail: 0, inuse: 1, ok: 2, dry: 2, skip: 3 };
+  const rankOf = r => STATUS_RANK[r.status] ?? 3;
+
+  function addToDOM(r) {
+    const list = document.getElementById('resultList');
+    if (domRowCount >= MAX_DOM_ROWS) {
+      // drop the oldest row from the lowest-priority group shown; Failed and In Use rows are never dropped
+      for (const rk of [3, 2]) {
+        const oldest = list.querySelector(`.result-row[data-rank="${rk}"]`);
+        if (oldest) { oldest.remove(); domRowCount--; break; }
+      }
+      const note = document.getElementById('logCapNote');
+      note.style.display = 'block';
+      note.textContent = `Showing the latest ${MAX_DOM_ROWS} results (failed and in-use rows always kept) — all ${results.length.toLocaleString()} are in the CSV export`;
+    }
+    // insert at the end of its own group, ahead of any lower-priority group
+    const rank = rankOf(r);
+    let before = null;
+    for (const rk of Object.values(STATUS_RANK).filter((v, i, a) => a.indexOf(v) === i && v > rank).sort()) {
+      before = list.querySelector(`.result-row[data-rank="${rk}"]`);
+      if (before) break;
+    }
+    if (before) before.insertAdjacentHTML('beforebegin', rowHtml(r));
+    else list.insertAdjacentHTML('beforeend', rowHtml(r));
+    domRowCount++;
+  }
+
+  function rowHtml(r) {
+    const icons = {
+      ok:    `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+      fail:  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      inuse: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`,
+      skip:  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      dry:   `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`
+    };
+    const badges = {
+      ok: `<span class="badge badge-ok">Deleted</span>`, fail: `<span class="badge badge-fail">Failed</span>`,
+      inuse: `<span class="badge badge-inuse">In Use</span>`, skip: `<span class="badge badge-skip">Skipped</span>`,
+      dry: `<span class="badge badge-dry">Would Delete</span>`
+    };
+    const sub = r.cat ? `${r.cat.name || '(unnamed category)'} · ${r.cat.groups.length} group(s)` : 'Course';
+    return `
+      <div class="result-row${r.status === 'fail' || r.status === 'inuse' ? ' row-keep' : ''}" data-rank="${rankOf(r)}" title="${escHtml(r.detail)}">
+        <div class="row-icon ${r.status}">${icons[r.status] || ''}</div>
+        <div class="row-user">
+          <div class="row-input">${escHtml(r.course.name)}</div>
+          <div class="row-sub">${escHtml(sub)}</div>
+          <div class="row-detail">${escHtml(r.detail)}</div>
+        </div>
+        <div class="row-userid">${r.cat ? '#' + escHtml(r.cat.id) : ''}</div>
+        <div>${badges[r.status] || ''}</div>
+      </div>`;
+  }
+
+  function updateStats() {
+    document.getElementById('statCourses').textContent = `${stats.coursesDone.toLocaleString()}/${stats.courses.toLocaleString()}`;
+    document.getElementById('statCats').textContent = stats.cats.toLocaleString();
+    document.getElementById('statOk').textContent   = stats.ok.toLocaleString();
+    document.getElementById('statInUse').textContent = stats.inuse.toLocaleString();
+    document.getElementById('statFail').textContent = stats.fail.toLocaleString();
+  }
+
+  function clearResults() {
+    stopUiTicker();
+    results = []; domRowCount = 0;
+    stats = { courses: 0, coursesDone: 0, cats: 0, ok: 0, inuse: 0, fail: 0 };
+    document.getElementById('resultList').innerHTML = '';
+    ['resultList','statsBar','progressWrap','rlBar','logCapNote','exportBtn','clearBtn','exportRow']
+      .forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById('emptyState').style.display = 'block';
+    updateStats();
+  }
+
+  // ── CSV export ────────────────────────────────────────────
+  function exportCSV() {
+    const statusLabel = { ok: 'Deleted', fail: 'Failed', inuse: 'In Use (kept)', skip: 'Skipped', dry: 'Would Delete (dry run)' };
+    const rows = [['Course Offering Name','Course Code','Org Unit ID','Term','Category ID','Category Name','Group Count','Group IDs','Group Names','Members per Group','Status','Used By','Detail','Category Data (JSON)']];
+    results.map((r, i) => [r, i]).sort((a, b) => rankOf(a[0]) - rankOf(b[0]) || a[1] - b[1]).forEach(([r]) => {
+      const k = r.cat;
+      const gids = k ? k.groups : [];
+      rows.push([
+        r.course.name, r.course.code, r.course.ou, r.course.term,
+        k ? k.id : '', k ? k.name : '', k ? gids.length : '',
+        gids.join(' | '),
+        gids.map(g => (r.groupNames && r.groupNames.get(g)) || '').join(' | '),
+        gids.map(g => (r.groupMembers && r.groupMembers.has(g)) ? r.groupMembers.get(g) : '').join(' | '),
+        statusLabel[r.status] || r.status,
+        (r.usedBy || []).join(' | '),
+        r.detail,
+        k && k.raw ? JSON.stringify(k.raw) : ''
+      ]);
+    });
+    const csv = rows.map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `delete_groups_${runOpts.dry ? 'dryrun_' : ''}${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  }
+
+  function escHtml(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+  init();
+</script>
+</body>
+</html>

@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Adjusted Grade Config Updater
+  Bulk-sets a course-level configuration variable (Release Adjusted Final Grade) across many course offerings.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adjusted Final Grade — Config Override Update</title>
+<style>
+  :root{
+    --ink:#16202c;
+    --slate:#55647a;
+    --mute:#8492a6;
+    --line:#dbe2ec;
+    --line-soft:#eaeef4;
+    --paper:#f6f8fb;
+    --card:#ffffff;
+    --accent:#2f5d8c;
+    --accent-soft:#e8f0f8;
+    --ok:#1c7a4e;
+    --ok-soft:#e4f4ec;
+    --warn:#96650a;
+    --warn-soft:#fbf1dd;
+    --bad:#a3303a;
+    --bad-soft:#fbe9ea;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:20px;
+    background:var(--paper);color:var(--ink);
+    font:14px/1.5 var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+
+  /* ---- header ---- */
+  header{
+    display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;
+    padding-bottom:14px;margin-bottom:18px;
+    border-bottom:2px solid var(--ink);
+  }
+  h1{margin:0;font-size:21px;font-weight:650;letter-spacing:-.2px}
+  .sub{color:var(--slate);font-size:13px;margin:3px 0 0}
+  .env{margin-left:auto;text-align:right;font:11px/1.6 var(--mono);color:var(--mute)}
+  .env b{color:var(--ink);font-weight:600}
+
+  /* ---- cards ---- */
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:6px;
+    padding:16px 18px;margin-bottom:14px;
+  }
+  .card > h2{
+    margin:0 0 12px;font:600 11px/1 var(--sans);
+    letter-spacing:.12em;text-transform:uppercase;color:var(--slate);
+  }
+  .row{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+  .col{flex:1 1 320px;min-width:280px}
+
+  label.fld{display:block;font-size:12px;font-weight:600;color:var(--slate);margin-bottom:5px}
+  .hint{font-size:12px;color:var(--mute);margin:6px 0 0}
+  .hint code{font-family:var(--mono);font-size:11px;background:var(--paper);padding:1px 4px;border-radius:3px}
+
+  textarea,input[type=text],select{
+    width:100%;padding:8px 10px;
+    border:1px solid var(--line);border-radius:4px;background:#fff;color:var(--ink);
+    font:13px/1.45 var(--mono);
+  }
+  select{font-family:var(--sans);font-size:13px}
+  textarea{min-height:150px;resize:vertical}
+  textarea:focus,input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+
+  .opts{display:flex;flex-direction:column;gap:9px;margin-top:2px}
+  .opt{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.4}
+  .opt input{margin:2px 0 0;flex:none}
+  .opt span small{display:block;color:var(--mute);font-size:12px}
+
+  /* ---- buttons ---- */
+  button{
+    font:600 13px var(--sans);padding:8px 14px;border-radius:4px;
+    border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;
+  }
+  button:hover:not(:disabled){border-color:var(--slate)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover:not(:disabled){background:#26496e;border-color:#26496e}
+  button.danger{background:#fff;border-color:var(--bad);color:var(--bad)}
+  button.link{border:0;background:none;color:var(--accent);padding:4px 0;text-decoration:underline}
+  .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+
+  /* ---- credit meter (signature) ---- */
+  .meter{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .meter .bars{display:flex;gap:2px}
+  .meter .bars i{width:6px;height:16px;background:var(--line);border-radius:1px;display:block}
+  .meter .bars i.on{background:var(--ok)}
+  .meter.warn .bars i.on{background:var(--warn)}
+  .meter.bad  .bars i.on{background:var(--bad)}
+  .meter .lbl{font:11px var(--mono);color:var(--mute);white-space:nowrap}
+
+  /* ---- progress ---- */
+  .prog{height:4px;background:var(--line-soft);border-radius:2px;overflow:hidden;margin-top:14px}
+  .prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .status{margin-top:8px;font:12px var(--mono);color:var(--slate)}
+
+  /* ---- totals ---- */
+  .totals{display:flex;flex-wrap:wrap;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff}
+  .tot{flex:1 1 130px;padding:12px 14px;border-right:1px solid var(--line-soft)}
+  .tot:last-child{border-right:0}
+  .tot b{display:block;font:600 22px/1.1 var(--mono);letter-spacing:-.5px}
+  .tot span{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+  .tot.ok b{color:var(--ok)} .tot.warn b{color:var(--warn)} .tot.bad b{color:var(--bad)}
+
+  /* ---- chips + search ---- */
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0 10px}
+  .chip{
+    font:600 12px var(--sans);padding:5px 11px;border-radius:99px;
+    border:1px solid var(--line);background:#fff;color:var(--slate);cursor:pointer;
+  }
+  .chip[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+  .toolbar input[type=text]{width:auto;flex:1 1 200px;font-family:var(--sans);font-size:13px}
+
+  /* ---- table ---- */
+  .tblwrap{border:1px solid var(--line);border-radius:6px;overflow:auto;background:#fff;max-height:60vh}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{
+    position:sticky;top:0;z-index:1;background:var(--paper);
+    text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);
+    font:600 11px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--slate);
+  }
+  td{padding:9px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  td.ou,td.val{font-family:var(--mono);font-size:12px;white-space:nowrap}
+  td.detail{color:var(--slate);font-size:12px}
+  a{color:var(--accent)}
+
+  .tag{display:inline-block;font:600 11px var(--sans);padding:3px 8px;border-radius:3px;white-space:nowrap}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)}
+  .tag.neutral{background:var(--paper);color:var(--slate)}
+  .tag.warn{background:var(--warn-soft);color:var(--warn)}
+  .tag.bad{background:var(--bad-soft);color:var(--bad)}
+
+  .banner{padding:10px 14px;border-radius:4px;font-size:13px;margin-bottom:14px;border:1px solid}
+  .banner.bad{background:var(--bad-soft);border-color:#eecdd0;color:var(--bad)}
+  .banner.warn{background:var(--warn-soft);border-color:#eeddb8;color:var(--warn)}
+  .banner.info{background:var(--accent-soft);border-color:#cfe0ee;color:var(--accent)}
+  .hidden{display:none}
+  .empty{padding:34px 20px;text-align:center;color:var(--mute);font-size:13px}
+
+  /* ---- speed slider ---- */
+  .speed input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:3px;
+    background:var(--line);outline:none;cursor:pointer;padding:0;border:0;margin:4px 0 0;
+  }
+  .speed input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:17px;height:17px;border-radius:50%;
+    background:var(--accent);cursor:pointer;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.25);
+  }
+  .speed input[type=range]::-moz-range-thumb{
+    width:17px;height:17px;border-radius:50%;background:var(--accent);
+    cursor:pointer;border:2px solid #fff;
+  }
+  .ticks{display:flex;justify-content:space-between;font:10px var(--mono);color:var(--mute);margin-top:2px}
+  .est{font:12px var(--mono);color:var(--accent);margin-top:6px;font-weight:600}
+  .capnote{
+    padding:7px 12px;font-size:12px;color:var(--slate);background:var(--paper);
+    border-bottom:1px solid var(--line);text-align:center;
+  }
+
+  pre.diag{
+    margin:14px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:4px;
+    background:#141b24;color:#d7e0ea;font:12px/1.6 var(--mono);
+    white-space:pre-wrap;word-break:break-all;max-height:340px;overflow:auto;
+  }
+  pre.diag b{color:#8fd0a0;font-weight:600}
+  pre.diag u{color:#f0b95c;text-decoration:none}
+  pre.diag s{color:#e88b92;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <h1>Adjusted Final Grade — config override update</h1>
+    <p class="sub">Turns the course-level override for <code style="font-family:var(--mono);font-size:12px">d2l.Tools.Grades.FinalGrade.ReleaseAdjustedGrade</code> off across a list of course offerings.</p>
+  </div>
+  <div class="env">
+    Host <b id="envHost"></b><br>
+    Session <b id="envAuth">checking…</b> · build <b>2026-08-10h</b>
+  </div>
+</header>
+
+<div id="authWarn" class="banner bad hidden"></div>
+
+<!-- ------------ 1. what to change ------------ -->
+<div class="card">
+  <h2>Variable and value</h2>
+  <div class="row">
+    <div class="col" style="flex:2 1 380px">
+      <label class="fld" for="varName">Tool address (config variable name)</label>
+      <input type="text" id="varName" value="d2l.Tools.Grades.FinalGrade.ReleaseAdjustedGrade" spellcheck="false">
+      <p class="hint">Looked up on load via <code>/configVariables/definitions/?search=</code>.
+        <button class="link" id="lookupName" type="button">Look up the ID again</button> ·
+        <button class="link" id="lookupRaw" type="button">Show the raw response</button></p>
+    </div>
+    <div class="col">
+      <label class="fld" for="varId">Config variable ID</label>
+      <input type="text" id="varId" value="75010000-0000-0000-0000-000000000000" spellcheck="false">
+      <p class="hint">Filled in by the lookup, or paste one.
+        <button class="link" id="lookupVar" type="button">Check it against the first org unit</button></p>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col" style="flex:0 1 240px;min-width:200px">
+      <label class="fld" for="action">What to do</label>
+      <select id="action">
+        <option value="off" selected>Set the override to Off</option>
+        <option value="on">Set the override to On</option>
+        <option value="delete">Remove the override (inherit org value)</option>
+      </select>
+      <p class="hint">Sends <code>{"OrgUnitValue":"off"}</code> to the org unit value endpoint.</p>
+    </div>
+    <div class="col" style="flex:0 1 150px;min-width:130px">
+      <label class="fld" for="apiVer">LP API version</label>
+      <input type="text" id="apiVer" value="1.28" spellcheck="false">
+      <p class="hint">Detected on load. D2L's example used <code>1.49</code>.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ------------ 2. which courses ------------ -->
+<div class="card">
+  <h2>Course offerings</h2>
+  <div class="row">
+    <div class="col" style="flex:2 1 420px">
+      <label class="fld" for="ous">Org Unit IDs — one per line, or separated by commas or spaces</label>
+      <textarea id="ous" spellcheck="false" placeholder="204227&#10;204228&#10;204229"></textarea>
+      <div class="actions" style="margin-top:10px">
+        <button id="loadOverrides" type="button">Load every org unit with an override</button>
+        <button class="link" id="clearOus" type="button">Clear</button>
+        <span class="hint" id="ouCount" style="margin:0">No org units entered.</span>
+      </div>
+    </div>
+    <div class="col">
+      <label class="fld">Options</label>
+      <div class="opts">
+        <label class="opt"><input type="checkbox" id="optPreview">
+          <span>Preview only<small>Read the current value for each course, change nothing.</small></span></label>
+        <label class="opt"><input type="checkbox" id="optSkipMatch" checked>
+          <span>Skip courses already at the target value<small>Saves an API call per course.</small></span></label>
+        <label class="opt"><input type="checkbox" id="optSkipNone" checked>
+          <span>Skip courses with no override<small>A 404 on read means there's no course-level value to change.</small></span></label>
+        <label class="opt"><input type="checkbox" id="optNames" checked>
+          <span>Look up course names<small>One extra call per course; useful in the export.</small></span></label>
+        <label class="opt"><input type="checkbox" id="optVerify">
+          <span>Re-read the value after writing<small>Confirms the change stuck. Doubles write-path calls.</small></span></label>
+      </div>
+
+      <div class="speed" style="margin-top:14px">
+        <label class="fld" for="workers" style="margin-bottom:0">Concurrent workers —
+          <b id="workerVal" style="font-family:var(--mono);color:var(--accent)">10</b></label>
+        <input type="range" id="workers" min="1" max="25" value="10">
+        <div class="ticks"><span>1</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span></div>
+        <div class="est" id="est"></div>
+        <p class="hint">Start at 10 and raise it if the credit meter stays green.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="run" type="button">Run update</button>
+    <button id="test" type="button">Test the first org unit</button>
+    <button class="danger hidden" id="stop" type="button">Stop</button>
+    <div class="meter" id="meter">
+      <span class="bars" id="meterBars"></span>
+      <span class="lbl" id="meterLbl">API credits: unknown</span>
+    </div>
+  </div>
+  <div class="prog"><i id="progBar"></i></div>
+  <div class="status" id="statusLine">Idle.</div>
+  <pre class="diag hidden" id="diag"></pre>
+</div>
+
+<!-- ------------ 3. results ------------ -->
+<div id="results" class="hidden">
+  <div class="totals" id="totals"></div>
+  <div class="toolbar" id="chips"></div>
+  <div class="toolbar" style="margin-top:0">
+    <input type="text" id="search" placeholder="Search org unit, course, or detail…">
+    <button id="dlCsv" type="button">Download CSV</button>
+  </div>
+  <div class="tblwrap">
+    <div class="capnote hidden" id="capNote"></div>
+    <table>
+      <thead><tr>
+        <th style="width:130px">Status</th>
+        <th style="width:90px">Org Unit</th>
+        <th>Course</th>
+        <th style="width:110px">Code</th>
+        <th style="width:90px">Before</th>
+        <th style="width:90px">After</th>
+        <th style="width:280px">Detail</th>
+      </tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ===================== environment ===================== */
+var LP = '1.28';                 // negotiated on load, per notification tool
+var XSRF = '';
+var HOST = location.origin;
+
+var $ = function(id){ return document.getElementById(id); };
+var sleep = function(ms){ return new Promise(function(r){ setTimeout(r, ms); }); };
+
+function esc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ===================== rate limiting ===================== */
+var MAX_RETRIES  = 5;
+var credits = { remaining: null, limit: null, reset: null };
+
+/* No fixed floor. Delay is zero while credits are healthy and scales up only
+   as they drop, so N workers run at full speed until the tenant pushes back. */
+function computeDelay(){
+  if (credits.remaining === null) return 0;
+  var cap = credits.limit || 150;
+  var pct = credits.remaining / cap;
+  if (pct > 0.30) return 0;
+  if (pct > 0.15) return 100;
+  if (pct > 0.05) return 300;
+  return 800;
+}
+
+function readCredits(res){
+  var h = res.headers;
+  var rem = h.get('X-Rate-Limit-Remaining') || h.get('x-rate-limit-remaining') || h.get('RateLimit-Remaining');
+  var lim = h.get('X-Rate-Limit-Limit')     || h.get('x-rate-limit-limit')     || h.get('RateLimit-Limit');
+  var rst = h.get('X-Rate-Limit-Reset')     || h.get('x-rate-limit-reset')     || h.get('RateLimit-Reset');
+  /* This tenant sends X-Rate-Limit-Remaining: 0 as a placeholder on ordinary
+     responses — successes and errors alike. A zero here is never evidence of
+     exhaustion, so only a positive number is trusted and a 429 is the real
+     signal. Trusting the zero throttles every later request to a crawl. */
+  var n = parseInt(rem, 10);
+  if (isFinite(n) && n > 0) credits.remaining = n;
+  var l = parseInt(lim, 10);
+  if (isFinite(l) && l > 0) credits.limit = l;
+  if (rst !== null && rst !== '') credits.reset = parseFloat(rst);
+}
+
+function paintMeter(){
+  var bars = $('meterBars'), meter = $('meter'), lbl = $('meterLbl');
+  var total = 12, on = total, cls = '';
+  if (credits.remaining === null){
+    lbl.textContent = 'API credits: unknown';
+    on = total;
+  } else {
+    var lim = credits.limit || Math.max(credits.remaining, 100);
+    var frac = Math.max(0, Math.min(1, credits.remaining / lim));
+    on = Math.max(credits.remaining > 0 ? 1 : 0, Math.round(frac * total));
+    cls = frac > 0.4 ? '' : (frac > 0.15 ? 'warn' : 'bad');
+    lbl.textContent = 'API credits: ' + credits.remaining + (credits.limit ? ' / ' + credits.limit : '');
+  }
+  meter.className = 'meter ' + cls;
+  var html = '';
+  for (var i = 0; i < total; i++) html += '<i class="' + (i < on ? 'on' : '') + '"></i>';
+  bars.innerHTML = html;
+}
+
+/* Core fetch: session cookies, CSRF on writes, dynamic throttle, 429 backoff.
+   Safe to call from many workers at once — no shared mutable cursor. */
+async function rlFetch(url, opts){
+  opts = opts || {};
+  var method = (opts.method || 'GET').toUpperCase();
+
+  var delay = computeDelay();
+  if (delay > 0) await sleep(delay);
+
+  for (var attempt = 0; attempt <= MAX_RETRIES; attempt++){
+    var headers = { 'Accept': 'application/json' };
+    if (method !== 'GET' && method !== 'HEAD'){
+      headers['Content-Type'] = 'application/json';
+      if (XSRF) headers['X-Csrf-Token'] = XSRF;
+    }
+    if (opts.headers) for (var k in opts.headers) headers[k] = opts.headers[k];
+
+    var res;
+    try {
+      res = await fetch(url, {
+        method: method,
+        credentials: 'include',
+        headers: headers,
+        body: opts.body
+      });
+    } catch (e){
+      if (attempt === MAX_RETRIES) throw e;
+      await sleep(Math.pow(2, attempt) * 1000);
+      continue;
+    }
+
+    readCredits(res);
+
+    if (res.status === 429 && attempt < MAX_RETRIES){
+      var ra = res.headers.get('Retry-After');
+      var back = ra ? parseFloat(ra) * 1000 : Math.min(Math.pow(2, attempt) * 1000, 30000);
+      throttled = Date.now() + back;
+      await sleep(back);
+      continue;
+    }
+    return res;
+  }
+}
+var throttled = 0;
+
+async function jsonOf(res){
+  var txt = await res.text();
+  if (!txt) return null;
+  try { return JSON.parse(txt); } catch(e){ return txt; }
+}
+
+/* ===================== startup ===================== */
+async function detectVersion(){
+  try {
+    var res = await fetch('/d2l/api/versions/', { credentials:'include', headers:{Accept:'application/json'} });
+    var list = await res.json();
+    for (var i = 0; i < list.length; i++){
+      if (String(list[i].ProductCode).toLowerCase() === 'lp'){
+        LP = list[i].LatestVersion; break;
+      }
+    }
+  } catch(e){ /* keep fallback */ }
+  $('apiVer').value = LP;
+}
+
+function readToken(){
+  try { XSRF = localStorage.getItem('XSRF.Token') || ''; } catch(e){ XSRF = ''; }
+  $('envAuth').textContent = XSRF ? 'token found' : 'no token';
+  if (!XSRF){
+    var w = $('authWarn');
+    w.className = 'banner bad';
+    w.innerHTML = 'No CSRF token in this page\u2019s localStorage. Open this tool from inside a signed-in Brightspace session on <b>' + esc(HOST) + '</b> — writes will fail with 403 otherwise.';
+  }
+}
+
+/* ===================== diagnostics ===================== */
+function diagClear(){ $('diag').innerHTML = ''; $('diag').classList.remove('hidden'); }
+function diagLine(html){ $('diag').innerHTML += html + '\n'; $('diag').scrollTop = $('diag').scrollHeight; }
+function diagResult(label, method, url, res, body){
+  var mark = res.ok ? '<b>' + res.status + ' OK</b>' : '<s>' + res.status + ' ' + esc(res.statusText || '') + '</s>';
+  diagLine('<u>' + esc(label) + '</u>  ' + esc(method) + ' ' + esc(url) + '\n  → ' + mark +
+    (body ? '\n  ' + esc(String(typeof body === 'string' ? body : JSON.stringify(body)).slice(0, 400)) : ''));
+}
+
+/* ===================== helpers ===================== */
+function parseOus(text){
+  var seen = {}, out = [];
+  var parts = String(text || '').split(/[^0-9]+/);
+  for (var i = 0; i < parts.length; i++){
+    var p = parts[i];
+    if (!p) continue;
+    if (!seen[p]){ seen[p] = 1; out.push(p); }
+  }
+  return out;
+}
+
+/* Values come back as a bare string, or wrapped depending on version. */
+function normValue(raw){
+  if (raw == null) return '';
+  var v = raw;
+  if (typeof v === 'object'){
+    v = (v.OrgUnitValue != null) ? v.OrgUnitValue
+      : (v.Value        != null) ? v.Value
+      : (v.ConfigVariableValue != null) ? v.ConfigVariableValue : '';
+  }
+  return String(v).replace(/^"|"$/g, '').trim();
+}
+
+function display(v){
+  if (v === '') return '\u2014';
+  var l = v.toLowerCase();
+  if (l === 'off' || l === '0' || l === 'false' || l === 'no') return 'Off';
+  if (l === 'on'  || l === '1' || l === 'true'  || l === 'yes') return 'On';
+  return v;
+}
+
+function matchesTarget(current, target){
+  return display(current) !== '\u2014' && display(current) === display(target);
+}
+
+function setStatus(msg){ $('statusLine').textContent = msg; }
+function setProgress(done, total){
+  $('progBar').style.width = total ? (done / total * 100) + '%' : '0';
+}
+
+/* ===================== variable ID lookup ===================== */
+/* GET /d2l/api/lp/{v}/configVariables/definitions/?search={tool address}
+   This is the discovery route that works — the bare list and the singleton both 404. */
+function defId(d){ return d.ConfigVariableId || d.Id || d.VariableId || ''; }
+function defName(d){ return d.ConfigVariableName || d.Name || d.DisplayName || ''; }
+
+function defId(d){ return d.ConfigVariableId || d.Id || d.VariableId || ''; }
+function defName(d){ return d.ConfigVariableName || d.Name || d.DisplayName || ''; }
+
+/* The definitions payload shape isn't guaranteed, so find the array and the
+   fields by shape rather than by name. */
+function itemsOf(data){
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return [];
+  if (Array.isArray(data.Items)) return data.Items;
+  if (Array.isArray(data.Objects)) return data.Objects;
+  for (var k in data) if (Array.isArray(data[k])) return data[k];
+  return [];
+}
+function pickId(d){
+  if (!d || typeof d !== 'object') return '';
+  var k;
+  for (k in d) if (typeof d[k] === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i.test(d[k])) return d[k];
+  for (k in d) if (/(^|[^a-z])id$/i.test(k) && d[k] != null && typeof d[k] !== 'object') return String(d[k]);
+  return defId(d);
+}
+function pickName(d){
+  if (!d || typeof d !== 'object') return '';
+  var k;
+  for (k in d) if (typeof d[k] === 'string' && /^d2l\./i.test(d[k])) return d[k];
+  return defName(d);
+}
+
+async function searchDefs(term){
+  var out = [], bookmark = '', guard = 0, seenRaw = 0;
+  do {
+    var url = '/d2l/api/lp/' + LP + '/configVariables/definitions/?search=' + encodeURIComponent(term)
+            + (bookmark ? '&bookmark=' + encodeURIComponent(bookmark) : '');
+    var res = await rlFetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    var data = await jsonOf(res);
+    if (typeof data === 'string') throw new Error('response was not JSON');
+    var items = itemsOf(data);
+    seenRaw += items.length;
+    for (var i = 0; i < items.length; i++){
+      var id = pickId(items[i]), nm = pickName(items[i]);
+      if (id || nm) out.push({ id: id, name: nm || '(unnamed)' });
+    }
+    var pi = data && data.PagingInfo;
+    bookmark = pi && pi.HasMoreItems ? pi.Bookmark : '';
+  } while (bookmark && ++guard < 10);
+  out.rawCount = seenRaw;
+  return out;
+}
+
+/* Full address first, then the distinctive last segment, then the namespace.
+   A stored name often carries a suffix the tool address doesn't. */
+function searchTerms(name){
+  var parts = name.split('.'), terms = [name];
+  if (parts.length > 1) terms.push(parts[parts.length - 1]);
+  if (parts.length > 2) terms.push(parts.slice(0, -1).join('.'));
+  return terms.filter(function(t, i, a){ return t && a.indexOf(t) === i; });
+}
+
+async function lookupByName(name){
+  var out = { ok:false, id:'', name:'', matches:[], term:'', error:'', raw:0 };
+  var terms = searchTerms(name);
+  for (var i = 0; i < terms.length; i++){
+    var found;
+    try { found = await searchDefs(terms[i]); }
+    catch(e){ out.error = e.message; return out; }
+    out.raw += (found.rawCount || 0);
+    if (!found.length) continue;
+
+    out.matches = found;
+    out.term = terms[i];
+    for (var j = 0; j < found.length; j++){
+      if (found[j].name.toLowerCase() === name.toLowerCase()){
+        out.ok = true; out.id = found[j].id; out.name = found[j].name;
+        return out;
+      }
+    }
+    if (found.length === 1 && i === 0){
+      out.ok = true; out.id = found[0].id; out.name = found[0].name;
+    }
+    return out;
+  }
+  return out;
+}
+
+/* Dumps exactly what the server returns, across a few route variants, so a
+   parsing problem can be told apart from an empty result. */
+$('lookupRaw').addEventListener('click', async function(){
+  var btn = this, name = $('varName').value.trim() || 'd2l.Tools.Grades';
+  var last = name.split('.').pop();
+  var tries = [
+    '/d2l/api/lp/' + LP + '/configVariables/definitions/?search=' + encodeURIComponent(name),
+    '/d2l/api/lp/' + LP + '/configVariables/definitions/?search=' + encodeURIComponent(last),
+    '/d2l/api/lp/' + LP + '/configVariables/definitions/',
+    '/d2l/api/lp/1.49/configVariables/definitions/?search=' + encodeURIComponent(last)
+  ];
+  btn.disabled = true;
+  diagClear();
+  diagLine('Raw lookup probe — LP ' + esc(LP) + '\n');
+  for (var i = 0; i < tries.length; i++){
+    try {
+      var res = await rlFetch(tries[i]);
+      var ct = res.headers.get('Content-Type') || '?';
+      var txt = await res.text();
+      diagLine('<u>GET</u> ' + esc(tries[i]) +
+        '\n  → ' + (res.ok ? '<b>' + res.status + '</b>' : '<s>' + res.status + '</s>') +
+        '  ' + esc(ct) + '  ' + txt.length + ' bytes' +
+        '\n  ' + esc(txt.slice(0, 700)) + (txt.length > 700 ? ' …' : ''));
+    } catch(e){
+      diagLine('<u>GET</u> ' + esc(tries[i]) + '\n  <s>threw: ' + esc(e.message) + '</s>');
+    }
+  }
+  diagLine('\nIf a call returned JSON with entries, the parser can be pointed at whatever field names appear above.');
+  btn.disabled = false;
+});
+
+/* Candidates the user can click to adopt. */
+function showCandidates(matches, term, typed){
+  var list = matches.slice(0, 14).map(function(m, i){
+    return '<button class="link cand" data-i="' + i + '" style="display:block;text-align:left;font-family:var(--mono);font-size:12px">' +
+           esc(m.name) + '</button>';
+  }).join('');
+  banner('warn',
+    'No exact match for <code>' + esc(typed) + '</code>, but searching <code>' + esc(term) + '</code> found ' +
+    matches.length + '. Click the one you want:' +
+    '<div style="margin-top:6px">' + list + '</div>' +
+    (matches.length > 14 ? '<div style="margin-top:4px">…and ' + (matches.length - 14) + ' more. Narrow the search term.</div>' : ''));
+
+  Array.prototype.forEach.call($('authWarn').querySelectorAll('.cand'), function(el){
+    el.addEventListener('click', function(){
+      var m = matches[parseInt(el.dataset.i, 10)];
+      $('varName').value = m.name;
+      $('varId').value = m.id;
+      banner('info', 'Using <code>' + esc(m.name) + '</code> \u2192 <code>' + esc(m.id) + '</code>');
+    });
+  });
+}
+
+$('lookupName').addEventListener('click', async function(){
+  var btn = this, name = $('varName').value.trim();
+  if (!name){ banner('warn', 'Enter the tool address to search for.'); return; }
+  btn.disabled = true; btn.textContent = 'Looking up…';
+  var r = await lookupByName(name);
+  if (r.ok){
+    $('varId').value = r.id;
+    banner('info', 'Resolved <code>' + esc(r.name) + '</code> \u2192 <code>' + esc(r.id) + '</code>');
+  } else if (r.matches.length){
+    showCandidates(r.matches, r.term, name);
+  } else if (r.error){
+    banner('warn', 'Lookup failed (' + esc(r.error) + '). Paste the ID directly instead.');
+  } else {
+    banner('warn', 'The search returned no usable entries for <code>' + esc(name) + '</code>' +
+           (r.raw ? ' (' + r.raw + ' entries came back but couldn\u2019t be read)' : '') +
+           '. Click <b>Show the raw response</b> to see what the server actually sent. ' +
+           'The ID field still works if you paste one directly.');
+  }
+  btn.disabled = false; btn.textContent = 'Look up the ID again';
+});
+
+/* Resolve the ID on load so a stale hardcoded GUID can't silently 404 every write. */
+async function autoResolve(){
+  var name = $('varName').value.trim();
+  if (!name) return;
+  var r = await lookupByName(name);
+  if (r.ok){
+    var had = $('varId').value.trim();
+    $('varId').value = r.id;
+    if (had && had.toLowerCase() !== r.id.toLowerCase()){
+      banner('info', 'Resolved <code>' + esc(r.name) + '</code> to <code>' + esc(r.id) +
+             '</code> \u2014 that differs from the ID this tool shipped with, so the looked-up one is now in use.');
+    }
+  }
+}
+
+/* ===================== variable ID check ===================== */
+/* This tenant doesn't serve GET /configVariables/ or /configVariables/{id} — both 404.
+   The value endpoint is the only route that answers, so probe that instead. */
+$('lookupVar').addEventListener('click', async function(){
+  var btn = this;
+  var varId = $('varId').value.trim();
+  var ous = parseOus($('ous').value);
+  if (!varId){ banner('warn', 'Enter a config variable ID first.'); return; }
+  if (!ous.length){ banner('warn', 'Add at least one org unit ID below — the check reads that course\u2019s value.'); return; }
+
+  var ou = ous[0];
+  btn.disabled = true; btn.textContent = 'Checking…';
+  var url = '/d2l/api/lp/' + LP + '/configVariables/' + encodeURIComponent(varId) + '/values/orgUnits/' + encodeURIComponent(ou);
+  try {
+    var res = await rlFetch(url);
+    if (res.ok){
+      var v = normValue(await jsonOf(res));
+      banner('info', 'ID is good. Org unit <b>' + esc(ou) + '</b> currently reads <b>' + esc(display(v)) +
+             '</b>' + (v ? ' (stored as <code>' + esc(v) + '</code>)' : '') + '.');
+    } else if (res.status === 404){
+      banner('warn', 'HTTP 404 on <code>' + esc(url) + '</code>. Either the variable ID is wrong, or org unit <b>' +
+             esc(ou) + '</b> has no override set — a course with no override returns 404 here too, so try an org unit you know has one.');
+    } else if (res.status === 403){
+      banner('bad', 'HTTP 403 — this account can\u2019t read config variable values. The role needs config variable management at the org level.');
+    } else {
+      banner('warn', 'Check returned HTTP ' + res.status + '.');
+    }
+  } catch(e){
+    banner('warn', 'Check failed: ' + esc(e.message));
+  }
+  btn.disabled = false; btn.textContent = 'Check it against the first org unit';
+});
+
+function banner(kind, html){
+  var w = $('authWarn');
+  w.className = 'banner ' + kind;
+  w.innerHTML = html;
+}
+
+/* ===================== load existing overrides ===================== */
+$('loadOverrides').addEventListener('click', async function(){
+  var btn = this, varId = $('varId').value.trim();
+  if (!varId){ banner('warn', 'Enter a config variable ID first.'); return; }
+  btn.disabled = true; btn.textContent = 'Loading…';
+  setStatus('Fetching org units with an override…');
+  var found = [], bookmark = '', guard = 0;
+  try {
+    do {
+      var url = '/d2l/api/lp/' + LP + '/configVariables/' + encodeURIComponent(varId) + '/values/orgUnits/'
+              + (bookmark ? '?bookmark=' + encodeURIComponent(bookmark) : '');
+      var res = await rlFetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      var data = await jsonOf(res);
+      var items = Array.isArray(data) ? data : (data && data.Items) ? data.Items : [];
+      for (var i = 0; i < items.length; i++){
+        var ou = items[i].OrgUnitId != null ? items[i].OrgUnitId : items[i].Id;
+        if (ou != null) found.push(String(ou));
+      }
+      var pi = data && data.PagingInfo;
+      bookmark = pi && pi.HasMoreItems ? pi.Bookmark : '';
+    } while (bookmark && ++guard < 200);
+
+    if (!found.length){
+      banner('warn', 'That endpoint returned no org units. Paste the list from D2L support instead.');
+    } else {
+      var box = $('ous');
+      box.value = (box.value.trim() ? box.value.trim() + '\n' : '') + found.join('\n');
+      countOus();
+      banner('info', 'Loaded <b>' + found.length + '</b> org unit' + (found.length === 1 ? '' : 's') + ' with an override set.');
+    }
+  } catch(e){
+    banner('warn', 'Couldn\u2019t list existing overrides (' + esc(e.message) + '). Not every tenant exposes that endpoint — paste the org unit list instead.');
+  }
+  setStatus('Idle.');
+  btn.disabled = false; btn.textContent = 'Load every org unit with an override';
+});
+
+/* ===================== input plumbing ===================== */
+function countOus(){
+  var n = parseOus($('ous').value).length;
+  $('ouCount').textContent = n ? (n.toLocaleString() + ' unique org unit' + (n === 1 ? '' : 's') + ' ready.') : 'No org units entered.';
+  updateEstimate();
+}
+$('ous').addEventListener('input', countOus);
+$('clearOus').addEventListener('click', function(){ $('ous').value = ''; countOus(); });
+
+/* ===================== the run ===================== */
+var rows = [], stopFlag = false, running = false;
+var startTime = 0, doneCount = 0, totalCount = 0;
+
+$('stop').addEventListener('click', function(){ stopFlag = true; setStatus('Stopping — letting in-flight requests finish…'); });
+
+function fmtDur(ms){
+  var s = Math.round(ms / 1000);
+  var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h) return h + 'h ' + m + 'm';
+  if (m) return m + 'm ' + sec + 's';
+  return sec + 's';
+}
+
+/* One repaint on a timer rather than one per finished course — at 50k rows
+   a per-row full render is what actually kills the browser. */
+var ticker = null;
+function startTicker(){
+  ticker = setInterval(function(){
+    paintMeter();
+    paintTotals();
+    setProgress(doneCount, totalCount);
+    var el = (Date.now() - startTime) / 1000;
+    if (doneCount > 5 && el > 1){
+      var rate = doneCount / el;
+      setStatus(doneCount.toLocaleString() + ' / ' + totalCount.toLocaleString() +
+        ' — ' + rate.toFixed(1) + '/sec — ETA ' + fmtDur(((totalCount - doneCount) / rate) * 1000) +
+        (throttled > Date.now() ? ' — rate limited, backing off…' : ''));
+    } else {
+      setStatus(doneCount.toLocaleString() + ' / ' + totalCount.toLocaleString() + ' — starting…');
+    }
+  }, 200);
+}
+function stopTicker(){ if (ticker){ clearInterval(ticker); ticker = null; } }
+
+$('run').addEventListener('click', async function(){
+  if (running) return;
+  var ous = parseOus($('ous').value);
+  var varId = $('varId').value.trim();
+  var action = $('action').value;
+  var target = action === 'delete' ? '' : action;
+  var preview = $('optPreview').checked;
+  var skipMatch = $('optSkipMatch').checked;
+  var skipNone = $('optSkipNone').checked;
+  var wantNames = $('optNames').checked;
+  var verify = $('optVerify').checked;
+  var workers = parseInt($('workers').value, 10) || 10;
+
+  if (!varId){ banner('warn', 'Enter a config variable ID.'); return; }
+  if (!ous.length){ banner('warn', 'Add at least one org unit ID.'); return; }
+  if (!preview && !XSRF){ banner('bad', 'No CSRF token available — writes will be rejected. Open this page from inside a signed-in Brightspace session.'); return; }
+
+  running = true; stopFlag = false; rows = [];
+  doneCount = 0; totalCount = ous.length; startTime = Date.now();
+  credits.remaining = null; credits.limit = null; throttled = 0;
+  $('run').disabled = true;
+  $('stop').classList.remove('hidden');
+  $('results').classList.remove('hidden');
+  resetTable();
+  startTicker();
+
+  /* Shared cursor. JS is single-threaded between awaits, so i++ is atomic
+     and no two workers can draw the same org unit. */
+  var i = 0;
+  async function worker(){
+    while (true){
+      if (stopFlag) return;
+      var idx = i++;
+      if (idx >= ous.length) return;
+      var row;
+      try {
+        row = await processOne(ous[idx], varId, action, target, preview, skipMatch, wantNames, verify, skipNone);
+      } catch(e){
+        row = { ou: ous[idx], name:'', code:'', before:'', after:'', status:'Failed', detail:'Unhandled: ' + (e && e.message) };
+      }
+      rows.push(row);
+      doneCount++;
+      appendRow(row);
+    }
+  }
+
+  var pool = [];
+  for (var w = 0; w < Math.min(workers, ous.length); w++) pool.push(worker());
+  await Promise.all(pool);
+
+  stopTicker();
+  paintMeter();
+  paintTotals();
+  paintChips();
+  setProgress(totalCount, totalCount);
+  var took = fmtDur(Date.now() - startTime);
+  setStatus((stopFlag ? 'Stopped after ' : 'Finished in ') + took + ' — ' +
+    rows.length.toLocaleString() + ' of ' + totalCount.toLocaleString() + ' processed.');
+  $('run').disabled = false;
+  $('stop').classList.add('hidden');
+  running = false;
+});
+
+/* Live worker/ETA estimate on the slider. Roughly 2 calls per course. */
+function updateEstimate(){
+  var n = parseInt($('workers').value, 10) || 1;
+  $('workerVal').textContent = n;
+  var callsPer = 1
+    + ($('optNames').checked ? 1 : 0)
+    + ($('optPreview').checked ? 0 : 1)
+    + ($('optVerify').checked && !$('optPreview').checked ? 1 : 0);
+  var slow = n * (1000 / 500) / callsPer;   // 500ms per request
+  var fast = n * (1000 / 200) / callsPer;   // 200ms per request
+  var total = parseOus($('ous').value).length || 50000;
+  $('est').textContent =
+    Math.round(slow) + '\u2013' + Math.round(fast) + ' courses/sec \u00b7 ' +
+    total.toLocaleString() + ' \u2248 ' + fmtDur(total / fast * 1000) + '\u2013' + fmtDur(total / slow * 1000);
+}
+$('workers').addEventListener('input', updateEstimate);
+['optNames','optPreview','optVerify'].forEach(function(id){
+  $(id).addEventListener('change', updateEstimate);
+});
+
+/* One org unit, every request logged. */
+$('test').addEventListener('click', async function(){
+  if (running) return;
+  var ous = parseOus($('ous').value);
+  var varId = $('varId').value.trim();
+  var action = $('action').value;
+  var target = action === 'delete' ? '' : action;
+  if (!ous.length){ banner('warn', 'Add at least one org unit ID to test with.'); return; }
+  if (!varId){ banner('warn', 'Enter a config variable ID.'); return; }
+
+  var ou = ous[0], btn = this;
+  btn.disabled = true; $('run').disabled = true;
+  diagClear();
+  diagLine('Host       ' + esc(HOST));
+  diagLine('LP version ' + esc(LP));
+  diagLine('CSRF token ' + (XSRF ? 'present' : 'MISSING — writes will 403'));
+  diagLine('Org unit   ' + esc(ou) + '\n');
+
+  var base = '/d2l/api/lp/' + LP + '/configVariables/' + encodeURIComponent(varId) + '/values/orgUnits/' + encodeURIComponent(ou);
+  try {
+    var r2 = await rlFetch(base);
+    diagResult('current value', 'GET', base, r2, await jsonOf(r2));
+    if (r2.status === 404){
+      diagLine('  <u>note</u> a 404 here means this course has no override set — in a real run it would be skipped, not written to.');
+    }
+
+    if ($('optPreview').checked){
+      diagLine('\nPreview only is on — stopping before the write.');
+    } else {
+      var r3 = action === 'delete'
+        ? await rlFetch(base, { method:'DELETE' })
+        : await rlFetch(base, { method:'PUT', body: JSON.stringify({ OrgUnitValue: target }) });
+      diagResult('write        ', action === 'delete' ? 'DELETE' : 'PUT', base, r3, await jsonOf(r3));
+      if (r3.ok){
+        var r4 = await rlFetch(base);
+        var got = normValue(await jsonOf(r4));
+        diagResult('re-read      ', 'GET', base, r4, got);
+        diagLine('\nStored value reads as <b>' + esc(display(got)) + '</b>' +
+                 (got && got.toLowerCase() !== target ? ' (sent \u201c' + esc(target) + '\u201d, D2L normalized it to \u201c' + esc(got) + '\u201d — same thing)' : '') + '.');
+      }
+      if (!r3.ok && r3.status === 404){
+        var cu = '/d2l/api/lp/' + LP + '/courses/' + encodeURIComponent(ou);
+        var cr = await rlFetch(cu);
+        var cb = await jsonOf(cr);
+        diagResult('is it a course?', 'GET', cu, cr, cb && cb.Name ? cb.Name : cb);
+        diagLine('\n' + (cr.ok
+          ? 'The org unit is a valid course offering, and the read 404\u2019d as well \u2014 so there is <b>no override record</b> on this course to update. It inherits the org-level value, and needs no action. The PUT endpoint updates existing overrides; it doesn\u2019t create them.'
+          : 'The course lookup also failed, so org unit <s>' + esc(ou) + '</s> likely isn\u2019t a course offering this account can see.'));
+      }
+      if (!r3.ok && r3.status === 403){
+        diagLine('\n403 means authentication got through but the role lacks permission to write config variables, or the CSRF token is stale. Reload Brightspace and try again.');
+      }
+    }
+  } catch(e){
+    diagLine('\n<s>Request threw: ' + esc(e.message) + '</s>\nIf this says \u201cFailed to fetch\u201d, the page isn\u2019t being served from ' + esc(HOST) + ' and the relative API paths are going somewhere else.');
+  }
+  btn.disabled = false; $('run').disabled = false;
+});
+
+async function processOne(ou, varId, action, target, preview, skipMatch, wantNames, verify, skipNone){
+  var row = { ou: ou, name: '', code: '', before: '', after: '', status: '', detail: '' };
+  var noOverride = false;
+  var base = '/d2l/api/lp/' + LP + '/configVariables/' + encodeURIComponent(varId) + '/values/orgUnits/' + encodeURIComponent(ou);
+
+  // course name / code
+  if (wantNames){
+    try {
+      var cres = await rlFetch('/d2l/api/lp/' + LP + '/courses/' + encodeURIComponent(ou));
+      if (cres.ok){
+        var c = await jsonOf(cres);
+        if (c && typeof c === 'object'){
+          row.name = c.Name || '';
+          row.code = c.Code || '';
+        }
+      } else if (cres.status === 404){
+        row.detail = 'Not a course offering (or no access to it).';
+      }
+    } catch(e){ /* name is cosmetic */ }
+  }
+
+  // current value
+  var have = false;
+  try {
+    var gres = await rlFetch(base);
+    if (gres.ok){
+      row.before = normValue(await jsonOf(gres));
+      have = true;
+    } else if (gres.status === 404){
+      row.before = '';
+      have = true;
+      noOverride = true;
+      row.detail = row.detail || 'No course-level override set.';
+    } else if (gres.status === 403){
+      row.status = 'Failed'; row.detail = 'HTTP 403 — no permission to read this org unit\u2019s value.';
+      return row;
+    } else {
+      row.detail = row.detail || ('Read returned HTTP ' + gres.status + '.');
+    }
+  } catch(e){
+    row.status = 'Failed'; row.detail = 'Read failed: ' + e.message;
+    return row;
+  }
+
+  if (preview){
+    row.status = 'Preview';
+    row.after = row.before;
+    row.detail = row.detail || ('Current value ' + display(row.before) + ' — nothing written.');
+    return row;
+  }
+
+  if (noOverride && skipNone){
+    row.status = 'No override';
+    row.after = '';
+    row.detail = 'Nothing to change — this course inherits the org-level value.';
+    return row;
+  }
+
+  if (action === 'delete'){
+    if (have && row.before === ''){
+      row.status = 'No change'; row.after = '';
+      row.detail = 'Nothing to remove.';
+      return row;
+    }
+  } else if (skipMatch && matchesTarget(row.before, target)){
+    row.status = 'Already ' + display(target);
+    row.after = row.before;
+    row.detail = 'Left alone.';
+    return row;
+  }
+
+  // write
+  try {
+    var wres;
+    if (action === 'delete'){
+      wres = await rlFetch(base, { method: 'DELETE' });
+    } else {
+      wres = await rlFetch(base, { method: 'PUT', body: JSON.stringify({ OrgUnitValue: target }) });
+    }
+    if (wres.ok){
+      row.status  = action === 'delete' ? 'Removed' : 'Updated';
+      row.after   = action === 'delete' ? '' : target;
+      row.detail  = 'HTTP ' + wres.status + '.';
+    } else {
+      var body = await jsonOf(wres);
+      row.status = 'Failed';
+      row.after  = row.before;
+      row.detail = 'HTTP ' + wres.status +
+        (wres.status === 404 ? ' — no override exists on this course to update, or the org unit isn\u2019t a course offering.' : '') +
+        (body ? ' — ' + String(typeof body === 'string' ? body : JSON.stringify(body)).slice(0, 180) : '') +
+        '  [' + (action === 'delete' ? 'DELETE ' : 'PUT ') + base + ']';
+      return row;
+    }
+  } catch(e){
+    row.status = 'Failed'; row.after = row.before; row.detail = 'Write failed: ' + e.message;
+    return row;
+  }
+
+  if (verify){
+    try {
+      var vres = await rlFetch(base);
+      if (vres.ok){
+        var got = normValue(await jsonOf(vres));
+        row.after = got;
+        if (action === 'delete'){
+          row.detail = got === '' ? 'Verified — override gone.' : 'Verify: value still reads ' + display(got) + '.';
+          if (got !== '') row.status = 'Check';
+        } else if (matchesTarget(got, target)){
+          row.detail = 'Verified.';
+        } else {
+          row.status = 'Check'; row.detail = 'Verify: reads ' + display(got) + ', expected ' + display(target) + '.';
+        }
+      } else if (vres.status === 404 && action === 'delete'){
+        row.after = ''; row.detail = 'Verified — override gone.';
+      } else {
+        row.detail += ' Verify read returned HTTP ' + vres.status + '.';
+      }
+    } catch(e){ row.detail += ' Verify failed: ' + e.message; }
+  }
+  return row;
+}
+
+/* ===================== results UI ===================== */
+var activeChip = 'All', query = '';
+var MAX_DOM_ROWS = 300;    // rolling log cap — failures are never trimmed
+var domRows = 0, capped = false;
+
+function tagClass(status){
+  if (status === 'Updated' || status === 'Removed') return 'ok';
+  if (status === 'Failed') return 'bad';
+  if (status === 'Check')  return 'warn';
+  return 'neutral';
+}
+
+function rowHtml(r){
+  var link = HOST + '/d2l/lms/grades/admin/manage/grades_manage_view.d2l?ou=' + encodeURIComponent(r.ou);
+  var cls = r.status === 'Failed' ? ' class="keep"' : '';
+  return '<tr' + cls + '>' +
+    '<td><span class="tag ' + tagClass(r.status) + '">' + esc(r.status) + '</span></td>' +
+    '<td class="ou"><a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(r.ou) + '</a></td>' +
+    '<td>' + esc(r.name || '\u2014') + '</td>' +
+    '<td class="ou">' + esc(r.code || '\u2014') + '</td>' +
+    '<td class="val">' + esc(display(r.before)) + '</td>' +
+    '<td class="val">' + esc(display(r.after)) + '</td>' +
+    '<td class="detail">' + esc(r.detail) + '</td>' +
+  '</tr>';
+}
+
+function resetTable(){
+  domRows = 0; capped = false;
+  activeChip = 'All'; query = ''; $('search').value = '';
+  $('capNote').classList.add('hidden');
+  $('tbody').innerHTML = '';
+  $('chips').innerHTML = '';
+  paintTotals();
+}
+
+/* Append one finished row. Never re-renders the rows already on screen. */
+function appendRow(r){
+  var tb = $('tbody');
+  if (domRows >= MAX_DOM_ROWS){
+    var old = tb.querySelector('tr:not(.keep)');
+    if (old){ old.remove(); domRows--; }
+    capped = true;
+    var note = $('capNote');
+    note.classList.remove('hidden');
+    note.textContent = 'Showing the most recent ' + MAX_DOM_ROWS.toLocaleString() +
+      ' rows (failures are always kept) — all ' + rows.length.toLocaleString() +
+      ' are in the CSV export.';
+  }
+  tb.insertAdjacentHTML('beforeend', rowHtml(r));
+  domRows++;
+}
+
+function paintTotals(){
+  var t = { total: rows.length, updated: 0, already: 0, failed: 0, other: 0 };
+  for (var i = 0; i < rows.length; i++){
+    var s = rows[i].status;
+    if (s === 'Updated' || s === 'Removed') t.updated++;
+    else if (/^Already/.test(s) || s === 'No change' || s === 'No override') t.already++;
+    else if (s === 'Failed') t.failed++;
+    else t.other++;
+  }
+  $('totals').innerHTML =
+      tot('Processed', t.total.toLocaleString(), '') +
+      tot('Updated', t.updated.toLocaleString(), 'ok') +
+      tot('No change needed', t.already.toLocaleString(), '') +
+      tot('Needs a look', t.other.toLocaleString(), t.other ? 'warn' : '') +
+      tot('Failed', t.failed.toLocaleString(), t.failed ? 'bad' : '');
+}
+
+function paintChips(){
+  var counts = {};
+  for (var i = 0; i < rows.length; i++) counts[rows[i].status] = (counts[rows[i].status] || 0) + 1;
+  var html = chip('All', rows.length);
+  Object.keys(counts).sort().forEach(function(k){ html += chip(k, counts[k]); });
+  $('chips').innerHTML = html;
+  Array.prototype.forEach.call($('chips').querySelectorAll('.chip'), function(el){
+    el.addEventListener('click', function(){ activeChip = el.dataset.k; render(); });
+  });
+}
+
+/* Full render — only on filter, search, or at the end of a run. */
+function render(){
+  paintTotals();
+  paintChips();
+
+  var q = query.toLowerCase();
+  var shown = [], hidden = 0;
+  for (var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if (activeChip !== 'All' && r.status !== activeChip) continue;
+    if (q && (r.ou + ' ' + r.name + ' ' + r.code + ' ' + r.detail).toLowerCase().indexOf(q) === -1) continue;
+    if (shown.length < MAX_DOM_ROWS) shown.push(r); else hidden++;
+  }
+
+  if (!shown.length){
+    $('capNote').classList.add('hidden');
+    $('tbody').innerHTML = '<tr><td colspan="7"><div class="empty">' +
+      (rows.length ? 'Nothing matches that filter.' : 'Results appear here as each course is processed.') +
+      '</div></td></tr>';
+    domRows = 0;
+    return;
+  }
+
+  if (hidden){
+    $('capNote').classList.remove('hidden');
+    $('capNote').textContent = 'Showing the first ' + MAX_DOM_ROWS.toLocaleString() + ' of ' +
+      (shown.length + hidden).toLocaleString() + ' matching rows — all are in the CSV export.';
+  } else {
+    $('capNote').classList.add('hidden');
+  }
+
+  var out = new Array(shown.length);
+  for (var j = 0; j < shown.length; j++) out[j] = rowHtml(shown[j]);
+  $('tbody').innerHTML = out.join('');
+  domRows = shown.length;
+}
+
+function tot(label, n, cls){
+  return '<div class="tot ' + cls + '"><b>' + n + '</b><span>' + label + '</span></div>';
+}
+function chip(k, n){
+  return '<button class="chip" data-k="' + esc(k) + '" aria-pressed="' + (activeChip === k) + '">' +
+         esc(k) + ' <span style="opacity:.65">' + n + '</span></button>';
+}
+
+$('search').addEventListener('input', function(){ query = this.value; render(); });
+
+$('dlCsv').addEventListener('click', function(){
+  var parts = ['\ufeff' + ['Status','OrgUnitId','Course','Code','Before','After','Detail'].join(',') + '\r\n'];
+  var buf = [];
+  for (var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    buf.push([r.status, r.ou, r.name, r.code, display(r.before), display(r.after), r.detail]
+      .map(function(v){ return '"' + String(v == null ? '' : v).replace(/"/g,'""') + '"'; })
+      .join(','));
+    if (buf.length === 5000){ parts.push(buf.join('\r\n') + '\r\n'); buf = []; }
+  }
+  if (buf.length) parts.push(buf.join('\r\n') + '\r\n');
+
+  var blob = new Blob(parts, { type:'text/csv;charset=utf-8;' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'adjusted-final-grade-override-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+});
+
+/* ===================== go ===================== */
+$('envHost').textContent = HOST.replace(/^https?:\/\//, '');
+$('apiVer').addEventListener('input', function(){
+  var v = this.value.trim();
+  if (v) LP = v;
+});
+
+paintMeter();
+readToken();
+detectVersion().then(autoResolve);
+countOus();
+render();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Create Org Units
+  Creates Departments, Course Templates, and Course Offerings in bulk.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<meta name="author" content="Jonathan Sorrenti">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D2L Create Org Units</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #003366; --brand-light: #e6eef7; --brand-mid: #336699;
+      --success: #1a7a3c; --success-bg: #e8f5ee;
+      --error: #b91c1c; --error-bg: #fef2f2;
+      --warn: #92400e; --warn-bg: #fffbeb;
+      --skip: #374151; --skip-bg: #f3f4f6;
+      --dry: #6d28d9; --dry-bg: #f3effd;
+      --surface: #ffffff; --surface-2: #f8f9fb;
+      --border: #d1d5db; --border-light: #e5e7eb;
+      --text-primary: #111827; --text-secondary: #4b5563; --text-muted: #9ca3af;
+      --radius: 6px; --radius-lg: 10px;
+      --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: 'Consolas', 'Courier New', monospace;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    }
+
+    body { font-family: var(--font); background: #eef1f5; color: var(--text-primary); min-height: 100vh; }
+
+    .header { background: var(--brand); padding: 0 2rem; display: flex; align-items: center; height: 56px; gap: 14px; }
+    .header-logo { display: flex; align-items: center; gap: 10px; }
+    .header-title { color: #fff; font-size: 15px; font-weight: 600; }
+    .header-sub { color: rgba(255,255,255,.65); font-size: 13px; margin-left: auto; }
+    .version-badge { background: rgba(255,255,255,.15); color: rgba(255,255,255,.9); font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,.2); }
+
+    /* Sticky status strip — progress + API credits always visible */
+    .statusbar { position: sticky; top: 0; z-index: 50; background: var(--surface-2); border-bottom: 1px solid var(--border-light); box-shadow: 0 2px 6px rgba(0,0,0,.05); }
+    .statusbar-inner { max-width: 1240px; margin: 0 auto; }
+
+    .page { max-width: 1240px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; display: flex; flex-direction: column; gap: 1.25rem; }
+
+    .card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+    .card-header { padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; gap: 8px; }
+    .card-header-icon { width: 28px; height: 28px; background: var(--brand-light); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--brand-mid); }
+    .card-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+    .card-header .hdr-note { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+    .card-body { padding: 1.25rem; }
+
+    .lbl { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
+    .lbl .opt { color: var(--text-muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
+    textarea, input[type="text"], input[type="date"] { width: 100%; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; outline: none; transition: border-color .15s, box-shadow .15s; }
+    textarea { min-height: 120px; line-height: 1.6; resize: vertical; }
+    textarea:focus, input[type="text"]:focus, input[type="date"]:focus { border-color: var(--brand-mid); box-shadow: 0 0 0 3px rgba(51,102,153,.15); background: var(--surface); }
+    input:disabled { opacity: .65; cursor: not-allowed; }
+    .field { margin-bottom: 1rem; }
+    .field-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.45; }
+
+    .mode-row { display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; width: 460px; max-width: 100%; }
+    .seg-opt { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; display: flex; align-items: center; gap: 7px; font-size: 13px; background: var(--surface-2); transition: all .15s; }
+    .seg-opt input { accent-color: var(--brand-mid); }
+    .seg-opt:has(input:checked) { border-color: var(--brand-mid); background: var(--brand-light); color: var(--brand); font-weight: 600; }
+    .seg-opt:has(input:disabled) { cursor: not-allowed; opacity: .7; }
+
+    .defaults-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px 18px; }
+    .defaults-grid .field { margin-bottom: 0; }
+    .defaults-note { font-size: 12px; color: var(--text-secondary); margin-bottom: 1rem; line-height: 1.5; }
+
+    .confirm-panel { margin: 0 0 1rem; padding: 1rem 1.1rem; border: 2px solid #f59e0b; background: var(--warn-bg); border-radius: var(--radius); }
+    .confirm-panel.notice { border-color: var(--brand-mid); background: var(--brand-light); }
+    .confirm-title { font-size: 13px; font-weight: 700; color: var(--warn); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+    .confirm-panel.notice .confirm-title { color: var(--brand); }
+    .confirm-msg { font-size: 13px; line-height: 1.55; color: var(--text-primary); white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+    .confirm-btns { display: flex; gap: 8px; margin-top: .85rem; }
+    .btn-go { background: var(--success); color: #fff; }
+    .btn-go:hover:not(:disabled) { background: #146130; }
+    .btn-stop { background: var(--error-bg); color: var(--error); border: 1px solid #fca5a5; width: 100%; margin-top: 8px; }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: .5rem 0; border-bottom: 1px solid var(--border-light); }
+    .toggle-label { font-size: 13px; font-weight: 500; }
+    .toggle-desc { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .toggle { position: relative; width: 38px; height: 22px; flex-shrink: 0; margin-left: 12px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track { position: absolute; inset: 0; background: var(--border); border-radius: 11px; cursor: pointer; transition: background .2s; }
+    .toggle-track::after { content: ''; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .toggle input:checked + .toggle-track { background: var(--brand-mid); }
+    .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+    #testRun:checked + .toggle-track { background: var(--dry); }
+    .options-block { margin-bottom: 1rem; }
+
+    .mini-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); margin-top: 6px; cursor: pointer; }
+    .mini-check input { accent-color: var(--brand-mid); }
+
+    /* ── Searchable select (combo) ── */
+    .combo { position: relative; }
+    .combo input { padding-right: 28px; }
+    .combo-clear { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 17px; line-height: 1; padding: 2px 4px; display: none; }
+    .combo-clear:hover { color: var(--error); }
+    .combo.has-value .combo-clear { display: block; }
+    .combo-caret { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted); }
+    .combo.has-value .combo-caret { display: none; }
+    .combo.inherited .combo-clear { display: none; }
+    .combo.inherited .combo-caret { display: block; }
+    .combo.inherited input, input.inherited { color: var(--text-secondary); font-style: italic; }
+    .combo-list { position: absolute; left: 0; top: calc(100% + 3px); min-width: 100%; width: max-content; max-width: 460px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 22px rgba(0,0,0,.14); max-height: 280px; overflow-y: auto; z-index: 60; display: none; }
+    .combo.open .combo-list { display: block; }
+    .combo-opt { padding: 6px 10px; font-size: 13px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; border-bottom: 1px solid #f1f3f5; min-width: 300px; }
+    .combo-opt:last-child { border-bottom: none; }
+    .combo-opt.active { background: var(--brand-light); }
+    .combo-opt .co-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .combo-opt .co-code { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .combo-opt .co-id { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+    .combo-note { padding: 7px 10px; font-size: 11px; color: var(--text-muted); background: var(--surface-2); min-width: 300px; }
+    .combo-list::-webkit-scrollbar { width: 6px; }
+    .combo-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: var(--font); font-size: 14px; font-weight: 600; border-radius: var(--radius); border: none; cursor: pointer; padding: 9px 18px; transition: background .15s, transform .1s, opacity .15s; }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-primary { background: var(--brand); color: #fff; width: 100%; }
+    .btn-primary:hover:not(:disabled) { background: #002952; }
+    .btn-primary.dry { background: var(--dry); }
+    .btn-primary.dry:hover:not(:disabled) { background: #5b21b6; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); font-size: 12px; padding: 5px 12px; }
+    .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+    .btn-add { background: var(--brand-light); color: var(--brand); border: 1px solid #c3d9ee; font-size: 12px; padding: 5px 12px; }
+    .btn-add:hover:not(:disabled) { background: #d8e6f4; }
+
+    /* ── Items table ── */
+    .items-toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: .7rem 1.25rem; border-bottom: 1px solid var(--border-light); }
+    .items-toolbar .spacer { flex: 1; }
+    .items-toolbar .tb-hint { font-size: 11px; color: var(--text-muted); }
+    .paste-panel { padding: .9rem 1.25rem; border-bottom: 1px solid var(--border-light); background: var(--surface-2); }
+    .paste-panel textarea { background: var(--surface); }
+    .paste-btns { display: flex; gap: 6px; margin-top: 8px; }
+
+    .irow { display: grid; gap: 8px; align-items: start; padding: 6px 1.25rem; border-bottom: 1px solid var(--border-light); }
+    #itemsCard[data-mode="dept"] .irow, #itemsCard[data-mode="template"] .irow { grid-template-columns: 30px minmax(200px,1.5fr) minmax(130px,.8fr) minmax(220px,1.3fr) 124px 28px; }
+    #itemsCard[data-mode="course"] .irow { grid-template-columns: 30px minmax(190px,1.7fr) minmax(140px,1fr) minmax(170px,1.2fr) minmax(150px,1fr) 136px 136px 124px 28px; }
+    .irow input[type="text"], .irow input[type="date"] { font-size: 12.5px; padding: 6px 8px; }
+    .ihead { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary); background: var(--surface-2); padding-top: .55rem; padding-bottom: .55rem; }
+    .irow.done { background: #f6fbf8; }
+    .irow.bad { background: #fffafa; }
+    .rnum { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); padding-top: 7px; text-align: right; }
+    .ihead .rnum { padding-top: 0; }
+    .r-status { padding-top: 4px; min-width: 0; }
+    .r-del { border: none; background: none; color: var(--text-muted); font-size: 19px; line-height: 1; cursor: pointer; padding-top: 5px; }
+    .r-del:hover { color: var(--error); }
+    .row-msg { grid-column: 2 / -1; font-size: 11px; line-height: 1.45; margin-top: -2px; }
+    .row-msg:empty { display: none; }
+    .row-msg .e { color: var(--error); }
+    .row-msg .w { color: var(--warn); }
+    .locked .irow, .locked .items-toolbar, .locked .paste-panel, .locked.defaults-lock .card-body { pointer-events: none; }
+    .locked .irow { opacity: .92; }
+
+    .items-footer { display: grid; grid-template-columns: minmax(0,1fr) 360px; gap: 1.25rem; padding: 1rem 1.25rem 1.25rem; border-top: 1px solid var(--border-light); align-items: start; }
+    .preview summary { cursor: pointer; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+    .preview summary span { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-muted); }
+
+    .results-header { display: flex; align-items: center; justify-content: space-between; padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); }
+    .results-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+    .results-actions { display: flex; gap: 6px; }
+
+    .stats-bar { display: flex; gap: 1px; background: var(--border-light); border-bottom: 1px solid var(--border-light); }
+    .stat-cell { flex: 1; padding: .625rem .5rem; background: var(--surface); text-align: center; }
+    .stat-num { font-size: 20px; font-weight: 700; line-height: 1; margin-bottom: 2px; }
+    .stat-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat-ok .stat-num { color: var(--success); }
+    .stat-fail .stat-num { color: var(--error); }
+    .stat-dry .stat-num { color: var(--dry); }
+
+    .progress-wrap { padding: .6rem 1.25rem; }
+    .progress-track { height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--brand-mid), var(--brand)); border-radius: 3px; transition: width .3s ease; width: 0%; }
+    .progress-fill.busy {
+      background-image: linear-gradient(45deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent), linear-gradient(90deg, var(--brand-mid), var(--brand));
+      background-size: 16px 16px, 100% 100%;
+      animation: stripes .8s linear infinite;
+    }
+    @keyframes stripes { from { background-position: 0 0, 0 0; } to { background-position: 16px 0, 0 0; } }
+    .progress-text { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; gap: 10px; }
+
+    .result-list { max-height: 520px; overflow-y: auto; }
+    .result-row { display: grid; grid-template-columns: 28px minmax(0,1fr) 90px 110px; align-items: start; gap: 10px; padding: .65rem 1.25rem; border-bottom: 1px solid var(--border-light); font-size: 13px; animation: rowIn .2s ease; }
+    .result-row:last-child { border-bottom: none; }
+    @keyframes rowIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+    .row-icon { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .row-icon.ok { background: var(--success-bg); color: var(--success); }
+    .row-icon.fail { background: var(--error-bg); color: var(--error); }
+    .row-icon.dry { background: var(--dry-bg); color: var(--dry); }
+    .row-icon.info { background: var(--brand-light); color: var(--brand-mid); }
+    .row-user { overflow: hidden; }
+    .row-input { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-detail { font-size: 11px; color: var(--text-secondary); margin-top: 2px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .row-warn { font-size: 11px; color: var(--warn); margin-top: 2px; line-height: 1.5; white-space: pre-wrap; }
+    .row-userid { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); padding-top: 3px; }
+
+    .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .badge-ok { background: var(--success-bg); color: var(--success); }
+    .badge-fail { background: var(--error-bg); color: var(--error); }
+    .badge-dry { background: var(--dry-bg); color: var(--dry); }
+    .badge-info { background: var(--brand-light); color: var(--brand); }
+    .badge-skip { background: var(--skip-bg); color: var(--skip); }
+
+    .rl-bar { display: flex; align-items: center; gap: 10px; padding: .45rem 1.25rem; border-top: 1px solid var(--border-light); font-size: 11px; color: var(--text-muted); }
+    .rl-track { flex: 1; height: 5px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .rl-fill { height: 100%; border-radius: 3px; transition: width .4s ease, background .4s ease; }
+    .rl-fill.ok { background: var(--success); } .rl-fill.warn { background: #f59e0b; } .rl-fill.low { background: var(--error); }
+    .rl-count { font-family: var(--font-mono); white-space: nowrap; }
+    .rl-waiting { color: var(--warn); background: var(--warn-bg); border-radius: 4px; padding: 2px 7px; display: none; }
+
+    .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+    .badge .spin { width: 9px; height: 9px; margin-right: 5px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .api-info { background: var(--brand-light); border: 1px solid #c3d9ee; border-radius: var(--radius); padding: .625rem .875rem; font-size: 12px; color: var(--brand); display: flex; align-items: center; gap: 7px; margin-bottom: 1rem; flex-wrap: wrap; }
+    .api-info strong { font-family: var(--font-mono); }
+    .type-info { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); line-height: 1.6; }
+    .alert { border-radius: var(--radius); padding: .75rem 1rem; font-size: 12px; margin-bottom: 1rem; line-height: 1.45; }
+    .alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fcd34d55; }
+
+    .export-row { padding: .875rem 1.25rem; border-top: 1px solid var(--border-light); display: flex; gap: 8px; background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .result-list::-webkit-scrollbar { width: 6px; }
+    .result-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .payload-preview { background:var(--surface-2); border:1px solid var(--border-light); border-radius:var(--radius); padding:.75rem; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); line-height:1.6; white-space: pre; overflow-x: auto; }
+    .payload-preview .c { color: var(--text-muted); }
+    .payload-preview .n { color: #007a33; font-weight: 700; }
+
+    @media (max-width: 960px) {
+      .header-sub { display: none; }
+      #itemsCard .irow { grid-template-columns: 1fr !important; }
+      .irow .rnum { text-align: left; padding-top: 4px; }
+      .ihead { display: none !important; }
+      .row-msg { grid-column: 1 / -1; }
+      .items-footer { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect width="26" height="26" rx="5" fill="rgba(255,255,255,.15)"/>
+      <path d="M7 19V7h5.5c3.5 0 5.5 1.8 5.5 4.5 0 1.8-1 3.2-2.6 3.9L19 19h-3.2l-2.8-3.2H10V19H7zm3-5.7h2.3c1.7 0 2.7-.8 2.7-2.1 0-1.3-1-2-2.7-2H10v4.1z" fill="white"/>
+    </svg>
+    <span class="header-title">Brightspace Admin — Create Org Units</span>
+  </div>
+  <span class="header-sub">Departments · Templates · Course Offerings — Batch</span>
+  <span class="version-badge" id="versionBadge">LP ver …</span>
+</div>
+
+<!-- Sticky progress + credits -->
+<div class="statusbar">
+  <div class="statusbar-inner">
+    <div class="progress-wrap">
+      <div class="progress-track"><div class="progress-fill busy" id="progressFill" style="width:5%"></div></div>
+      <div class="progress-text"><span id="progressLabel">Connecting to Brightspace…</span><span id="progressPct">0%</span></div>
+    </div>
+    <div class="rl-bar">
+      <span>API Credits</span>
+      <div class="rl-track"><div class="rl-fill ok" id="rlFill" style="width:100%"></div></div>
+      <span class="rl-count" id="rlCount">—</span>
+      <span class="rl-waiting" id="rlWaiting">⏸ Rate limited — waiting…</span>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- ═════════ What to create ═════════ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </div>
+      <h2>What to Create</h2>
+      <button class="btn btn-ghost" id="refreshBtn" onclick="loadAll()" disabled style="margin-left:auto">Refresh D2L Data</button>
+    </div>
+    <div class="card-body">
+      <div id="apiInfoBar" class="api-info" style="display:none">
+        Authenticated via session &nbsp;·&nbsp; LP <strong id="lpVersion">—</strong>
+        <span id="orgNameInfo"></span>
+      </div>
+      <div id="authAlert" class="alert alert-warn" style="display:none"></div>
+      <div class="mode-row">
+        <div class="seg">
+          <label class="seg-opt"><input type="radio" name="mode" value="dept" checked> Departments</label>
+          <label class="seg-opt"><input type="radio" name="mode" value="template"> Templates</label>
+          <label class="seg-opt"><input type="radio" name="mode" value="course"> Courses</label>
+        </div>
+        <div class="type-info" id="typeInfo">Org unit types: loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ Shared settings (defaults) ═════════ -->
+  <div class="card defaults-lock" id="defaultsCard">
+    <div class="card-header">
+      <div class="card-header-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <h2>Shared Settings</h2>
+    </div>
+    <div class="card-body">
+      <p class="defaults-note">Every row uses these unless you pick something different on that row. Values a row inherits show in <em>grey italics</em>; clearing a row's own pick puts it back on the shared value.</p>
+      <div class="defaults-grid">
+        <div class="field" data-modes="dept">
+          <label class="lbl">Parent Division</label>
+          <div id="dDiv"></div>
+          <p class="field-hint" id="hDivision"></p>
+        </div>
+        <div class="field" data-modes="template course">
+          <label class="lbl" id="dDeptLbl">Department</label>
+          <div id="dDept"></div>
+          <p class="field-hint" id="hDept"></p>
+        </div>
+        <div class="field" data-modes="course">
+          <label class="lbl">Template</label>
+          <div id="dTpl"></div>
+          <label class="mini-check"><input type="checkbox" id="showAllTpl"> Show all templates (ignore department)</label>
+          <p class="field-hint" id="hTpl"></p>
+        </div>
+        <div class="field" data-modes="course">
+          <label class="lbl">Semester</label>
+          <div id="dSem"></div>
+          <p class="field-hint" id="hSem"></p>
+        </div>
+        <div class="field" data-modes="course">
+          <label class="lbl" for="dStart">Start Date <span class="opt">(optional)</span></label>
+          <input type="date" id="dStart">
+          <p class="field-hint">Time set to 12:01 AM</p>
+        </div>
+        <div class="field" data-modes="course">
+          <label class="lbl" for="dEnd">End Date <span class="opt">(optional)</span></label>
+          <input type="date" id="dEnd">
+          <p class="field-hint">Time set to 11:59 PM</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ Items ═════════ -->
+  <div class="card" id="itemsCard" data-mode="dept">
+    <div class="card-header">
+      <div class="card-header-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      </div>
+      <h2 id="itemsTitle">Departments to Create</h2>
+      <span class="hdr-note" id="itemsCount"></span>
+    </div>
+
+    <div class="items-toolbar">
+      <button class="btn btn-add" onclick="addRows(1)">+ Add Row</button>
+      <button class="btn btn-add" onclick="addRows(5)">+ Add 5 Rows</button>
+      <button class="btn btn-ghost" onclick="togglePaste()">Paste Rows…</button>
+      <span class="spacer"></span>
+      <span class="tb-hint">Enter in a Code box jumps to the next row</span>
+      <button class="btn btn-ghost" onclick="removeCreated()">Remove Created</button>
+      <button class="btn btn-ghost" onclick="clearRows()">Clear All</button>
+    </div>
+
+    <div class="paste-panel" id="pastePanel" style="display:none">
+      <label class="lbl" for="pasteInput">Paste Rows</label>
+      <textarea id="pasteInput" spellcheck="false"></textarea>
+      <p class="field-hint" id="pasteHint"></p>
+      <div class="paste-btns">
+        <button class="btn btn-add" onclick="importFromPanel()">Add These Rows</button>
+        <button class="btn btn-ghost" onclick="togglePaste(false)">Cancel</button>
+      </div>
+    </div>
+
+    <div class="irow ihead" id="rowsHead"></div>
+    <div id="rows"></div>
+
+    <div class="items-footer">
+      <details class="preview" open>
+        <summary>Request Preview <span id="previewRow"></span></summary>
+        <div class="payload-preview" id="payloadPreview"></div>
+      </details>
+      <div>
+        <div id="confirmPanel" class="confirm-panel" style="display:none">
+          <div class="confirm-title" id="confirmTitle">Confirm</div>
+          <div class="confirm-msg" id="confirmMsg"></div>
+          <div class="confirm-btns">
+            <button class="btn btn-go" id="confirmYes">Continue</button>
+            <button class="btn btn-ghost" id="confirmNo">Cancel</button>
+          </div>
+        </div>
+        <div class="options-block">
+          <div class="toggle-row">
+            <div><div class="toggle-label">Test Run</div><div class="toggle-desc">Validate every row against D2L — nothing is created</div></div>
+            <label class="toggle"><input type="checkbox" id="testRun" checked><span class="toggle-track"></span></label>
+          </div>
+          <div class="toggle-row">
+            <div><div class="toggle-label">Verify After Create</div><div class="toggle-desc">Re-read each new org unit to confirm it saved</div></div>
+            <label class="toggle"><input type="checkbox" id="verifyAfter" checked><span class="toggle-track"></span></label>
+          </div>
+          <div class="toggle-row" data-modes="course">
+            <div><div class="toggle-label">Create Courses as Active</div><div class="toggle-desc">Off = courses are created Inactive (hidden from students)</div></div>
+            <label class="toggle"><input type="checkbox" id="courseActive" checked><span class="toggle-track"></span></label>
+          </div>
+        </div>
+        <button class="btn btn-primary dry" id="createBtn" onclick="runCreate()" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span id="createBtnLabel">Loading D2L data…</span>
+        </button>
+        <button class="btn btn-stop" id="stopBtn" onclick="requestStop()" style="display:none">Stop After Current Row</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ Results ═════════ -->
+  <div class="card">
+    <div class="results-header">
+      <h2>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-mid)"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Results
+      </h2>
+      <div class="results-actions">
+        <button class="btn btn-ghost" id="exportBtn" onclick="exportCSV()" style="display:none">Export CSV</button>
+        <button class="btn btn-ghost" id="clearBtn" onclick="clearResults()" style="display:none">Clear</button>
+      </div>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat-cell"><div class="stat-num" id="statTotal">0</div><div class="stat-lbl">Items Run</div></div>
+      <div class="stat-cell stat-ok"><div class="stat-num" id="statOk">0</div><div class="stat-lbl">Created</div></div>
+      <div class="stat-cell stat-dry"><div class="stat-num" id="statDry">0</div><div class="stat-lbl">Test Passed</div></div>
+      <div class="stat-cell stat-fail"><div class="stat-num" id="statFail">0</div><div class="stat-lbl">Failed</div></div>
+    </div>
+
+    <div class="result-list" id="resultList"></div>
+
+    <div class="export-row" id="exportRow" style="display:none">
+      <button class="btn btn-ghost" onclick="exportCSV()">Download CSV Report (includes payloads and new IDs)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  let lpVersion = '1.49';
+  const org = { id: null, name: '', tz: '' };
+  const T = { dept: null, tpl: null, off: null, sem: null, div: null };  // org unit types
+  const data = { divisions: [], departments: [], templates: [], semesters: [] };
+  let divItems = [];                   // what the Division pickers offer
+  let tplList = [];                    // templates offered to course rows (department-filtered)
+  const tplCache = new Map();          // deptId -> [templates under that dept]
+  let ready = false, running = false, loading = false, stopRequested = false;
+  let results = [];
+  const stats = { total: 0, ok: 0, dry: 0, fail: 0 };
+  const rowsByMode = { dept: [], template: [], course: [] };
+  let uidSeq = 0;
+
+  const RL = { remaining: null, limit: null };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const norm = s => String(s ?? '').trim().toLowerCase();
+  const api = path => `/d2l/api/lp/${lpVersion}${path}`;
+  const $ = id => document.getElementById(id);
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  const mapOU = ou => ({ id: String(ou.Identifier), name: ou.Name || '', code: ou.Code || '' });
+
+  const LABELS = { dept: 'Department', template: 'Template', course: 'Course Offering' };
+  const PLURAL = { dept: 'Departments', template: 'Templates', course: 'Course Offerings' };
+  const PARENT_LABEL = { dept: 'Division', template: 'Department', course: 'Template' };
+  const PH = {
+    dept:     ['e.g. Computer Technology', 'e.g. CPT'],
+    template: ['e.g. Intro to Computers', 'e.g. CPT_101_TEMP'],
+    course:   ['e.g. Intro to Computers (CPT-101-I01) Fall 2026-FULL Semester', 'e.g. CPT_101_I01_2026FA']
+  };
+  const HEADS = {
+    dept:     ['#', 'Name', 'Code', 'Parent Division', 'Status', ''],
+    template: ['#', 'Name', 'Code', 'Department', 'Status', ''],
+    course:   ['#', 'Name', 'Code', 'Template', 'Semester', 'Start (12:01 AM)', 'End (11:59 PM)', 'Status', '']
+  };
+  const PASTE_HINT = {
+    dept:     'One department per line: Name, Code, Division (optional — ID, code or exact name).',
+    template: 'One template per line: Name, Code, Department (optional — ID, code or exact name).',
+    course:   'One course per line: Name, Code, Template, Semester, Start, End. Only Name and Code are required; dates as 2026-08-18 or 8/18/2026.'
+  };
+
+  function verAtLeast(v, min) {
+    const a = String(v).split('.').map(Number), b = String(min).split('.').map(Number);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const x = a[i] || 0, y = b[i] || 0;
+      if (x !== y) return x > y;
+    }
+    return true;
+  }
+
+  // ── Searchable select ─────────────────────────────────────
+  class Combo {
+    constructor(el, opts = {}) {
+      this.el = el; this.items = []; this.value = null; this.shown = []; this.active = -1;
+      this.onChange = opts.onChange || (() => {});
+      this.max = opts.max || 200;
+      el.classList.add('combo');
+      el.innerHTML = `<input type="text" autocomplete="off" spellcheck="false">
+        <svg class="combo-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        <button type="button" class="combo-clear" title="Clear">×</button><div class="combo-list"></div>`;
+      this.input = el.querySelector('input');
+      this.list = el.querySelector('.combo-list');
+      this.placeholder = opts.placeholder || 'Search…';
+      this.input.placeholder = this.placeholder;
+      this.input.addEventListener('focus', () => { this.input.select(); this.open(''); });
+      this.input.addEventListener('input', () => this.open(this.input.value));
+      this.input.addEventListener('keydown', e => this.key(e));
+      this.input.addEventListener('blur', () => setTimeout(() => this.close(), 120));
+      this.list.addEventListener('mousedown', e => {
+        const o = e.target.closest('.combo-opt');
+        e.preventDefault();
+        if (o) this.select(this.shown[+o.dataset.i]);
+      });
+      el.querySelector('.combo-clear').addEventListener('click', () => { this.select(null); this.input.focus(); });
+    }
+    label(it) { return it.name + (it.code ? ` (${it.code})` : ''); }
+    setItems(items) { this.items = items; }
+    setDisabled(on, ph) { this.input.disabled = on; this.input.placeholder = ph || this.placeholder; }
+    setInherited(on) { this.el.classList.toggle('inherited', !!on); }
+    set(it) {                                   // silent — no onChange
+      this.value = it || null;
+      this.el.classList.toggle('has-value', !!it);
+      this.input.value = it ? this.label(it) : '';
+    }
+    select(it) { this.set(it); this.el.classList.remove('open'); this.onChange(this.value); }
+    filter(q) {
+      const toks = norm(q).split(/\s+/).filter(Boolean);
+      if (!toks.length) return this.items;
+      return this.items.filter(it => {
+        const hay = it._hay || (it._hay = norm(`${it.name} ${it.code} ${it.id}`));
+        return toks.every(t => hay.includes(t));
+      });
+    }
+    open(q) {
+      const all = this.filter(q);
+      this.shown = all.slice(0, this.max);
+      this.active = this.shown.length ? 0 : -1;
+      let html = this.shown.map((it, i) => `
+        <div class="combo-opt${i === this.active ? ' active' : ''}" data-i="${i}">
+          <span class="co-name" title="${escHtml(it.name)}">${escHtml(it.name)}</span>
+          ${it.code ? `<span class="co-code">${escHtml(it.code)}</span>` : ''}
+          <span class="co-id">#${escHtml(it.id)}</span>
+        </div>`).join('');
+      if (!this.items.length) html = `<div class="combo-note">Nothing loaded</div>`;
+      else if (!all.length) html = `<div class="combo-note">No matches</div>`;
+      else if (all.length > this.shown.length) html += `<div class="combo-note">Showing ${this.shown.length} of ${all.length.toLocaleString()} — keep typing to narrow</div>`;
+      this.list.innerHTML = html;
+      this.el.classList.add('open');
+    }
+    close() {
+      this.el.classList.remove('open');
+      this.input.value = this.value ? this.label(this.value) : '';
+    }
+    key(e) {
+      const opts = this.list.querySelectorAll('.combo-opt');
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!this.el.classList.contains('open')) { this.open(this.input.value); return; }
+        if (!opts.length) return;
+        this.active = (this.active + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+        opts.forEach((o, i) => o.classList.toggle('active', i === this.active));
+        opts[this.active].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (this.active >= 0 && this.shown[this.active]) this.select(this.shown[this.active]);
+      } else if (e.key === 'Escape') {
+        this.close(); this.input.blur();
+      }
+    }
+  }
+
+  // Shared-setting pickers
+  const dDiv  = new Combo($('dDiv'),  { placeholder: 'Search divisions…',   onChange: () => propagate('dept', 'parent') });
+  const dDept = new Combo($('dDept'), { placeholder: 'Search departments…', onChange: () => { propagate('template', 'parent'); refreshTemplateChoices(); } });
+  const dTpl  = new Combo($('dTpl'),  { placeholder: 'Search templates…',   onChange: () => propagate('course', 'parent') });
+  const dSem  = new Combo($('dSem'),  { placeholder: 'Search semesters…',   onChange: () => propagate('course', 'sem') });
+  $('dStart').addEventListener('change', () => propagate('course', 'start'));
+  $('dEnd').addEventListener('change', () => propagate('course', 'end'));
+  $('showAllTpl').addEventListener('change', refreshTemplateChoices);
+  $('testRun').addEventListener('change', updateButton);
+  $('courseActive').addEventListener('change', () => updatePreview());
+
+  function defaultFor(m, field) {
+    if (m === 'dept')     return field === 'parent' ? dDiv.value : null;
+    if (m === 'template') return field === 'parent' ? dDept.value : null;
+    if (field === 'parent') return dTpl.value;
+    if (field === 'sem')    return dSem.value;
+    if (field === 'start')  return $('dStart').value;
+    if (field === 'end')    return $('dEnd').value;
+    return null;
+  }
+  function itemsFor(m, field) {
+    if (field === 'sem') return data.semesters;
+    return m === 'dept' ? divItems : m === 'template' ? data.departments : tplList;
+  }
+
+  // A shared setting changed → rows that inherit it follow along
+  function propagate(m, field) {
+    const def = defaultFor(m, field);
+    rowsByMode[m].forEach(r => {
+      if (r.done || r.ov[field]) return;
+      r[field] = def;
+      const ui = r._ui && r._ui[field];
+      if (ui && m === mode()) { if (ui instanceof Combo) ui.set(def); else ui.value = def || ''; }
+    });
+    updatePreview();
+  }
+
+  // ── Rows ──────────────────────────────────────────────────
+  function newRow(m) {
+    const course = m === 'course';
+    return {
+      uid: ++uidSeq, name: '', code: '',
+      parent: defaultFor(m, 'parent'),
+      sem:   course ? defaultFor(m, 'sem') : null,
+      start: course ? defaultFor(m, 'start') : '',
+      end:   course ? defaultFor(m, 'end') : '',
+      ov: { parent: false, sem: false, start: false, end: false },
+      status: '', msg: '', warn: '', newId: '', done: false, _ui: null
+    };
+  }
+  const isBlank = r => !r.name.trim() && !r.code.trim();
+  const activeRows = m => rowsByMode[m].filter(r => !r.done && !isBlank(r));
+
+  function mode() { return document.querySelector('input[name="mode"]:checked').value; }
+
+  function applyMode() {
+    const m = mode();
+    document.querySelectorAll('[data-modes]').forEach(el => {
+      el.style.display = el.dataset.modes.split(' ').includes(m) ? '' : 'none';
+    });
+    $('dDeptLbl').innerHTML = m === 'course' ? 'Department <span class="opt">(narrows template lists)</span>' : 'Department';
+    $('pasteHint').textContent = PASTE_HINT[m] + ' Paste straight from Excel (tab-separated) or use commas. A header row starting with "Name" is skipped. Blank columns use the shared settings.';
+    $('pasteInput').placeholder = m === 'dept' ? 'Computer Technology, CPT\nNursing, NUR'
+      : m === 'template' ? 'Intro to Computers, CPT_101_TEMP\nComputer Applications, CPT_170_TEMP'
+      : 'Intro to Computers (CPT-101-I01) Fall 2026-FULL Semester, CPT_101_I01_2026FA\nIntro to Computers (CPT-101-I02) Fall 2026-FULL Semester, CPT_101_I02_2026FA';
+    $('itemsTitle').textContent = `${PLURAL[m]} to Create`;
+    renderRows();
+  }
+  document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', applyMode));
+
+  function renderRows() {
+    const m = mode();
+    if (!rowsByMode[m].length) rowsByMode[m].push(newRow(m));
+    $('itemsCard').dataset.mode = m;
+    $('rowsHead').innerHTML = HEADS[m].map((h, i) => `<div${i === 0 ? ' class="rnum"' : ''}>${escHtml(h)}</div>`).join('');
+    const box = $('rows');
+    box.innerHTML = '';
+    rowsByMode[m].forEach((r, i) => box.appendChild(buildRow(r, i, m)));
+    updateCount();
+    updateButton();
+    updatePreview();
+  }
+
+  function buildRow(r, i, m) {
+    const el = document.createElement('div');
+    el.className = 'irow';
+    el.innerHTML = `<div class="rnum">${i + 1}</div>
+      <input type="text" class="r-name" spellcheck="false">
+      <input type="text" class="r-code" spellcheck="false">
+      <div class="r-parent"></div>
+      ${m === 'course' ? '<div class="r-sem"></div><input type="date" class="r-start"><input type="date" class="r-end">' : ''}
+      <div class="r-status"></div>
+      <button type="button" class="r-del" title="Remove row">×</button>
+      <div class="row-msg"></div>`;
+
+    const ui = { el, status: el.querySelector('.r-status'), msg: el.querySelector('.row-msg') };
+    ui.name = el.querySelector('.r-name');
+    ui.code = el.querySelector('.r-code');
+    ui.name.value = r.name; ui.name.placeholder = PH[m][0];
+    ui.code.value = r.code; ui.code.placeholder = PH[m][1];
+
+    ui.name.addEventListener('input', () => { r.name = ui.name.value; touched(r); });
+    ui.code.addEventListener('input', () => { r.code = ui.code.value; touched(r); });
+    // Pasting several lines into a Name box adds them as rows
+    ui.name.addEventListener('paste', e => {
+      const text = (e.clipboardData || window.clipboardData).getData('text');
+      if (/\r?\n/.test(text.trim())) { e.preventDefault(); importRows(text); }
+    });
+    ui.code.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const rows = rowsByMode[m], idx = rows.indexOf(r);
+      if (idx === rows.length - 1) addRows(1);
+      else rows[idx + 1]._ui.name.focus();
+    });
+
+    const mkCombo = (field, sel) => {
+      const ph = field === 'sem' ? 'Search semesters…'
+               : { dept: 'Search divisions…', template: 'Search departments…', course: 'Search templates…' }[m];
+      const c = new Combo(el.querySelector(sel), { placeholder: ph, onChange: v => rowPick(r, field, v) });
+      c.setItems(itemsFor(m, field));
+      c.set(r[field]);
+      c.setInherited(!r.ov[field]);
+      if (r.done) c.setDisabled(true);
+      return c;
+    };
+    ui.parent = mkCombo('parent', '.r-parent');
+    if (m === 'course') {
+      ui.sem = mkCombo('sem', '.r-sem');
+      for (const f of ['start', 'end']) {
+        const inp = el.querySelector('.r-' + f);
+        inp.value = r[f] || '';
+        inp.classList.toggle('inherited', !r.ov[f]);
+        inp.addEventListener('change', () => {
+          if (inp.value) { r[f] = inp.value; r.ov[f] = true; }
+          else { r.ov[f] = false; r[f] = defaultFor(m, f); inp.value = r[f] || ''; }
+          inp.classList.toggle('inherited', !r.ov[f]);
+          touched(r);
+        });
+        ui[f] = inp;
+      }
+    }
+    if (r.done) el.querySelectorAll('input').forEach(x => x.disabled = true);
+
+    el.querySelector('.r-del').addEventListener('click', () => {
+      if (running) return;
+      const rows = rowsByMode[m];
+      rows.splice(rows.indexOf(r), 1);
+      renderRows();
+    });
+
+    r._ui = ui;
+    paintRow(r);
+    return el;
+  }
+
+  function rowPick(r, field, v) {
+    const m = mode();
+    if (v) { r[field] = v; r.ov[field] = true; }
+    else { r.ov[field] = false; r[field] = defaultFor(m, field); r._ui[field].set(r[field]); }
+    r._ui[field].setInherited(!r.ov[field]);
+    touched(r);
+  }
+
+  // Any edit clears a row's old error / test result
+  function touched(r) {
+    if (!r.done && r.status) { r.status = ''; r.msg = ''; r.warn = ''; paintRow(r); }
+    updateCount(); updateButton(); updatePreview();
+  }
+
+  function paintRow(r) {
+    const ui = r._ui; if (!ui) return;
+    ui.el.classList.toggle('done', !!r.done);
+    ui.el.classList.toggle('bad', r.status === 'fail' || r.status === 'invalid');
+    const b = {
+      work:    `<span class="badge badge-skip"><span class="spin"></span>Working</span>`,
+      dry:     `<span class="badge badge-dry">Test OK</span>`,
+      ok:      `<span class="badge badge-ok" title="New org unit ID">Created #${escHtml(r.newId)}</span>`,
+      fail:    `<span class="badge badge-fail">Failed</span>`,
+      invalid: `<span class="badge badge-fail">Check Row</span>`
+    }[r.status] || '';
+    ui.status.innerHTML = b;
+    ui.msg.innerHTML = (r.msg ? `<span class="e">${escHtml(r.msg)}</span>` : '') +
+                       (r.warn ? `${r.msg ? '<br>' : ''}<span class="w">⚠ ${escHtml(r.warn)}</span>` : '');
+  }
+
+  function updateCount() {
+    const m = mode(), rows = rowsByMode[m];
+    const done = rows.filter(r => r.done).length, act = activeRows(m).length;
+    $('itemsCount').textContent = `${act} ready${done ? ` · ${done} created` : ''} · ${rows.length} row${rows.length === 1 ? '' : 's'}`;
+  }
+
+  function addRows(n) {
+    if (running) return;
+    const m = mode(), rows = rowsByMode[m], first = rows.length;
+    for (let i = 0; i < n; i++) rows.push(newRow(m));
+    renderRows();
+    rows[first]._ui.name.focus();
+  }
+  function removeCreated() {
+    if (running) return;
+    const m = mode();
+    rowsByMode[m] = rowsByMode[m].filter(r => !r.done);
+    renderRows();
+  }
+  function clearRows() {
+    if (running) return;
+    rowsByMode[mode()] = [];
+    renderRows();
+  }
+
+  // ── Paste / import ────────────────────────────────────────
+  function togglePaste(show) {
+    const p = $('pastePanel');
+    const on = show === undefined ? p.style.display === 'none' : show;
+    p.style.display = on ? 'block' : 'none';
+    if (on) $('pasteInput').focus();
+  }
+  function importFromPanel() {
+    const t = $('pasteInput').value;
+    if (!t.trim()) { notify('Paste at least one line first.'); return; }
+    importRows(t);
+    $('pasteInput').value = '';
+    togglePaste(false);
+  }
+
+  function parseLine(line) {
+    if (line.includes('\t')) return line.split('\t').map(s => s.trim());
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (q) {
+        if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+        else cur += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ',') { out.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  }
+  function resolveRef(list, text) {
+    const raw = String(text).trim(), t = norm(raw);
+    return list.find(x => x.id === raw) || list.find(x => norm(x.code) === t) || list.find(x => norm(x.name) === t) || null;
+  }
+  function parseDate(s) {
+    s = String(s).trim();
+    const pad = n => String(n).padStart(2, '0');
+    let m;
+    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+    if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/))) {
+      const y = m[3].length === 2 ? '20' + m[3] : m[3];
+      return `${y}-${pad(m[1])}-${pad(m[2])}`;
+    }
+    return null;
+  }
+
+  function importRows(text) {
+    if (running) return;
+    const m = mode();
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length && /^name$/i.test(parseLine(lines[0])[0])) lines.shift();
+    const added = lines.map(line => {
+      const c = parseLine(line), r = newRow(m), notes = [];
+      r.name = c[0] || ''; r.code = c[1] || '';
+      if (c[2]) {
+        const list = m === 'dept' ? divItems : m === 'template' ? data.departments : data.templates;
+        const f = resolveRef(list, c[2]);
+        r.parent = f; r.ov.parent = true;
+        if (!f) notes.push(`${PARENT_LABEL[m]} "${c[2]}" not found`);
+      }
+      if (m === 'course') {
+        if (c[3]) {
+          const f = resolveRef(data.semesters, c[3]);
+          r.sem = f; r.ov.sem = true;
+          if (!f) notes.push(`Semester "${c[3]}" not found`);
+        }
+        [['start', c[4]], ['end', c[5]]].forEach(([f, v]) => {
+          if (!v) return;
+          const d = parseDate(v);
+          r[f] = d || ''; r.ov[f] = true;
+          if (!d) notes.push(`Can't read ${f} date "${v}"`);
+        });
+      }
+      if (notes.length) { r.status = 'invalid'; r.msg = notes.join(' · '); }
+      return r;
+    });
+    rowsByMode[m] = rowsByMode[m].filter(r => r.done || !isBlank(r)).concat(added);
+    renderRows();
+    setProgress(100, `Added ${added.length} row${added.length === 1 ? '' : 's'} from paste`);
+  }
+
+  // ── Department → template filter ──────────────────────────
+  let tplReq = 0;
+  async function refreshTemplateChoices() {
+    const dept = dDept.value, showAll = $('showAllTpl').checked;
+    const my = ++tplReq;
+    let list, hint;
+    if (!dept || showAll) {
+      list = data.templates;
+      hint = `${data.templates.length.toLocaleString()} templates in D2L${dept && showAll ? ' (department filter off)' : ' — pick a department to narrow the list'}.`;
+    } else {
+      if (!tplCache.has(dept.id)) {
+        dTpl.setDisabled(true, 'Loading templates for this department…');
+        $('hTpl').textContent = 'Loading…';
+        try { tplCache.set(dept.id, await fetchChildren(dept.id, T.tpl.Id)); }
+        catch (e) {
+          if (my !== tplReq) return;
+          dTpl.setDisabled(false);
+          applyTplList(data.templates, `Could not load this department's templates (${e.message}) — showing all.`);
+          return;
+        }
+      }
+      if (my !== tplReq) return;
+      dTpl.setDisabled(false);
+      list = tplCache.get(dept.id);
+      hint = list.length ? `${list.length.toLocaleString()} template(s) under ${dept.name}.`
+                         : `No templates under ${dept.name}. Check "Show all templates" or create one first.`;
+    }
+    applyTplList(list, hint);
+  }
+  function applyTplList(list, hint) {
+    tplList = list;
+    dTpl.setItems(list);
+    $('hTpl').textContent = hint;
+    if (mode() === 'course') rowsByMode.course.forEach(r => r._ui && r._ui.parent && r._ui.parent.setItems(list));
+    if (dTpl.value && !list.some(t => t.id === dTpl.value.id)) dTpl.select(null);
+  }
+
+  async function fetchChildren(parentId, typeId) {
+    const out = [];
+    let bookmark = '';
+    for (let guard = 0; guard < 200; guard++) {
+      const res = await apiGet(`/orgstructure/${parentId}/children/paged/?ouTypeId=${typeId}&bookmark=${encodeURIComponent(bookmark)}`, 'GET children');
+      if (res.status === 404 && guard === 0) {       // older API: non-paged fallback
+        const r2 = await apiGet(`/orgstructure/${parentId}/children/?ouTypeId=${typeId}`, 'GET children');
+        if (!r2.ok) throw new Error(await errText(r2));
+        return (await r2.json()).map(mapOU).sort(byName);
+      }
+      if (!res.ok) throw new Error(await errText(res));
+      const page = await res.json();
+      const items = Array.isArray(page) ? page : (page.Items || []);
+      out.push(...items.map(mapOU));
+      const info = page.PagingInfo || {};
+      if (Array.isArray(page) || !info.HasMoreItems || !info.Bookmark || !items.length) break;
+      bookmark = info.Bookmark;
+    }
+    return out.sort(byName);
+  }
+
+  // ── Page-load scan ────────────────────────────────────────
+  function setProgress(pct, label) {
+    $('progressFill').style.width = Math.max(3, pct) + '%';
+    $('progressPct').textContent = Math.round(pct) + '%';
+    $('progressLabel').textContent = label;
+  }
+
+  async function loadPagedType(typeId, label, stepStart, stepEnd) {
+    const out = [];
+    let bookmark = '';
+    while (true) {
+      const res = await apiGet(`/orgstructure/?orgUnitType=${typeId}&bookmark=${encodeURIComponent(bookmark)}`, `GET ${label}`);
+      if (!res.ok) throw new Error(await errText(res));
+      const page = await res.json();
+      const items = (page && page.Items) || [];
+      out.push(...items.map(mapOU));
+      const creep = stepStart + (stepEnd - stepStart) * (1 - 1 / (1 + out.length / 400));
+      setProgress(creep, `Loading ${label}… ${out.length.toLocaleString()} found`);
+      const info = page.PagingInfo || {};
+      if (!info.HasMoreItems || !info.Bookmark || !items.length) break;
+      bookmark = info.Bookmark;
+    }
+    return out.sort(byName);
+  }
+
+  function findType(types, re, preferId) {
+    return types.find(t => re.test(`${t.Code || ''} ${t.Name || ''}`)) || (preferId ? types.find(t => t.Id === preferId) : null) || null;
+  }
+
+  async function loadAll() {
+    if (loading || running) return;
+    loading = true; ready = false;
+    updateButton();
+    $('refreshBtn').disabled = true;
+    $('progressFill').classList.add('busy');
+    const problems = [];
+
+    setProgress(3, 'Detecting API versions…');
+    try {
+      const r = await fetch('/d2l/api/versions/', { credentials: 'include' });
+      if (!r.ok) throw new Error();
+      const v = await r.json();
+      const lp = v.find(e => (e.ProductCode || '').toLowerCase() === 'lp');
+      if (lp && lp.LatestVersion) lpVersion = lp.LatestVersion;
+    } catch { problems.push(`Could not detect the LP version — using ${lpVersion}. This page must be hosted within Brightspace.`); }
+    $('versionBadge').textContent = 'LP ' + lpVersion;
+    $('lpVersion').textContent = lpVersion;
+    $('apiInfoBar').style.display = 'flex';
+
+    setProgress(8, 'Reading organization info…');
+    try {
+      const r = await apiGet('/organization/info', 'GET org');
+      if (!r.ok) throw new Error(r.status);
+      const o = await r.json();
+      org.id = String(o.Identifier); org.name = o.Name || ''; org.tz = o.TimeZone || '';
+      $('orgNameInfo').textContent = `· ${org.name} (#${org.id})`;
+    } catch (e) { problems.push(`Could not read organization info (${e.message}).`); }
+
+    setProgress(14, 'Reading org unit types…');
+    try {
+      const r = await apiGet('/outypes/', 'GET outypes');
+      if (!r.ok) throw new Error(r.status);
+      const types = await r.json();
+      for (const [key, route] of [['dept', 'department'], ['sem', 'semester']]) {
+        try {
+          const rr = await apiGet(`/outypes/${route}`, `GET ${route} type`);
+          if (rr.ok) T[key] = await rr.json();
+        } catch {}
+      }
+      T.dept = T.dept || findType(types, /department/i);
+      T.sem  = T.sem  || findType(types, /semester|term/i);
+      T.tpl  = findType(types, /course\s*template/i, 2);
+      T.off  = findType(types, /course\s*offering/i, 3);
+      T.div  = findType(types, /division/i);
+    } catch (e) { problems.push(`Could not read org unit types (${e.message}).`); }
+    const tl = (label, t) => `${label} ${t ? '#' + t.Id : '✗'}`;
+    $('typeInfo').textContent = 'Org unit types: ' + [tl('Division', T.div), tl('Dept', T.dept), tl('Template', T.tpl), tl('Offering', T.off), tl('Semester', T.sem)].join(' · ');
+    ['dept', 'tpl', 'off', 'sem'].forEach(k => { if (!T[k]) problems.push(`Could not find the ${{ dept: 'Department', tpl: 'Course Template', off: 'Course Offering', sem: 'Semester' }[k]} org unit type.`); });
+
+    const steps = [
+      ['divisions',   T.div,  'divisions',        20, 32],
+      ['departments', T.dept, 'departments',      32, 50],
+      ['semesters',   T.sem,  'semesters',        50, 60],
+      ['templates',   T.tpl,  'course templates', 60, 97]
+    ];
+    for (const [key, type, label, a, b] of steps) {
+      setProgress(a, `Loading ${label}…`);
+      if (!type) { data[key] = []; continue; }
+      try { data[key] = await loadPagedType(type.Id, label, a, b); }
+      catch (e) { data[key] = []; problems.push(`Could not load ${label} (${e.message}).`); }
+    }
+
+    divItems = data.divisions.slice();
+    if (!T.div) {
+      problems.push('No "Division" org unit type was found — the Organization root is offered as the department parent.');
+      if (org.id) divItems = [{ id: org.id, name: `${org.name || 'Organization'} (root)`, code: '' }];
+    }
+    dDiv.setItems(divItems);
+    dDept.setItems(data.departments);
+    dSem.setItems(data.semesters);
+    tplCache.clear();
+    await refreshTemplateChoices();
+
+    $('hDivision').textContent = `${divItems.length.toLocaleString()} division(s) available.`;
+    $('hDept').textContent = `${data.departments.length.toLocaleString()} department(s) in D2L.`;
+    $('hSem').textContent = `${data.semesters.length.toLocaleString()} semester(s) in D2L.`;
+
+    if (problems.length) {
+      $('authAlert').innerHTML = problems.map(escHtml).join('<br>');
+      $('authAlert').style.display = 'block';
+    } else $('authAlert').style.display = 'none';
+
+    $('progressFill').classList.remove('busy');
+    setProgress(100, `Ready — ${divItems.length} divisions · ${data.departments.length.toLocaleString()} departments · ${data.templates.length.toLocaleString()} templates · ${data.semesters.length} semesters`);
+    recordResult({
+      status: 'info', title: 'D2L data loaded',
+      detail: `LP ${lpVersion} · ${org.name || 'org'}${org.tz ? ' · time zone ' + org.tz : ''}\n` +
+              `${divItems.length} division(s) · ${data.departments.length.toLocaleString()} department(s) · ${data.templates.length.toLocaleString()} template(s) · ${data.semesters.length} semester(s)`,
+      warnings: problems
+    }, false);
+
+    ready = !!(T.dept || T.tpl || T.off);
+    loading = false;
+    $('refreshBtn').disabled = false;
+    renderRows();
+    rlUpdateUI();
+  }
+
+  // ── Request building / validation ─────────────────────────
+  function toUtc(dateStr, h, m) {
+    if (!dateStr) return null;
+    const [y, mo, d] = dateStr.split('-').map(Number);
+    return new Date(y, mo - 1, d, h, m, 0, 0).toISOString();
+  }
+  function localStamp(iso) {
+    return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  }
+  const idOf = it => it ? Number(it.id) : null;
+
+  function buildRequest(r, m) {
+    const name = r.name.trim(), code = r.code.trim();
+    if (m === 'dept') return {
+      path: '/orgstructure/', typeId: T.dept && T.dept.Id,
+      body: { Type: T.dept ? Number(T.dept.Id) : null, Name: name, Code: code, Parents: r.parent ? [idOf(r.parent)] : [] }
+    };
+    if (m === 'template') return {
+      path: '/coursetemplates/', typeId: T.tpl && T.tpl.Id,
+      body: { Name: name, Code: code, Path: '', ParentOrgUnitIds: r.parent ? [idOf(r.parent)] : [] }
+    };
+    const body = {
+      Name: name, Code: code, Path: '',
+      CourseTemplateId: idOf(r.parent),
+      SemesterId: idOf(r.sem),
+      StartDate: toUtc(r.start, 0, 1),
+      EndDate: toUtc(r.end, 23, 59),
+      LocaleId: null,
+      ForceLocale: false,
+      ShowAddressBook: false
+    };
+    if (verAtLeast(lpVersion, '1.26')) body.Description = { Content: '', Type: 'Text' };
+    if (verAtLeast(lpVersion, '1.27')) body.CanSelfRegister = false;
+    if (verAtLeast(lpVersion, '1.59')) body.IsActive = $('courseActive').checked;   // required from LP 1.59
+    return { path: '/courses/', typeId: T.off && T.off.Id, body };
+  }
+
+  function validateRow(r, m) {
+    const errs = [];
+    if (!r.name.trim()) errs.push('Name is required.');
+    const code = r.code.trim();
+    if (!code) errs.push('Code is required.');
+    else {
+      if (code.length > 50) errs.push(`Code is ${code.length} characters — D2L allows 50.`);
+      const badCh = [...new Set(code.match(/[\\:*?"<>|'#,%&]/g) || [])];
+      if (badCh.length) errs.push(`Code can't contain ${badCh.join(' ')}`);
+    }
+    if (m === 'dept') {
+      if (!T.dept) errs.push('Department org unit type not found in D2L.');
+      if (!r.parent) errs.push('Pick a Division (on the row or in Shared Settings).');
+    } else if (m === 'template') {
+      if (!T.tpl) errs.push('Course Template org unit type not found in D2L.');
+      if (!r.parent) errs.push('Pick a Department (on the row or in Shared Settings).');
+    } else {
+      if (!T.off) errs.push('Course Offering org unit type not found in D2L.');
+      if (!r.parent) errs.push('Pick a Template.');
+      if (!r.sem) errs.push('Pick a Semester.');
+      if (r.start && r.end && toUtc(r.end, 23, 59) <= toUtc(r.start, 0, 1)) errs.push('End Date must be after Start Date.');
+    }
+    return errs;
+  }
+
+  function parentText(r, m, req) {
+    if (m === 'dept') return `Division: ${r.parent ? r.parent.name : '—'}`;
+    if (m === 'template') return `Department: ${r.parent ? r.parent.name : '—'}`;
+    return `Template: ${r.parent ? r.parent.name : '—'} · Semester: ${r.sem ? r.sem.name : '—'} · Start: ${localStamp(req.body.StartDate) || 'none'} · End: ${localStamp(req.body.EndDate) || 'none'}`;
+  }
+
+  function updatePreview() {
+    const m = mode(), rows = rowsByMode[m], act = activeRows(m);
+    const r = act[0] || rows.find(x => !x.done) || newRow(m);
+    const idx = rows.indexOf(r);
+    $('previewRow').textContent = idx >= 0 ? `— row ${idx + 1}${act.length > 1 ? ` (first of ${act.length})` : ''}` : '';
+    const req = buildRequest(r, m);
+    let extra = '';
+    if (m === 'course') extra = `\n<span class="c">// Start: ${escHtml(localStamp(req.body.StartDate) || 'none')}   End: ${escHtml(localStamp(req.body.EndDate) || 'none')}  (local time; blank dates are sent as null)</span>` +
+                                `\n<span class="c">// LocaleId null = org default locale</span>`;
+    if (m === 'template') extra = `\n<span class="c">// Path "" = D2L default path</span>`;
+    $('payloadPreview').innerHTML = `<span class="c">// POST ${escHtml(api(req.path))}${act.length > 1 ? `  — one request per row (${act.length})` : ''}</span>\n` +
+      escHtml(JSON.stringify(req.body, null, 2)).replace(/(&quot;(?:Name|Code)&quot;: )(&quot;.*?&quot;)/g, '$1<span class="n">$2</span>') + extra;
+  }
+
+  function updateButton() {
+    const m = mode(), n = activeRows(m).length, dry = $('testRun').checked;
+    $('createBtn').classList.toggle('dry', dry);
+    if (running) return;
+    const what = n > 1 ? `${n} ${PLURAL[m]}` : n === 1 ? `1 ${LABELS[m]}` : PLURAL[m];
+    $('createBtnLabel').textContent = !ready ? 'Loading D2L data…' : `${dry ? 'Test Run — ' : ''}Create ${what}`;
+    $('createBtn').disabled = !ready;
+  }
+
+  // ── Duplicate code check (same org unit type, exact match) ─
+  async function codeInUse(code, typeId) {
+    let bookmark = '';
+    for (let page = 0; page < 50; page++) {
+      const res = await apiGet(`/orgstructure/?orgUnitType=${typeId}&orgUnitCode=${encodeURIComponent(code)}&bookmark=${encodeURIComponent(bookmark)}`, 'GET code check');
+      if (!res.ok) throw new Error(`Code check ${await errText(res)}`);
+      const p = await res.json();
+      const items = (p && p.Items) || [];
+      const hit = items.find(ou => norm(ou.Code) === norm(code));
+      if (hit) return hit;
+      const info = p.PagingInfo || {};
+      if (!info.HasMoreItems || !info.Bookmark || !items.length) break;
+      bookmark = info.Bookmark;
+    }
+    return null;
+  }
+
+  // ── Batch create / test run ───────────────────────────────
+  async function runCreate() {
+    if (running || !ready) return;
+    if (pendingAnswer) pendingAnswer(false);
+
+    const m = mode(), rows = rowsByMode[m], todo = activeRows(m);
+    if (!todo.length) { notify(`Add at least one ${LABELS[m].toLowerCase()} — each row needs a Name and Code.`); return; }
+
+    // Validate every row first; nothing runs if any row is incomplete
+    let bad = 0;
+    const seen = new Map();
+    todo.forEach(r => {
+      const e = validateRow(r, m);
+      const k = norm(r.code);
+      if (k) { if (seen.has(k)) e.push(`Same code as row ${seen.get(k)}.`); else seen.set(k, rows.indexOf(r) + 1); }
+      r.msg = e.join(' '); r.warn = ''; r.status = e.length ? 'invalid' : '';
+      if (e.length) bad++;
+      paintRow(r);
+    });
+    if (bad) { notify(`${bad} row${bad === 1 ? ' needs' : 's need'} fixing before anything can run — see the red notes in the list.`); return; }
+
+    const dry = $('testRun').checked;
+    if (!dry) {
+      const list = todo.slice(0, 15).map(r => `• ${r.name.trim()} (${r.code.trim()})`).join('\n') + (todo.length > 15 ? `\n…and ${todo.length - 15} more` : '');
+      const noun = todo.length === 1 ? LABELS[m] : PLURAL[m];
+      if (!await askConfirm(`Create ${todo.length} ${noun} in Brightspace?\n\n${list}`, `Create ${todo.length} ${noun}`)) return;
+      if (!getCsrfToken()) { notify('No XSRF token found — refresh this page while logged in to Brightspace, then try again.'); return; }
+    }
+
+    setRunningUI(true, dry);
+    let ok = 0, passed = 0, failed = 0, tplMade = false;
+    for (let i = 0; i < todo.length; i++) {
+      if (stopRequested) break;
+      const r = todo[i];
+      setProgress((i / todo.length) * 100, `${dry ? 'Testing' : 'Creating'} ${i + 1} of ${todo.length} — ${r.name.trim()}`);
+      r.status = 'work'; r.msg = ''; r.warn = ''; paintRow(r);
+      if (r._ui) r._ui.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      const st = await processRow(r, m, dry);
+      if (st === 'ok') { ok++; if (m === 'template') tplMade = true; }
+      else if (st === 'dry') passed++;
+      else failed++;
+    }
+
+    const done = ok + passed + failed;
+    const stopped = done < todo.length;
+    setProgress(stopped ? (done / todo.length) * 100 : 100,
+      `${dry ? 'Test run' : 'Run'} ${stopped ? `stopped after ${done} of ${todo.length}` : 'complete'} — ` +
+      (dry ? `${passed} passed` : `${ok} created`) + `, ${failed} failed${dry ? ' · nothing was created' : ''}`);
+    if (tplMade) await refreshTemplateChoices();
+    setRunningUI(false);
+    renderRows();
+  }
+
+  async function processRow(r, m, dry) {
+    const req = buildRequest(r, m), what = LABELS[m];
+    const pt = parentText(r, m, req);
+    const base = {
+      time: new Date().toISOString(), mode: m, dry, name: r.name.trim(), code: r.code.trim(),
+      parent: r.parent, semester: m === 'course' ? r.sem : null,
+      start: req.body.StartDate || '', end: req.body.EndDate || '',
+      payload: req.body, title: `${dry ? 'Test: ' : ''}${what} — ${r.name.trim()} (${r.code.trim()})`
+    };
+    const warnings = [];
+    const finish = (status, detail, extra = {}) => {
+      r.status = status;
+      r.msg = status === 'fail' ? detail : '';
+      r.warn = warnings.join(' · ');
+      if (status === 'ok') { r.done = true; r.newId = extra.newId; }
+      paintRow(r);
+      recordResult({ ...base, ...extra, status, detail, warnings }, true);
+      return status;
+    };
+
+    try {
+      const dup = await codeInUse(base.code, req.typeId);
+      if (dup) return finish('fail', `Code "${base.code}" is already used by ${what} #${dup.Identifier} — ${dup.Name}`);
+
+      const nameList = m === 'dept' ? data.departments : m === 'template' ? data.templates : null;
+      if (nameList && nameList.some(x => norm(x.name) === norm(base.name))) warnings.push(`Another ${what.toLowerCase()} already has this name.`);
+      if (m === 'course' && req.body.StartDate && req.body.EndDate) {
+        const days = Math.round((new Date(req.body.EndDate) - new Date(req.body.StartDate)) / 86400000);
+        if (days > 400) warnings.push(`Course runs ${days} days — double-check the dates.`);
+      }
+
+      if (dry) {
+        if (!getCsrfToken()) warnings.push('No XSRF token found — a real run would fail. Refresh the page while logged in.');
+        return finish('dry', `All checks passed. Would POST ${api(req.path)}\n${pt}`);
+      }
+
+      const res = await rlFetch(api(req.path), {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Csrf-Token': getCsrfToken() },
+        body: JSON.stringify(req.body)
+      }, `POST ${what}`);
+      if (!res.ok) return finish('fail', `POST ${await errText(res, 300)}\nSent: ${JSON.stringify(req.body)}`);
+      const created = await res.json().catch(() => ({}));
+      const newId = created && created.Identifier != null ? String(created.Identifier) : '';
+      if (!newId) return finish('fail', 'POST succeeded but no Identifier came back — check D2L before retrying.', { response: created });
+
+      if ($('verifyAfter').checked) {
+        const v = await apiGet(`/orgstructure/${newId}`, 'VERIFY');
+        if (v.ok) {
+          const ou = await v.json();
+          if (norm(ou.Code) !== norm(base.code) || norm(ou.Name) !== norm(base.name)) warnings.push(`Verify: D2L shows "${ou.Name}" (${ou.Code}).`);
+        } else warnings.push(`Verify read failed (${v.status}) — the create itself succeeded.`);
+      }
+
+      // Make the new unit selectable right away
+      const item = { id: newId, name: base.name, code: base.code };
+      if (m === 'dept') {
+        data.departments.push(item); data.departments.sort(byName);
+        $('hDept').textContent = `${data.departments.length.toLocaleString()} department(s) in D2L.`;
+      } else if (m === 'template') {
+        data.templates.push(item); data.templates.sort(byName);
+        if (r.parent && tplCache.has(r.parent.id)) { tplCache.get(r.parent.id).push(item); tplCache.get(r.parent.id).sort(byName); }
+      }
+      return finish('ok', `Created ${what} #${newId}\n${pt}`, { newId, response: created });
+    } catch (e) {
+      return finish('fail', `Error: ${e.message}`);
+    }
+  }
+
+  function setRunningUI(on, dry) {
+    running = on;
+    stopRequested = false;
+    $('itemsCard').classList.toggle('locked', on);
+    $('defaultsCard').classList.toggle('locked', on);
+    document.querySelectorAll('input[name="mode"], #testRun, #verifyAfter, #courseActive').forEach(x => x.disabled = on);
+    $('refreshBtn').disabled = on;
+    $('progressFill').classList.toggle('busy', on);
+    const stop = $('stopBtn');
+    stop.style.display = on ? '' : 'none';
+    stop.textContent = 'Stop After Current Row';
+    stop.disabled = false;
+    const btn = $('createBtn');
+    btn.disabled = on;
+    if (on) $('createBtnLabel').innerHTML = `<span class="spin"></span> ${dry ? 'Testing…' : 'Creating…'}`;
+    else updateButton();
+  }
+  function requestStop() {
+    stopRequested = true;
+    $('stopBtn').textContent = 'Stopping…';
+    $('stopBtn').disabled = true;
+  }
+
+  // ── In-page confirm / notice (no browser pop-ups) ─────────
+  let pendingAnswer = null;
+  function showPanel(title, msg, yesLabel, noLabel, isNotice) {
+    return new Promise(resolve => {
+      const p = $('confirmPanel'), yes = $('confirmYes'), no = $('confirmNo');
+      $('confirmTitle').textContent = title;
+      $('confirmMsg').textContent = msg;
+      p.classList.toggle('notice', !!isNotice);
+      yes.style.display = yesLabel ? '' : 'none';
+      yes.textContent = yesLabel || '';
+      no.textContent = noLabel;
+      const done = v => { p.style.display = 'none'; pendingAnswer = null; resolve(v); };
+      pendingAnswer = done;
+      yes.onclick = () => done(true);
+      no.onclick = () => done(false);
+      p.style.display = 'block';
+      p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+  const askConfirm = (msg, yesLabel = 'Continue') => showPanel('Confirm', msg, yesLabel, 'Cancel', false);
+  const notify = msg => { showPanel('Heads up', msg, null, 'OK', true); };
+
+  // ── CSRF token ────────────────────────────────────────────
+  function getCsrfToken() {
+    const fromStorage = localStorage.getItem('XSRF.Token');
+    if (fromStorage) return fromStorage;
+    try {
+      if (window.D2L && D2L.LP && D2L.LP.Web && D2L.LP.Web.Authentication && D2L.LP.Web.Authentication.Xsrf) {
+        const t = D2L.LP.Web.Authentication.Xsrf.GetValue();
+        if (t) return t;
+      }
+    } catch (e) {}
+    const meta = document.querySelector('meta[name="csrf-token"], meta[name="d2l-csrf-token"]');
+    return meta && meta.content ? meta.content : null;
+  }
+
+  // ── Rate-limit aware fetch ────────────────────────────────
+  function rlConsumeHeaders(res) {
+    const rem = res.headers.get('X-Rate-Limit-Remaining'), lim = res.headers.get('X-Rate-Limit-Limit');
+    if (rem !== null) RL.remaining = parseInt(rem, 10);
+    if (lim !== null) RL.limit = parseInt(lim, 10);
+  }
+  function computeDynamicDelay() {
+    if (RL.remaining === null) return 0;
+    const pct = RL.remaining / (RL.limit || 150);
+    if (pct > 0.30) return 0; if (pct > 0.15) return 100; if (pct > 0.05) return 300; return 800;
+  }
+  async function rlFetch(url, options, label) {
+    const delay = computeDynamicDelay();
+    if (delay > 0) await sleep(delay);
+    const MAX_RETRIES = 5;
+    let attempt = 0;
+    while (true) {
+      const res = await fetch(url, options);
+      rlConsumeHeaders(res);
+      rlUpdateUI();
+      if (res.status !== 429) return res;
+      if (++attempt > MAX_RETRIES) return res;
+      const ra = res.headers.get('Retry-After');
+      const waitMs = ra ? parseInt(ra, 10) * 1000 : Math.min(1000 * Math.pow(2, attempt - 1), 30000);
+      rlSetWaiting(true, `⏸ 429 on ${label} — retry ${attempt}/${MAX_RETRIES} in ${waitMs / 1000}s…`);
+      await sleep(waitMs);
+      rlSetWaiting(false);
+    }
+  }
+  const apiGet = (path, label) => rlFetch(api(path), { method: 'GET', credentials: 'include', headers: { 'Accept': 'application/json' } }, label);
+  async function errText(res, max = 120) { const t = await res.text().catch(() => res.statusText); return `${res.status}: ${t.substring(0, max)}`; }
+
+  function rlUpdateUI() {
+    const fill = $('rlFill'), count = $('rlCount');
+    if (RL.remaining === null) { count.textContent = '—'; fill.style.width = '100%'; fill.className = 'rl-fill ok'; return; }
+    const cap = RL.limit || 150, pct = Math.max(0, Math.min(100, (RL.remaining / cap) * 100));
+    fill.style.width = pct + '%';
+    count.textContent = `${RL.remaining.toLocaleString()} / ${cap.toLocaleString()} credits`;
+    fill.className = 'rl-fill ' + (pct > 30 ? 'ok' : pct > 10 ? 'warn' : 'low');
+  }
+  function rlSetWaiting(on, msg = '') {
+    const el = $('rlWaiting');
+    el.style.display = on ? 'inline-block' : 'none';
+    if (on) el.textContent = msg;
+    rlUpdateUI();
+  }
+
+  // ── Results ───────────────────────────────────────────────
+  function recordResult(r, counts) {
+    if (counts) {
+      stats.total++;
+      if (r.status === 'ok') stats.ok++;
+      else if (r.status === 'dry') stats.dry++;
+      else if (r.status === 'fail') stats.fail++;
+      results.push(r);
+      ['exportBtn', 'clearBtn'].forEach(id => $(id).style.display = 'inline-flex');
+      $('exportRow').style.display = 'flex';
+    }
+    updateStats();
+    const list = $('resultList');
+    list.insertAdjacentHTML('afterbegin', rowHtml(r));   // newest on top
+    list.scrollTop = 0;
+  }
+
+  function rowHtml(r) {
+    const icons = {
+      ok:   `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+      fail: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      dry:  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+      info: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="11" x2="12" y2="17"/><circle cx="12" cy="7" r=".5"/></svg>`
+    };
+    const badges = {
+      ok: `<span class="badge badge-ok">Created</span>`, fail: `<span class="badge badge-fail">Failed</span>`,
+      dry: `<span class="badge badge-dry">Test Passed</span>`, info: `<span class="badge badge-info">Loaded</span>`
+    };
+    const warn = (r.warnings && r.warnings.length) ? `<div class="row-warn">⚠ ${r.warnings.map(escHtml).join('\n⚠ ')}</div>` : '';
+    return `
+      <div class="result-row">
+        <div class="row-icon ${r.status}">${icons[r.status] || ''}</div>
+        <div class="row-user">
+          <div class="row-input" title="${escHtml(r.title)}">${escHtml(r.title)}</div>
+          <div class="row-detail">${escHtml(r.detail)}</div>
+          ${warn}
+        </div>
+        <div class="row-userid">${r.newId ? '#' + escHtml(r.newId) : ''}</div>
+        <div>${badges[r.status] || ''}</div>
+      </div>`;
+  }
+
+  function updateStats() {
+    $('statTotal').textContent = stats.total.toLocaleString();
+    $('statOk').textContent = stats.ok.toLocaleString();
+    $('statDry').textContent = stats.dry.toLocaleString();
+    $('statFail').textContent = stats.fail.toLocaleString();
+  }
+
+  function clearResults() {
+    results = [];
+    Object.assign(stats, { total: 0, ok: 0, dry: 0, fail: 0 });
+    $('resultList').innerHTML = '';
+    ['exportBtn', 'clearBtn', 'exportRow'].forEach(id => $(id).style.display = 'none');
+    updateStats();
+  }
+
+  // ── CSV export ────────────────────────────────────────────
+  function exportCSV() {
+    const statusLabel = { ok: 'Created', fail: 'Failed', dry: 'Test Passed' };
+    const rows = [['Time', 'Type', 'Test Run', 'Status', 'Name', 'Code', 'New ID', 'Parent / Template', 'Parent ID', 'Semester', 'Semester ID', 'Start (UTC)', 'End (UTC)', 'Detail', 'Warnings', 'Sent Payload (JSON)', 'Response (JSON)']];
+    results.forEach(r => rows.push([
+      r.time, LABELS[r.mode], r.dry ? 'Yes' : 'No', statusLabel[r.status] || r.status, r.name, r.code, r.newId || '',
+      r.parent ? r.parent.name : '', r.parent ? r.parent.id : '',
+      r.semester ? r.semester.name : '', r.semester ? r.semester.id : '',
+      r.start, r.end, r.detail, (r.warnings || []).join(' | '),
+      r.payload ? JSON.stringify(r.payload) : '', r.response ? JSON.stringify(r.response) : ''
+    ]));
+    const csv = rows.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `create_org_units_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  }
+
+  function escHtml(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+  applyMode();
+  loadAll();
+</script>
+</body>
+</html>

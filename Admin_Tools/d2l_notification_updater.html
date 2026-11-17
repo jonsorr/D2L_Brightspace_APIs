@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Summary Notification Settings Updater
+  Bulk-updates users' Summary Notification settings from a pasted list of usernames.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<meta name="author" content="Jonathan Sorrenti">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D2L Summary Notification Settings</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #003366;
+      --brand-light: #e6eef7;
+      --brand-mid: #336699;
+      --accent: #e87722;
+      --accent-light: #fdf2e9;
+      --success: #1a7a3c;
+      --success-bg: #e8f5ee;
+      --error: #b91c1c;
+      --error-bg: #fef2f2;
+      --warn: #92400e;
+      --warn-bg: #fffbeb;
+      --skip: #374151;
+      --skip-bg: #f3f4f6;
+      --surface: #ffffff;
+      --surface-2: #f8f9fb;
+      --border: #d1d5db;
+      --border-light: #e5e7eb;
+      --text-primary: #111827;
+      --text-secondary: #4b5563;
+      --text-muted: #9ca3af;
+      --radius: 6px;
+      --radius-lg: 10px;
+      --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: 'Consolas', 'Courier New', monospace;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.10);
+    }
+
+    body {
+      font-family: var(--font);
+      background: #eef1f5;
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 0;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--brand);
+      padding: 0 2rem;
+      display: flex;
+      align-items: center;
+      height: 56px;
+      gap: 14px;
+    }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-logo svg { flex-shrink: 0; }
+    .header-title {
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: .01em;
+    }
+    .header-sub {
+      color: rgba(255,255,255,.65);
+      font-size: 13px;
+      margin-left: auto;
+    }
+    .version-badge {
+      background: rgba(255,255,255,.15);
+      color: rgba(255,255,255,.9);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,.2);
+    }
+
+    /* ── Layout ── */
+    .page {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 3rem;
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+    }
+    .card-header {
+      padding: .875rem 1.25rem;
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-header-icon {
+      width: 28px; height: 28px;
+      background: var(--brand-light);
+      border-radius: var(--radius);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .card-header-icon svg { color: var(--brand-mid); }
+    .card-header h2 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: .02em;
+      text-transform: uppercase;
+    }
+    .card-body { padding: 1.25rem; }
+
+    /* ── Forms ── */
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 5px;
+    }
+    textarea, input[type="text"], input[type="number"], select {
+      width: 100%;
+      font-family: var(--font);
+      font-size: 14px;
+      color: var(--text-primary);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+      resize: vertical;
+    }
+    textarea:focus, input[type="text"]:focus, input[type="number"]:focus, select:focus {
+      border-color: var(--brand-mid);
+      box-shadow: 0 0 0 3px rgba(51,102,153,.15);
+      background: var(--surface);
+    }
+    textarea {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      min-height: 180px;
+      line-height: 1.6;
+    }
+    .field { margin-bottom: 1rem; }
+    .field:last-child { margin-bottom: 0; }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Toggle row ── */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .5rem 0;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label {
+      font-size: 13px;
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+    .toggle-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    .toggle {
+      position: relative;
+      width: 38px; height: 22px;
+      flex-shrink: 0;
+      margin-left: 12px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+      position: absolute; inset: 0;
+      background: var(--border);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .toggle-track::after {
+      content: '';
+      position: absolute;
+      left: 3px; top: 3px;
+      width: 16px; height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+    .toggle input:checked + .toggle-track { background: var(--brand-mid); }
+    .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-family: var(--font);
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      padding: 9px 18px;
+      transition: background .15s, transform .1s, opacity .15s;
+      letter-spacing: .01em;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: var(--brand);
+      color: #fff;
+      width: 100%;
+    }
+    .btn-primary:hover:not(:disabled) { background: #002952; }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      padding: 5px 12px;
+    }
+    .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+
+    /* ── Results panel ── */
+    .results-empty {
+      text-align: center;
+      padding: 3.5rem 1rem;
+      color: var(--text-muted);
+    }
+    .results-empty svg { margin: 0 auto 12px; display: block; opacity: .35; }
+    .results-empty p { font-size: 13px; }
+
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .875rem 1.25rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .results-header h2 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .results-actions { display: flex; gap: 6px; }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex;
+      gap: 1px;
+      background: var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+    }
+    .stat-cell {
+      flex: 1;
+      padding: .625rem 1rem;
+      background: var(--surface);
+      text-align: center;
+    }
+    .stat-cell:first-child { border-radius: 0; }
+    .stat-num {
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+    .stat-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat-total .stat-num { color: var(--text-primary); }
+    .stat-ok .stat-num { color: var(--success); }
+    .stat-fail .stat-num { color: var(--error); }
+    .stat-skip .stat-num { color: var(--skip); }
+
+    /* ── Progress bar ── */
+    .progress-wrap {
+      padding: .75rem 1.25rem;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border-light);
+    }
+    .progress-track {
+      height: 6px;
+      background: var(--border-light);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--brand-mid), var(--brand));
+      border-radius: 3px;
+      transition: width .3s ease;
+      width: 0%;
+    }
+    .progress-text {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Result rows ── */
+    .result-list {
+      max-height: 480px;
+      overflow-y: auto;
+    }
+    .result-row {
+      display: grid;
+      grid-template-columns: 28px minmax(0,1fr) 90px 90px;
+      align-items: center;
+      gap: 10px;
+      padding: .65rem 1.25rem;
+      border-bottom: 1px solid var(--border-light);
+      font-size: 13px;
+      animation: rowIn .2s ease;
+    }
+    .result-row:last-child { border-bottom: none; }
+    @keyframes rowIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+    .row-icon {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .row-icon.ok { background: var(--success-bg); color: var(--success); }
+    .row-icon.fail { background: var(--error-bg); color: var(--error); }
+    .row-icon.skip { background: var(--skip-bg); color: var(--skip); }
+    .row-icon.pending { background: var(--brand-light); color: var(--brand-mid); }
+
+    .row-user { overflow: hidden; }
+    .row-username { font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-detail { font-size: 11px; color: var(--text-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .row-userid {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+    .badge-ok { background: var(--success-bg); color: var(--success); }
+    .badge-fail { background: var(--error-bg); color: var(--error); }
+    .badge-skip { background: var(--skip-bg); color: var(--skip); }
+    .badge-pending { background: var(--brand-light); color: var(--brand-mid); }
+    .badge-running { background: #fff7ed; color: #9a3412; }
+
+    /* ── Rate limit indicator ── */
+    .rl-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: .5rem 1.25rem;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border-light);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .rl-label { white-space: nowrap; }
+    .rl-track {
+      flex: 1;
+      height: 5px;
+      background: var(--border-light);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .rl-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width .4s ease, background .4s ease;
+    }
+    .rl-fill.ok   { background: var(--success); }
+    .rl-fill.warn { background: #f59e0b; }
+    .rl-fill.low  { background: var(--error); }
+    .rl-count { font-family: var(--font-mono); white-space: nowrap; }
+    .rl-waiting {
+      color: #92400e;
+      background: var(--warn-bg);
+      border-radius: 4px;
+      padding: 2px 7px;
+      display: none;
+    }
+
+    /* ── Spinner ── */
+    .spin {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── API info bar ── */
+    .api-info {
+      background: var(--brand-light);
+      border: 1px solid #c3d9ee;
+      border-radius: var(--radius);
+      padding: .625rem .875rem;
+      font-size: 12px;
+      color: var(--brand);
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 1rem;
+    }
+    .api-info svg { flex-shrink: 0; }
+    .api-info strong { font-family: var(--font-mono); }
+
+    /* ── Alert ── */
+    .alert {
+      border-radius: var(--radius);
+      padding: .75rem 1rem;
+      font-size: 13px;
+      display: flex;
+      gap: 8px;
+      margin-top: .75rem;
+    }
+    .alert svg { flex-shrink: 0; margin-top: 1px; }
+    .alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fcd34d55; }
+    .alert-error { background: var(--error-bg); color: var(--error); border: 1px solid #fca5a555; }
+
+    /* ── Export ── */
+    .export-row {
+      padding: .875rem 1.25rem;
+      border-top: 1px solid var(--border-light);
+      display: flex;
+      gap: 8px;
+      background: var(--surface-2);
+      border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    }
+
+    /* ── Scrollbar ── */
+    .result-list::-webkit-scrollbar { width: 6px; }
+    .result-list::-webkit-scrollbar-track { background: transparent; }
+    .result-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 700px) {
+      .page { grid-template-columns: 1fr; }
+      .header-sub { display: none; }
+    }
+
+    /* ── Concurrency slider ── */
+    .speed-slider-wrap { margin-top:.25rem; }
+    .speed-slider-wrap input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 6px; border-radius: 3px;
+      background: var(--border); outline: none; cursor: pointer;
+      padding: 0; border: none;
+    }
+    .speed-slider-wrap input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--brand-mid); cursor: pointer;
+      border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    }
+    .speed-markers { display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-top:3px; }
+    .speed-estimate { font-size:11px; color:var(--brand); margin-top:5px; font-weight:600; }
+    /* rolling log label */
+    .log-cap-note {
+      text-align:center; font-size:11px; color:var(--text-muted);
+      padding:.4rem; border-bottom:1px solid var(--border-light);
+      background: var(--surface-2);
+    }
+
+    /* ── Frequency selector ── */
+    .freq-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .freq-opt {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 7px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      transition: all .15s;
+      background: var(--surface-2);
+    }
+    .freq-opt input[type="radio"] { accent-color: var(--brand-mid); }
+    .freq-opt:has(input:checked) {
+      border-color: var(--brand-mid);
+      background: var(--brand-light);
+      color: var(--brand);
+      font-weight: 600;
+    }
+    .freq-opt .freq-val {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+    .freq-opt:has(input:checked) .freq-val { color: var(--brand-mid); }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-logo">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect width="26" height="26" rx="5" fill="rgba(255,255,255,.15)"/>
+      <path d="M7 19V7h5.5c3.5 0 5.5 1.8 5.5 4.5 0 1.8-1 3.2-2.6 3.9L19 19h-3.2l-2.8-3.2H10V19H7zm3-5.7h2.3c1.7 0 2.7-.8 2.7-2.1 0-1.3-1-2-2.7-2H10v4.1z" fill="white"/>
+    </svg>
+    <span class="header-title">Brightspace Admin — Notification Settings</span>
+  </div>
+  <span class="header-sub">Summary Notification Bulk Updater</span>
+  <span class="version-badge" id="versionBadge">LP ver …</span>
+</div>
+
+<!-- Page -->
+<div class="page">
+
+  <!-- Left column -->
+  <div style="display:flex; flex-direction:column; gap:1.25rem;">
+
+    <!-- Input card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h2>Username List</h2>
+      </div>
+      <div class="card-body">
+        <div id="apiInfoBar" class="api-info" style="display:none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Authenticated via session &nbsp;·&nbsp; LP <strong id="lpVersion">—</strong>
+        </div>
+        <div id="authAlert" class="alert alert-warn" style="display:none">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div>Could not detect LP version from session. Using default. This page must be hosted within Brightspace.</div>
+        </div>
+        <div class="field" style="margin-top:.75rem">
+          <label for="usernameInput">Usernames</label>
+          <textarea id="usernameInput" placeholder="jsmith&#10;mwilliams&#10;tjones" spellcheck="false"></textarea>
+          <p class="field-hint">One username per line. Blank lines and duplicates are ignored.</p>
+        </div>
+        <button class="btn btn-primary" id="processBtn" onclick="processUsernames()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Process Usernames
+        </button>
+      </div>
+    </div>
+
+    <!-- Settings card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+        </div>
+        <h2>PUT Payload Settings</h2>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <label>Summary Frequency</label>
+          <div class="freq-options">
+            <label class="freq-opt">
+              <input type="radio" name="freq" value="0" checked>
+              No Summary
+              <span class="freq-val">0</span>
+            </label>
+            <label class="freq-opt">
+              <input type="radio" name="freq" value="1">
+              Daily
+              <span class="freq-val">1</span>
+            </label>
+            <label class="freq-opt">
+              <input type="radio" name="freq" value="2">
+              Weekly
+              <span class="freq-val">2</span>
+            </label>
+            <label class="freq-opt">
+              <input type="radio" name="freq" value="3">
+              Bi-Weekly
+              <span class="freq-val">3</span>
+            </label>
+          </div>
+          <p class="field-hint">0 = off, 1 = daily, 2 = weekly, 3 = bi-weekly</p>
+        </div>
+
+        <div class="field">
+          <label style="margin-bottom:8px;">Boolean Flags</label>
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Include Grade Value</div>
+              <div class="toggle-desc">Include grade in summary emails</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="includeGrade" checked>
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <div>
+              <div class="toggle-label">Allow Future Courses</div>
+              <div class="toggle-desc">Apply to courses enrolled in later</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="futureCoures">
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Payload preview -->
+        <div style="background:var(--surface-2); border:1px solid var(--border-light); border-radius:var(--radius); padding:.75rem; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); line-height:1.7; margin-top:.25rem;">
+          <span style="color:var(--text-muted)">// PUT payload preview</span><br>
+          {<br>
+          &nbsp;&nbsp;"SummaryFrequency": <span id="pFreq" style="color:#0066cc">0</span>,<br>
+          &nbsp;&nbsp;"IncludeGradeValue": <span id="pGrade" style="color:#007a33">true</span>,<br>
+          &nbsp;&nbsp;"AllowFutureCoursesToSend": <span id="pFuture" style="color:#cc0000">false</span><br>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- Speed card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </div>
+        <h2>Processing Speed</h2>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <label>
+            Concurrent Workers &nbsp;
+            <span id="concurrencyVal" style="font-size:15px;font-weight:800;color:var(--brand-mid);font-family:var(--font-mono)">10</span>
+          </label>
+          <div class="speed-slider-wrap">
+            <input type="range" id="concurrencySlider" min="1" max="25" value="10"
+              oninput="updateSpeedEstimate()">
+            <div class="speed-markers"><span>1</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span></div>
+          </div>
+          <div class="speed-estimate" id="speedEstimate">~20–30 req/sec &nbsp;·&nbsp; 50k users ≈ 30–40 min</div>
+          <p class="field-hint" style="margin-top:4px">Rate limit monitor auto-throttles if credits drop. Start at 10 and increase if the bar stays green.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end left col -->
+
+  <!-- Right column — Results -->
+  <div class="card" id="resultsCard">
+    <div class="results-header">
+      <h2>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-mid)"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Results
+      </h2>
+      <div class="results-actions">
+        <button class="btn btn-ghost" id="exportBtn" onclick="exportCSV()" style="display:none">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export CSV
+        </button>
+        <button class="btn btn-ghost" id="clearBtn" onclick="clearResults()" style="display:none">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          Clear
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats (hidden until run) -->
+    <div id="statsBar" class="stats-bar" style="display:none">
+      <div class="stat-cell stat-total"><div class="stat-num" id="statTotal">0</div><div class="stat-lbl">Total</div></div>
+      <div class="stat-cell stat-total"><div class="stat-num" id="statDone">0</div><div class="stat-lbl">Done</div></div>
+      <div class="stat-cell stat-ok"><div class="stat-num" id="statOk">0</div><div class="stat-lbl">Updated</div></div>
+      <div class="stat-cell stat-fail"><div class="stat-num" id="statFail">0</div><div class="stat-lbl">Failed</div></div>
+      <div class="stat-cell stat-skip"><div class="stat-num" id="statSkip">0</div><div class="stat-lbl">Skipped</div></div>
+    </div>
+
+    <!-- Progress bar (hidden until running) -->
+    <div id="progressWrap" class="progress-wrap" style="display:none">
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-text">
+        <span id="progressLabel">Processing…</span>
+        <span id="progressPct">0%</span>
+      </div>
+    </div>
+
+    <!-- Rate limit indicator -->
+    <div id="rlBar" class="rl-bar" style="display:none">
+      <span class="rl-label">API Credits</span>
+      <div class="rl-track"><div class="rl-fill ok" id="rlFill" style="width:100%"></div></div>
+      <span class="rl-count" id="rlCount">—</span>
+      <span class="rl-waiting" id="rlWaiting">⏸ Rate limited — waiting…</span>
+    </div>
+
+    <!-- Empty state -->
+    <div id="emptyState" class="results-empty">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+      <p>Results will appear here after processing</p>
+    </div>
+
+    <!-- Log cap note (shown for large batches) -->
+    <div id="logCapNote" class="log-cap-note" style="display:none"></div>
+
+    <!-- Row list -->
+    <div class="result-list" id="resultList" style="display:none"></div>
+
+    <!-- Export footer -->
+    <div class="export-row" id="exportRow" style="display:none">
+      <button class="btn btn-ghost" onclick="exportCSV()" style="font-size:12px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download CSV Report
+      </button>
+    </div>
+  </div><!-- end results card -->
+
+</div><!-- end page -->
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  let lpVersion = '1.28';
+  let running   = false;
+  let results   = [];    // full dataset kept in memory for CSV
+  let stats     = { total: 0, ok: 0, fail: 0, skip: 0, done: 0 };
+  let startTime = null;
+  let domRowCount = 0;
+  const MAX_DOM_ROWS = 300;   // rolling log cap — keeps browser fast
+
+  // ── Rate-limit state ──────────────────────────────────────
+  const RL = {
+    remaining:     null,
+    limit:         null,
+    LOW_THRESHOLD: 20,   // start throttling when credits drop here
+  };
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  // ── Version detection ─────────────────────────────────────
+  async function detectVersion() {
+    try {
+      const r = await fetch('/d2l/api/versions/', { credentials: 'include' });
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      const lp = data.find(e => (e.ProductCode || '').toLowerCase() === 'lp');
+      if (lp && lp.LatestVersion) lpVersion = lp.LatestVersion;
+      showApiInfo(true);
+    } catch {
+      try {
+        const r2 = await fetch('/d2l/api/lp/1.28/users/whoami', { credentials: 'include' });
+        showApiInfo(r2.ok);
+      } catch { showApiInfo(false); }
+    }
+    document.getElementById('versionBadge').textContent = 'LP ' + lpVersion;
+  }
+
+  function showApiInfo(ok) {
+    document.getElementById('apiInfoBar').style.display = 'flex';
+    document.getElementById('lpVersion').textContent = lpVersion;
+    if (!ok) document.getElementById('authAlert').style.display = 'flex';
+  }
+
+  // ── Payload preview ───────────────────────────────────────
+  document.querySelectorAll('input[name="freq"]').forEach(r =>
+    r.addEventListener('change', updatePreview));
+  document.getElementById('includeGrade').addEventListener('change', updatePreview);
+  document.getElementById('futureCoures').addEventListener('change', updatePreview);
+
+  function getPayload() {
+    return {
+      SummaryFrequency:         parseInt(document.querySelector('input[name="freq"]:checked').value, 10),
+      IncludeGradeValue:        document.getElementById('includeGrade').checked,
+      AllowFutureCoursesToSend: document.getElementById('futureCoures').checked
+    };
+  }
+
+  function updatePreview() {
+    const p = getPayload();
+    document.getElementById('pFreq').textContent  = p.SummaryFrequency;
+    const gEl = document.getElementById('pGrade');
+    gEl.textContent  = p.IncludeGradeValue;
+    gEl.style.color  = p.IncludeGradeValue ? '#007a33' : '#cc0000';
+    const fEl = document.getElementById('pFuture');
+    fEl.textContent  = p.AllowFutureCoursesToSend;
+    fEl.style.color  = p.AllowFutureCoursesToSend ? '#007a33' : '#cc0000';
+  }
+
+  // ── Speed estimate display ────────────────────────────────
+  function updateSpeedEstimate() {
+    const n = parseInt(document.getElementById('concurrencySlider').value, 10);
+    document.getElementById('concurrencyVal').textContent = n;
+    // ~2 req per user, ~150–250ms round-trip each, sequential per worker
+    const minRps = Math.round(n * (1000 / 500));  // pessimistic 500ms/req
+    const maxRps = Math.round(n * (1000 / 200));  // optimistic 200ms/req
+    const minMin = Math.round(50000 / maxRps / 60);
+    const maxMin = Math.round(50000 / minRps / 60);
+    document.getElementById('speedEstimate').textContent =
+      `~${minRps}–${maxRps} req/sec  ·  50k users ≈ ${minMin}–${maxMin} min`;
+  }
+
+  // ── CSRF token ────────────────────────────────────────────
+  function getCsrfToken() {
+    const fromStorage = localStorage.getItem('XSRF.Token');
+    if (fromStorage) return fromStorage;
+    try {
+      if (window.D2L && D2L.LP && D2L.LP.Web &&
+          D2L.LP.Web.Authentication && D2L.LP.Web.Authentication.Xsrf) {
+        const t = D2L.LP.Web.Authentication.Xsrf.GetValue();
+        if (t) return t;
+      }
+    } catch(e) {}
+    const meta = document.querySelector('meta[name="csrf-token"], meta[name="d2l-csrf-token"]');
+    if (meta && meta.content) return meta.content;
+    return null;
+  }
+
+  // ── Rate-limit aware fetch ────────────────────────────────
+  function rlConsumeHeaders(res) {
+    const rem = res.headers.get('X-Rate-Limit-Remaining');
+    const lim = res.headers.get('X-Rate-Limit-Limit');
+    if (rem !== null) RL.remaining = parseInt(rem, 10);
+    if (lim !== null) RL.limit     = parseInt(lim, 10);
+  }
+
+  function computeDynamicDelay() {
+    if (RL.remaining === null) return 0;
+    const cap = RL.limit || 150;
+    const pct = RL.remaining / cap;
+    if (pct > 0.30) return 0;    // plenty of credits — no delay
+    if (pct > 0.15) return 100;  // getting low — small pause
+    if (pct > 0.05) return 300;  // low — noticeable pause
+    return 800;                  // critical — significant pause
+  }
+
+  async function rlFetch(url, options, label) {
+    // Dynamic delay — only kicks in when credits are low
+    const delay = computeDynamicDelay();
+    if (delay > 0) await sleep(delay);
+
+    let attempt = 0;
+    const MAX_RETRIES = 5;
+
+    while (attempt <= MAX_RETRIES) {
+      let res;
+      try { res = await fetch(url, options); }
+      catch(e) { throw e; }
+
+      rlConsumeHeaders(res);
+
+      if (res.status !== 429) return res;
+
+      attempt++;
+      if (attempt > MAX_RETRIES) return res;
+
+      // Exponential backoff: respect Retry-After or use 1s/2s/4s/8s/16s
+      const retryAfter = res.headers.get('Retry-After');
+      const waitMs = retryAfter
+        ? parseInt(retryAfter, 10) * 1000
+        : Math.min(1000 * Math.pow(2, attempt - 1), 30000);
+
+      rlSetWaiting(true, `⏸ 429 on ${label} — retry ${attempt}/${MAX_RETRIES} in ${waitMs/1000}s…`);
+      await sleep(waitMs);
+      rlSetWaiting(false);
+    }
+  }
+
+  // ── Rate-limit UI ─────────────────────────────────────────
+  function rlUpdateUI() {
+    const fill  = document.getElementById('rlFill');
+    const count = document.getElementById('rlCount');
+    if (RL.remaining === null) {
+      count.textContent = '—';
+      fill.style.width  = '100%';
+      fill.className    = 'rl-fill ok';
+      return;
+    }
+    const cap = RL.limit || 150;
+    const pct = Math.max(0, Math.min(100, (RL.remaining / cap) * 100));
+    fill.style.width = pct + '%';
+    count.textContent = `${RL.remaining.toLocaleString()} / ${cap.toLocaleString()} credits`;
+    fill.className = 'rl-fill ' + (pct > 30 ? 'ok' : pct > 10 ? 'warn' : 'low');
+  }
+
+  function rlSetWaiting(on, msg = '') {
+    const el = document.getElementById('rlWaiting');
+    el.style.display  = on ? 'inline-block' : 'none';
+    if (on) el.textContent = msg;
+    rlUpdateUI();
+  }
+
+  // ── Progress ticker (runs on interval, not blocking workers) ─
+  let uiTimer = null;
+  function startUiTicker() {
+    uiTimer = setInterval(() => {
+      updateStats();
+      rlUpdateUI();
+      updateProgress();
+    }, 200);
+  }
+  function stopUiTicker() {
+    if (uiTimer) { clearInterval(uiTimer); uiTimer = null; }
+  }
+
+  function updateProgress() {
+    const done  = stats.done;
+    const total = stats.total;
+    if (!total) return;
+    const pct = Math.round((done / total) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressPct').textContent  = pct + '%';
+
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (done > 5 && elapsed > 1) {
+      const rate      = done / elapsed;
+      const remaining = total - done;
+      const etaSec    = remaining / rate;
+      document.getElementById('progressLabel').textContent =
+        `${done.toLocaleString()} / ${total.toLocaleString()} ` +
+        `— ${rate.toFixed(1)} users/sec ` +
+        `— ETA: ${formatDuration(etaSec * 1000)}`;
+    } else {
+      document.getElementById('progressLabel').textContent =
+        `${done.toLocaleString()} / ${total.toLocaleString()} — starting…`;
+    }
+  }
+
+  function formatDuration(ms) {
+    const s   = Math.round(ms / 1000);
+    const h   = Math.floor(s / 3600);
+    const m   = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  }
+
+  // ── Main orchestrator ─────────────────────────────────────
+  async function processUsernames() {
+    if (running) return;
+
+    const raw = document.getElementById('usernameInput').value;
+    const names = [...new Set(raw.split('\n').map(s => s.trim()).filter(Boolean))];
+    if (!names.length) { alert('Please enter at least one username.'); return; }
+
+    running     = true;
+    results     = [];
+    domRowCount = 0;
+    stats       = { total: names.length, ok: 0, fail: 0, skip: 0, done: 0 };
+    RL.remaining = null;
+    RL.limit     = null;
+    startTime    = Date.now();
+
+    const btn = document.getElementById('processBtn');
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin"></span> Processing…`;
+
+    document.getElementById('emptyState').style.display   = 'none';
+    document.getElementById('resultList').style.display   = 'block';
+    document.getElementById('statsBar').style.display     = 'flex';
+    document.getElementById('progressWrap').style.display = 'block';
+    document.getElementById('rlBar').style.display        = 'flex';
+    document.getElementById('logCapNote').style.display   = 'none';
+    document.getElementById('exportBtn').style.display    = 'none';
+    document.getElementById('clearBtn').style.display     = 'none';
+    document.getElementById('exportRow').style.display    = 'none';
+    document.getElementById('resultList').innerHTML       = '';
+    updateStats();
+    rlUpdateUI();
+    startUiTicker();
+
+    const payload     = getPayload();
+    const concurrency = parseInt(document.getElementById('concurrencySlider').value, 10);
+    let   queueIndex  = 0;
+    const getNext     = () => queueIndex < names.length ? names[queueIndex++] : null;
+
+    // Launch N concurrent workers — each loops until queue is empty
+    await Promise.all(
+      Array.from({ length: concurrency }, () => runWorker(getNext, payload))
+    );
+
+    stopUiTicker();
+
+    // Final UI pass
+    rlSetWaiting(false);
+    rlUpdateUI();
+    updateStats();
+    document.getElementById('progressFill').style.width = '100%';
+    document.getElementById('progressPct').textContent  = '100%';
+    const elapsed = formatDuration(Date.now() - startTime);
+    document.getElementById('progressLabel').textContent =
+      `Completed in ${elapsed} — ` +
+      `${stats.ok.toLocaleString()} updated, ` +
+      `${stats.fail.toLocaleString()} failed, ` +
+      `${stats.skip.toLocaleString()} skipped`;
+
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Process Usernames`;
+    running = false;
+
+    document.getElementById('exportBtn').style.display = 'inline-flex';
+    document.getElementById('clearBtn').style.display  = 'inline-flex';
+    document.getElementById('exportRow').style.display = 'flex';
+  }
+
+  // ── Worker: loops until queue is exhausted ────────────────
+  async function runWorker(getNext, payload) {
+    while (true) {
+      const username = getNext();
+      if (username === null) return;
+      await processOneUser(username, payload);
+    }
+  }
+
+  // ── Process a single user (GET → PUT) ────────────────────
+  async function processOneUser(username, payload) {
+    // ── GET user by username ──
+    let userId = null, fullName = '';
+    try {
+      const getUrl = `/d2l/api/lp/${lpVersion}/users/?userName=${encodeURIComponent(username)}`;
+      const getRes = await rlFetch(getUrl, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+      }, 'GET');
+
+      if (getRes.status === 429) { recordResult(username,'fail','','GET 429: rate limit — max retries exceeded',''); return; }
+      if (getRes.status === 404) { recordResult(username,'skip','','User not found',''); return; }
+      if (!getRes.ok) {
+        const t = await getRes.text().catch(() => getRes.statusText);
+        recordResult(username,'fail','',`GET ${getRes.status}: ${t.substring(0,80)}`,''); return;
+      }
+
+      const data = await getRes.json();
+      const user = Array.isArray(data) ? data[0] : data;
+      if (!user || !user.UserId) { recordResult(username,'skip','','No user data returned',''); return; }
+
+      userId   = user.UserId;
+      fullName = [user.FirstName, user.LastName].filter(Boolean).join(' ');
+
+    } catch(e) { recordResult(username,'fail','',`Network error: ${e.message}`,''); return; }
+
+    // ── PUT notification settings ──
+    const csrfToken = getCsrfToken();
+    if (!csrfToken) {
+      recordResult(username,'fail',userId,'No XSRF token — refresh the page while logged in',fullName);
+      return;
+    }
+
+    try {
+      const putUrl = `/d2l/api/lp/${lpVersion}/notifications/instant/users/${userId}/settings`;
+      const putRes = await rlFetch(putUrl, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept':       'application/json',
+          'X-Csrf-Token': csrfToken
+        },
+        body: JSON.stringify({
+          SummaryFrequency:         payload.SummaryFrequency,
+          IncludeGradeValue:        payload.IncludeGradeValue,
+          AllowFutureCoursesToSend: payload.AllowFutureCoursesToSend
+        })
+      }, 'PUT');
+
+      if (putRes.status === 429) {
+        recordResult(username,'fail',userId,'PUT 429: rate limit — max retries exceeded',fullName);
+      } else if (!putRes.ok) {
+        const t = await putRes.text().catch(() => putRes.statusText);
+        recordResult(username,'fail',userId,`PUT ${putRes.status}: ${t.substring(0,80)}`,fullName);
+      } else {
+        recordResult(username,'ok',userId,'Updated ✓',fullName);
+      }
+    } catch(e) { recordResult(username,'fail',userId,`PUT error: ${e.message}`,fullName); }
+  }
+
+  // ── Result recorder (stats + DOM + memory) ───────────────
+  function recordResult(username, status, userId, detail, fullName) {
+    stats.done++;
+    if      (status === 'ok')   stats.ok++;
+    else if (status === 'fail') stats.fail++;
+    else                        stats.skip++;
+
+    results.push({ username, status, userId: userId || '', detail, fullName: fullName || '' });
+    addToDOM(username, status, userId, detail, fullName);
+  }
+
+  // ── Rolling DOM log ───────────────────────────────────────
+  function addToDOM(username, status, userId, detail, fullName) {
+    const list = document.getElementById('resultList');
+
+    // Trim oldest non-fail row when at cap
+    if (domRowCount >= MAX_DOM_ROWS) {
+      const oldest = list.querySelector('.result-row:not(.row-fail)');
+      if (oldest) { oldest.remove(); domRowCount--; }
+      // Update cap note
+      const note = document.getElementById('logCapNote');
+      note.style.display  = 'block';
+      note.textContent    =
+        `Showing last ${MAX_DOM_ROWS} results — all ${stats.done.toLocaleString()} saved to CSV export`;
+    }
+
+    list.insertAdjacentHTML('beforeend', rowHtml(username, status, userId, detail, fullName));
+    domRowCount++;
+    // Auto-scroll to newest
+    list.scrollTop = list.scrollHeight;
+  }
+
+  // ── Row HTML ──────────────────────────────────────────────
+  function rowHtml(username, status, userId, detail, fullName) {
+    const icons = {
+      ok:   `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+      fail: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      skip: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`
+    };
+    const badges = {
+      ok:   `<span class="badge badge-ok">Updated</span>`,
+      fail: `<span class="badge badge-fail">Failed</span>`,
+      skip: `<span class="badge badge-skip">Skipped</span>`
+    };
+    // row-fail class prevents the row from being trimmed by the rolling log
+    const extraClass = status === 'fail' ? ' row-fail' : '';
+    return `
+      <div class="result-row${extraClass}">
+        <div class="row-icon ${status}">${icons[status] || ''}</div>
+        <div class="row-user">
+          <div class="row-username">${escHtml(username)}</div>
+          <div class="row-detail">${escHtml(fullName || detail)}</div>
+        </div>
+        <div class="row-userid">${userId ? '#' + userId : ''}</div>
+        <div>${badges[status] || ''}</div>
+      </div>`;
+  }
+
+  // ── Stats ─────────────────────────────────────────────────
+  function updateStats() {
+    document.getElementById('statTotal').textContent = stats.total.toLocaleString();
+    document.getElementById('statDone').textContent  = stats.done.toLocaleString();
+    document.getElementById('statOk').textContent    = stats.ok.toLocaleString();
+    document.getElementById('statFail').textContent  = stats.fail.toLocaleString();
+    document.getElementById('statSkip').textContent  = stats.skip.toLocaleString();
+  }
+
+  function clearResults() {
+    stopUiTicker();
+    results = [];
+    domRowCount = 0;
+    stats = { total: 0, ok: 0, fail: 0, skip: 0, done: 0 };
+    document.getElementById('resultList').innerHTML       = '';
+    document.getElementById('resultList').style.display   = 'none';
+    document.getElementById('statsBar').style.display     = 'none';
+    document.getElementById('progressWrap').style.display = 'none';
+    document.getElementById('rlBar').style.display        = 'none';
+    document.getElementById('logCapNote').style.display   = 'none';
+    document.getElementById('emptyState').style.display   = 'block';
+    document.getElementById('exportBtn').style.display    = 'none';
+    document.getElementById('clearBtn').style.display     = 'none';
+    document.getElementById('exportRow').style.display    = 'none';
+    updateStats();
+  }
+
+  // ── CSV export ────────────────────────────────────────────
+  function exportCSV() {
+    const rows = [['Username','UserId','Full Name','Status','Detail']];
+    results.forEach(r =>
+      rows.push([r.username, r.userId, r.fullName, r.status, r.detail])
+    );
+    const csv  = rows.map(r =>
+      r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')
+    ).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `notification_update_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  }
+
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+  detectVersion();
+  updatePreview();
+  updateSpeedEstimate();
+</script>
+</body>
+</html>

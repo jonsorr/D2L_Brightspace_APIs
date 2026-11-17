@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Correct User Emails
+  Bulk-corrects user email addresses based on each user's org-level role to stop bounce-backs.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<meta name="author" content="Jonathan Sorrenti">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D2L Correct User Emails</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #003366; --brand-light: #e6eef7; --brand-mid: #336699;
+      --success: #1a7a3c; --success-bg: #e8f5ee;
+      --error: #b91c1c; --error-bg: #fef2f2;
+      --warn: #92400e; --warn-bg: #fffbeb;
+      --skip: #374151; --skip-bg: #f3f4f6;
+      --dry: #6d28d9; --dry-bg: #f3effd;
+      --surface: #ffffff; --surface-2: #f8f9fb;
+      --border: #d1d5db; --border-light: #e5e7eb;
+      --text-primary: #111827; --text-secondary: #4b5563; --text-muted: #9ca3af;
+      --radius: 6px; --radius-lg: 10px;
+      --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: 'Consolas', 'Courier New', monospace;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    }
+
+    body { font-family: var(--font); background: #eef1f5; color: var(--text-primary); min-height: 100vh; }
+
+    .header { background: var(--brand); padding: 0 2rem; display: flex; align-items: center; height: 56px; gap: 14px; }
+    .header-logo { display: flex; align-items: center; gap: 10px; }
+    .header-title { color: #fff; font-size: 15px; font-weight: 600; }
+    .header-sub { color: rgba(255,255,255,.65); font-size: 13px; margin-left: auto; }
+    .version-badge { background: rgba(255,255,255,.15); color: rgba(255,255,255,.9); font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,.2); }
+
+    .page { max-width: 1040px; margin: 0 auto; padding: 2rem 1.5rem 3rem; display: grid; grid-template-columns: 350px 1fr; gap: 1.25rem; align-items: start; }
+
+    .card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+    .card-header { padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; gap: 8px; }
+    .card-header-icon { width: 28px; height: 28px; background: var(--brand-light); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--brand-mid); }
+    .card-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+    .card-body { padding: 1.25rem; }
+
+    .lbl { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
+    textarea, input[type="text"] { width: 100%; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; outline: none; transition: border-color .15s, box-shadow .15s; }
+    textarea { min-height: 180px; line-height: 1.6; resize: vertical; }
+    textarea:focus, input[type="text"]:focus { border-color: var(--brand-mid); box-shadow: 0 0 0 3px rgba(51,102,153,.15); background: var(--surface); }
+    .field { margin-bottom: 1rem; }
+    .field:last-child { margin-bottom: 0; }
+    .field-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.45; }
+
+    .seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .confirm-panel { margin: 1rem 1.25rem; padding: 1rem 1.1rem; border: 2px solid #f59e0b; background: var(--warn-bg); border-radius: var(--radius); }
+    .confirm-panel.notice { border-color: var(--brand-mid); background: var(--brand-light); }
+    .confirm-title { font-size: 13px; font-weight: 700; color: var(--warn); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+    .confirm-panel.notice .confirm-title { color: var(--brand); }
+    .confirm-msg { font-size: 13px; line-height: 1.55; color: var(--text-primary); white-space: pre-wrap; }
+    .confirm-btns { display: flex; gap: 8px; margin-top: .85rem; }
+    .btn-go { background: var(--success); color: #fff; }
+    .btn-go:hover:not(:disabled) { background: #146130; }
+    .btn-stop { background: var(--error-bg); color: var(--error); border: 1px solid #fca5a5; font-size: 12px; padding: 5px 12px; }
+    .seg-opt { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; cursor: pointer; display: flex; align-items: center; gap: 7px; font-size: 13px; background: var(--surface-2); transition: all .15s; }
+    .seg-opt input { accent-color: var(--brand-mid); }
+    .seg-opt:has(input:checked) { border-color: var(--brand-mid); background: var(--brand-light); color: var(--brand); font-weight: 600; }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: .5rem 0; border-bottom: 1px solid var(--border-light); }
+    .toggle-row:last-child { border-bottom: none; }
+    .toggle-label { font-size: 13px; font-weight: 500; }
+    .toggle-desc { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .toggle { position: relative; width: 38px; height: 22px; flex-shrink: 0; margin-left: 12px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track { position: absolute; inset: 0; background: var(--border); border-radius: 11px; cursor: pointer; transition: background .2s; }
+    .toggle-track::after { content: ''; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .toggle input:checked + .toggle-track { background: var(--brand-mid); }
+    .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+
+    .role-list { max-height: 180px; overflow-y: auto; border: 1px solid var(--border-light); border-radius: var(--radius); background: var(--surface-2); padding: 4px 0; }
+    .role-item { display: flex; align-items: center; gap: 8px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+    .role-item:hover { background: var(--brand-light); }
+    .role-item input { accent-color: var(--brand-mid); }
+    .role-item .rid { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: var(--font); font-size: 14px; font-weight: 600; border-radius: var(--radius); border: none; cursor: pointer; padding: 9px 18px; transition: background .15s, transform .1s, opacity .15s; }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-primary { background: var(--brand); color: #fff; width: 100%; }
+    .btn-primary:hover:not(:disabled) { background: #002952; }
+    .btn-primary.dry { background: var(--dry); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); font-size: 12px; padding: 5px 12px; }
+    .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+
+    .results-empty { text-align: center; padding: 3.5rem 1rem; color: var(--text-muted); }
+    .results-empty svg { margin: 0 auto 12px; display: block; opacity: .35; }
+    .results-empty p { font-size: 13px; }
+    .results-header { display: flex; align-items: center; justify-content: space-between; padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); }
+    .results-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+    .results-actions { display: flex; gap: 6px; }
+
+    .stats-bar { display: flex; gap: 1px; background: var(--border-light); border-bottom: 1px solid var(--border-light); }
+    .stat-cell { flex: 1; padding: .625rem .5rem; background: var(--surface); text-align: center; }
+    .stat-num { font-size: 20px; font-weight: 700; line-height: 1; margin-bottom: 2px; }
+    .stat-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat-ok .stat-num { color: var(--success); }
+    .stat-fail .stat-num { color: var(--error); }
+    .stat-skip .stat-num { color: var(--skip); }
+
+    .progress-wrap { padding: .75rem 1.25rem; background: var(--surface-2); border-bottom: 1px solid var(--border-light); }
+    .progress-track { height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--brand-mid), var(--brand)); border-radius: 3px; transition: width .3s ease; width: 0%; }
+    .progress-text { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; }
+
+    .result-list { max-height: 480px; overflow-y: auto; }
+    .result-row { display: grid; grid-template-columns: 28px minmax(0,1fr) 90px 110px; align-items: center; gap: 10px; padding: .65rem 1.25rem; border-bottom: 1px solid var(--border-light); font-size: 13px; animation: rowIn .2s ease; }
+    .result-row:last-child { border-bottom: none; }
+    @keyframes rowIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+    .row-icon { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .row-icon.ok { background: var(--success-bg); color: var(--success); }
+    .row-icon.fail { background: var(--error-bg); color: var(--error); }
+    .row-icon.skip { background: var(--skip-bg); color: var(--skip); }
+    .row-icon.dry { background: var(--dry-bg); color: var(--dry); }
+    .row-user { overflow: hidden; }
+    .row-input { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-detail { font-size: 11px; color: var(--text-muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-userid { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+
+    .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
+    .badge-ok { background: var(--success-bg); color: var(--success); }
+    .badge-fail { background: var(--error-bg); color: var(--error); }
+    .badge-skip { background: var(--skip-bg); color: var(--skip); }
+    .badge-dry { background: var(--dry-bg); color: var(--dry); }
+
+    .rl-bar { display: flex; align-items: center; gap: 10px; padding: .5rem 1.25rem; background: var(--surface-2); border-bottom: 1px solid var(--border-light); font-size: 11px; color: var(--text-muted); }
+    .rl-track { flex: 1; height: 5px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .rl-fill { height: 100%; border-radius: 3px; transition: width .4s ease, background .4s ease; }
+    .rl-fill.ok { background: var(--success); } .rl-fill.warn { background: #f59e0b; } .rl-fill.low { background: var(--error); }
+    .rl-count { font-family: var(--font-mono); white-space: nowrap; }
+    .rl-waiting { color: var(--warn); background: var(--warn-bg); border-radius: 4px; padding: 2px 7px; display: none; }
+
+    .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .api-info { background: var(--brand-light); border: 1px solid #c3d9ee; border-radius: var(--radius); padding: .625rem .875rem; font-size: 12px; color: var(--brand); display: flex; align-items: center; gap: 7px; margin-bottom: 1rem; }
+    .api-info strong { font-family: var(--font-mono); }
+    .alert { border-radius: var(--radius); padding: .75rem 1rem; font-size: 12px; margin-bottom: 1rem; line-height: 1.45; }
+    .alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fcd34d55; }
+
+    .export-row { padding: .875rem 1.25rem; border-top: 1px solid var(--border-light); display: flex; gap: 8px; background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .result-list::-webkit-scrollbar, .role-list::-webkit-scrollbar { width: 6px; }
+    .result-list::-webkit-scrollbar-thumb, .role-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .log-cap-note { text-align:center; font-size:11px; color:var(--text-muted); padding:.4rem; border-bottom:1px solid var(--border-light); background: var(--surface-2); }
+
+    .speed-slider-wrap input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 3px; background: var(--border); outline: none; cursor: pointer; }
+    .speed-slider-wrap input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--brand-mid); cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+    .speed-markers { display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-top:3px; }
+    .speed-estimate { font-size:11px; color:var(--brand); margin-top:5px; font-weight:600; }
+
+    .payload-preview { background:var(--surface-2); border:1px solid var(--border-light); border-radius:var(--radius); padding:.75rem; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); line-height:1.7; margin-top:.75rem; white-space: pre; overflow-x: auto; }
+    .payload-preview .c { color: var(--text-muted); }
+    .payload-preview .n { color: #007a33; font-weight: 700; }
+
+    @media (max-width: 760px) { .page { grid-template-columns: 1fr; } .header-sub { display: none; } }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect width="26" height="26" rx="5" fill="rgba(255,255,255,.15)"/>
+      <path d="M7 19V7h5.5c3.5 0 5.5 1.8 5.5 4.5 0 1.8-1 3.2-2.6 3.9L19 19h-3.2l-2.8-3.2H10V19H7zm3-5.7h2.3c1.7 0 2.7-.8 2.7-2.1 0-1.3-1-2-2.7-2H10v4.1z" fill="white"/>
+    </svg>
+    <span class="header-title">Brightspace Admin — Correct User Emails</span>
+  </div>
+  <span class="header-sub">Role-Based Email Bulk Updater</span>
+  <span class="version-badge" id="versionBadge">LP ver …</span>
+</div>
+
+<div class="page">
+
+  <!-- ═════════ Left column ═════════ -->
+  <div style="display:flex; flex-direction:column; gap:1.25rem;">
+
+    <!-- Input card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+        <h2>User List</h2>
+      </div>
+      <div class="card-body">
+        <div id="apiInfoBar" class="api-info" style="display:none">
+          Authenticated via session &nbsp;·&nbsp; LP <strong id="lpVersion">—</strong>
+        </div>
+        <div id="authAlert" class="alert alert-warn" style="display:none"></div>
+
+        <div class="field">
+          <label class="lbl">Look Up By</label>
+          <div class="seg">
+            <label class="seg-opt"><input type="radio" name="lookup" value="username" checked> Username</label>
+            <label class="seg-opt"><input type="radio" name="lookup" value="email"> Email</label>
+            <label class="seg-opt"><input type="radio" name="lookup" value="domain"> Domain</label>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="lbl" for="listInput" id="listLabel">Usernames</label>
+          <textarea id="listInput" spellcheck="false"></textarea>
+          <p class="field-hint" id="listHint"></p>
+        </div>
+
+        <div class="toggle-row" id="activeOnlyRow" style="display:none; margin-bottom:.75rem">
+          <div><div class="toggle-label">Active Users Only</div><div class="toggle-desc">Domain scan skips inactive accounts</div></div>
+          <label class="toggle"><input type="checkbox" id="activeOnly"><span class="toggle-track"></span></label>
+        </div>
+
+        <button class="btn btn-primary" id="processBtn" onclick="processList()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="processBtnLabel">Update Emails</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Email rules card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        </div>
+        <h2>Email Rules</h2>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <label class="lbl" for="studentDomain">Student Domain</label>
+          <input type="text" id="studentDomain" value="" placeholder="e.g. student.yourschool.edu" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl" for="staffDomain">All Other Roles Domain</label>
+          <input type="text" id="staffDomain" value="" placeholder="e.g. yourschool.edu" spellcheck="false">
+        </div>
+        <div class="field">
+          <label class="lbl">Roles Treated as Student</label>
+          <div class="role-list" id="roleList"><div class="role-item" style="cursor:default;color:var(--text-muted)">Loading roles…</div></div>
+          <p class="field-hint">Pre-checked: any role with "student" in its name. The role checked is each user's org-level role.</p>
+        </div>
+
+        <div class="toggle-row">
+          <div><div class="toggle-label">Dry Run</div><div class="toggle-desc">Show what would change — no updates are made</div></div>
+          <label class="toggle"><input type="checkbox" id="dryRun"><span class="toggle-track"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div><div class="toggle-label">Verify After Update</div><div class="toggle-desc">Re-read the user to confirm the new email saved</div></div>
+          <label class="toggle"><input type="checkbox" id="verifyAfter" checked><span class="toggle-track"></span></label>
+        </div>
+
+        <div class="payload-preview"><span class="c">// PUT /users/{UserId} — built from the user's current data</span>
+{
+  "OrgDefinedId":  <span class="c">&lt;unchanged&gt;</span>,
+  "FirstName":     <span class="c">&lt;unchanged&gt;</span>,
+  "MiddleName":    <span class="c">&lt;unchanged&gt;</span>,
+  "LastName":      <span class="c">&lt;unchanged&gt;</span>,
+  "UserName":      <span class="c">&lt;unchanged&gt;</span>,
+  "Activation":    { "IsActive": <span class="c">&lt;unchanged&gt;</span> },
+  "Pronouns":      null,  <span class="c">// null = leave as-is</span>
+  "ExternalEmail": <span class="n" id="previewEmail">"username@…"</span>
+}</div>
+      </div>
+    </div>
+
+    <!-- Speed card -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        </div>
+        <h2>Processing Speed</h2>
+      </div>
+      <div class="card-body">
+        <label class="lbl">Concurrent Workers &nbsp;<span id="concurrencyVal" style="font-size:15px;font-weight:800;color:var(--brand-mid);font-family:var(--font-mono)">10</span></label>
+        <div class="speed-slider-wrap">
+          <input type="range" id="concurrencySlider" min="1" max="25" value="10" oninput="updateSpeedEstimate()">
+          <div class="speed-markers"><span>1</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span></div>
+        </div>
+        <div class="speed-estimate" id="speedEstimate"></div>
+        <p class="field-hint" style="margin-top:4px">Rate limit monitor auto-throttles if credits drop. Start at 10 and increase if the bar stays green.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ Right column — Results ═════════ -->
+  <div class="card">
+    <div class="results-header">
+      <h2>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-mid)"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Results
+      </h2>
+      <div class="results-actions">
+        <button class="btn btn-stop" id="stopBtn" onclick="requestStop()" style="display:none">Stop</button>
+        <button class="btn btn-ghost" id="exportBtn" onclick="exportCSV()" style="display:none">Export CSV</button>
+        <button class="btn btn-ghost" id="clearBtn" onclick="clearResults()" style="display:none">Clear</button>
+      </div>
+    </div>
+
+    <!-- In-page confirm / notice panel (replaces browser pop-ups, which Brightspace frames can block) -->
+    <div id="confirmPanel" class="confirm-panel" style="display:none">
+      <div class="confirm-title" id="confirmTitle">Confirm</div>
+      <div class="confirm-msg" id="confirmMsg"></div>
+      <div class="confirm-btns">
+        <button class="btn btn-go" id="confirmYes">Continue</button>
+        <button class="btn btn-ghost" id="confirmNo">Cancel</button>
+      </div>
+    </div>
+
+    <div id="statsBar" class="stats-bar" style="display:none">
+      <div class="stat-cell"><div class="stat-num" id="statTotal">0</div><div class="stat-lbl">Total</div></div>
+      <div class="stat-cell"><div class="stat-num" id="statDone">0</div><div class="stat-lbl">Done</div></div>
+      <div class="stat-cell stat-ok"><div class="stat-num" id="statOk">0</div><div class="stat-lbl" id="statOkLbl">Updated</div></div>
+      <div class="stat-cell stat-fail"><div class="stat-num" id="statFail">0</div><div class="stat-lbl">Failed</div></div>
+      <div class="stat-cell stat-skip"><div class="stat-num" id="statSkip">0</div><div class="stat-lbl">Skipped</div></div>
+    </div>
+
+    <div id="progressWrap" class="progress-wrap" style="display:none">
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-text"><span id="progressLabel">Processing…</span><span id="progressPct">0%</span></div>
+    </div>
+
+    <div id="rlBar" class="rl-bar" style="display:none">
+      <span>API Credits</span>
+      <div class="rl-track"><div class="rl-fill ok" id="rlFill" style="width:100%"></div></div>
+      <span class="rl-count" id="rlCount">—</span>
+      <span class="rl-waiting" id="rlWaiting">⏸ Rate limited — waiting…</span>
+    </div>
+
+    <div id="emptyState" class="results-empty">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+      <p>Results will appear here after processing</p>
+    </div>
+
+    <div id="logCapNote" class="log-cap-note" style="display:none"></div>
+    <div class="result-list" id="resultList" style="display:none"></div>
+
+    <div class="export-row" id="exportRow" style="display:none">
+      <button class="btn btn-ghost" onclick="exportCSV()">Download CSV Report (includes original emails for restore)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────
+  let lpVersion = '1.49';
+  let orgId = null;
+  let rolesById = {};          // RoleId -> DisplayName
+  let running = false;
+  let runOpts = {};
+  let results = [];
+  let stats = { total: 0, done: 0, ok: 0, fail: 0, skip: 0 };
+  let startTime = null;
+  let domRowCount = 0;
+  const MAX_DOM_ROWS = 300;
+
+  const RL = { remaining: null, limit: null };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const norm = s => String(s || '').trim().toLowerCase();
+  const api = path => `/d2l/api/lp/${lpVersion}${path}`;
+
+  // ── Init: version, org, roles ─────────────────────────────
+  async function init() {
+    let ok = true;
+    try {
+      const r = await fetch('/d2l/api/versions/', { credentials: 'include' });
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      const lp = data.find(e => (e.ProductCode || '').toLowerCase() === 'lp');
+      if (lp && lp.LatestVersion) lpVersion = lp.LatestVersion;
+    } catch { ok = false; }
+    document.getElementById('versionBadge').textContent = 'LP ' + lpVersion;
+    document.getElementById('lpVersion').textContent = lpVersion;
+    document.getElementById('apiInfoBar').style.display = 'flex';
+
+    const problems = [];
+    if (!ok) problems.push('Could not detect LP version — using ' + lpVersion + '. This page must be hosted within Brightspace.');
+
+    try {
+      const r = await fetch(api('/organization/info'), { credentials: 'include' });
+      if (!r.ok) throw new Error(r.status);
+      orgId = (await r.json()).Identifier;
+    } catch(e) { problems.push(`Could not read the org ID (${e.message}) — roles can't be checked.`); }
+
+    try {
+      const r = await fetch(api('/roles/'), { credentials: 'include' });
+      if (!r.ok) throw new Error(r.status);
+      const roles = await r.json();
+      roles.sort((a, b) => a.DisplayName.localeCompare(b.DisplayName));
+      roles.forEach(ro => rolesById[String(ro.Identifier)] = ro.DisplayName);
+      document.getElementById('roleList').innerHTML = roles.map(ro => `
+        <label class="role-item">
+          <input type="checkbox" class="student-role" value="${escHtml(ro.Identifier)}" ${/student/i.test(ro.DisplayName + ' ' + (ro.Code || '')) ? 'checked' : ''}>
+          ${escHtml(ro.DisplayName)}<span class="rid">${escHtml(ro.Identifier)}</span>
+        </label>`).join('');
+    } catch(e) {
+      document.getElementById('roleList').innerHTML = '<div class="role-item" style="cursor:default;color:var(--error)">Could not load roles</div>';
+      problems.push(`Could not load the role list (${e.message}).`);
+    }
+
+    if (problems.length) {
+      const a = document.getElementById('authAlert');
+      a.innerHTML = problems.map(escHtml).join('<br>');
+      a.style.display = 'block';
+    }
+  }
+
+  // ── Lookup mode UI ────────────────────────────────────────
+  function lookupMode() { return document.querySelector('input[name="lookup"]:checked').value; }
+  function refreshLookupUI() {
+    const mode = lookupMode();
+    const cfg = {
+      username: {
+        label: 'Usernames', ph: 'jsmith\nmwilliams\ntjones',
+        hint: 'One username per line. Blank lines and duplicates are ignored.'
+      },
+      email: {
+        label: 'Current Email Addresses', ph: 'old.address@gmail.com\nbounced@yahoo.com\nwrong@hotmail.com',
+        hint: 'One email per line — finds every user whose account email matches. Duplicates and invalid lines are ignored.'
+      },
+      domain: {
+        label: 'Email Domains', ph: 'gmail.com\nyahoo.com\nhotmail.com',
+        hint: 'One domain per line (with or without @). Scans every user and updates anyone whose account email is on these domains. Exact domain only — gmail.com does not match googlemail.com.'
+      }
+    }[mode];
+    document.getElementById('listLabel').textContent = cfg.label;
+    document.getElementById('listInput').placeholder = cfg.ph;
+    document.getElementById('listHint').textContent = cfg.hint;
+    document.getElementById('activeOnlyRow').style.display = mode === 'domain' ? 'flex' : 'none';
+  }
+
+  let stopRequested = false;
+  function requestStop() {
+    stopRequested = true;
+    document.getElementById('stopBtn').textContent = 'Stopping…';
+    if (pendingAnswer) pendingAnswer(false);   // a waiting confirm counts as Cancel
+  }
+
+  // ── In-page confirm / notice (no browser pop-ups) ─────────
+  let pendingAnswer = null;
+  function showPanel(title, msg, yesLabel, noLabel, isNotice) {
+    return new Promise(resolve => {
+      const p = document.getElementById('confirmPanel');
+      const yes = document.getElementById('confirmYes'), no = document.getElementById('confirmNo');
+      document.getElementById('confirmTitle').textContent = title;
+      document.getElementById('confirmMsg').textContent = msg;
+      p.classList.toggle('notice', !!isNotice);
+      yes.style.display = yesLabel ? '' : 'none';
+      yes.textContent = yesLabel || '';
+      no.textContent = noLabel;
+      const done = val => { p.style.display = 'none'; pendingAnswer = null; resolve(val); };
+      pendingAnswer = done;
+      yes.onclick = () => done(true);
+      no.onclick = () => done(false);
+      p.style.display = 'block';
+      p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+  const askConfirm = (msg, yesLabel = 'Continue') => showPanel('Confirm changes', msg, yesLabel, 'Cancel', false);
+  const notify = msg => { showPanel('Heads up', msg, null, 'OK', true); };
+
+  // ── Domain scan: page through all users, keep matching domains ──
+  async function scanDomains(domains) {
+    const domainSet = new Set(domains);
+    const matches = [];
+    let bookmark = '', scanned = 0;
+    while (!stopRequested) {
+      const res = await apiGet(`/users/?bookmark=${encodeURIComponent(bookmark)}`, 'GET users page');
+      if (!res.ok) { recordResult({ input: '(user scan)', status: 'fail', detail: `Scan stopped — ${await errText(res)}` }); break; }
+      const page = await res.json();
+      const items = (page && page.Items) || [];
+      for (const u of items) {
+        scanned++;
+        if (!u || !u.UserId) continue;
+        if (runOpts.activeOnly && u.Activation && u.Activation.IsActive === false) continue;
+        const email = norm(u.ExternalEmail);
+        const at = email.lastIndexOf('@');
+        if (at < 0) continue;
+        const dom = email.slice(at + 1);
+        if (domainSet.has(dom)) matches.push({ user: u, domain: dom });
+      }
+      document.getElementById('progressLabel').textContent =
+        `Scanning users… ${scanned.toLocaleString()} checked · ${matches.length.toLocaleString()} on ${domains.map(d => '@' + d).join(', ')}`;
+      const info = page.PagingInfo || {};
+      if (!info.HasMoreItems || !info.Bookmark || !items.length) break;
+      bookmark = info.Bookmark;
+    }
+    return { matches, scanned };
+  }
+  document.querySelectorAll('input[name="lookup"]').forEach(r => r.addEventListener('change', refreshLookupUI));
+
+  document.getElementById('dryRun').addEventListener('change', e => {
+    document.getElementById('processBtnLabel').textContent = e.target.checked ? 'Preview Changes (Dry Run)' : 'Update Emails';
+    document.getElementById('processBtn').classList.toggle('dry', e.target.checked);
+  });
+
+  function updatePreview() {
+    const s = document.getElementById('studentDomain').value.trim(), o = document.getElementById('staffDomain').value.trim();
+    document.getElementById('previewEmail').textContent = `"username@${s}" | "username@${o}"`;
+  }
+  ['studentDomain','staffDomain'].forEach(id => document.getElementById(id).addEventListener('input', updatePreview));
+
+  function updateSpeedEstimate() {
+    const n = parseInt(document.getElementById('concurrencySlider').value, 10);
+    document.getElementById('concurrencyVal').textContent = n;
+    const minRps = n * 2, maxRps = n * 5;
+    // ~5 requests per user: lookup, role, names, PUT, verify
+    const minMin = Math.max(1, Math.round(1000 * 5 / maxRps / 60));
+    const maxMin = Math.max(1, Math.round(1000 * 5 / minRps / 60));
+    document.getElementById('speedEstimate').textContent = `~${minRps}–${maxRps} req/sec  ·  1,000 users ≈ ${minMin}–${maxMin} min`;
+  }
+
+  // ── CSRF token ────────────────────────────────────────────
+  function getCsrfToken() {
+    const fromStorage = localStorage.getItem('XSRF.Token');
+    if (fromStorage) return fromStorage;
+    try {
+      if (window.D2L && D2L.LP && D2L.LP.Web && D2L.LP.Web.Authentication && D2L.LP.Web.Authentication.Xsrf) {
+        const t = D2L.LP.Web.Authentication.Xsrf.GetValue();
+        if (t) return t;
+      }
+    } catch(e) {}
+    const meta = document.querySelector('meta[name="csrf-token"], meta[name="d2l-csrf-token"]');
+    return meta && meta.content ? meta.content : null;
+  }
+
+  // ── Rate-limit aware fetch ────────────────────────────────
+  function rlConsumeHeaders(res) {
+    const rem = res.headers.get('X-Rate-Limit-Remaining'), lim = res.headers.get('X-Rate-Limit-Limit');
+    if (rem !== null) RL.remaining = parseInt(rem, 10);
+    if (lim !== null) RL.limit = parseInt(lim, 10);
+  }
+  function computeDynamicDelay() {
+    if (RL.remaining === null) return 0;
+    const pct = RL.remaining / (RL.limit || 150);
+    if (pct > 0.30) return 0; if (pct > 0.15) return 100; if (pct > 0.05) return 300; return 800;
+  }
+  async function rlFetch(url, options, label) {
+    const delay = computeDynamicDelay();
+    if (delay > 0) await sleep(delay);
+    const MAX_RETRIES = 5;
+    let attempt = 0;
+    while (true) {
+      const res = await fetch(url, options);
+      rlConsumeHeaders(res);
+      if (res.status !== 429) return res;
+      if (++attempt > MAX_RETRIES) return res;
+      const ra = res.headers.get('Retry-After');
+      const waitMs = ra ? parseInt(ra, 10) * 1000 : Math.min(1000 * Math.pow(2, attempt - 1), 30000);
+      rlSetWaiting(true, `⏸ 429 on ${label} — retry ${attempt}/${MAX_RETRIES} in ${waitMs/1000}s…`);
+      await sleep(waitMs);
+      rlSetWaiting(false);
+    }
+  }
+  const apiGet = (path, label) => rlFetch(api(path), { method: 'GET', credentials: 'include', headers: { 'Accept': 'application/json' } }, label);
+  async function errText(res) { const t = await res.text().catch(() => res.statusText); return `${res.status}: ${t.substring(0, 80)}`; }
+
+  function rlUpdateUI() {
+    const fill = document.getElementById('rlFill'), count = document.getElementById('rlCount');
+    if (RL.remaining === null) { count.textContent = '—'; fill.style.width = '100%'; fill.className = 'rl-fill ok'; return; }
+    const cap = RL.limit || 150, pct = Math.max(0, Math.min(100, (RL.remaining / cap) * 100));
+    fill.style.width = pct + '%';
+    count.textContent = `${RL.remaining.toLocaleString()} / ${cap.toLocaleString()} credits`;
+    fill.className = 'rl-fill ' + (pct > 30 ? 'ok' : pct > 10 ? 'warn' : 'low');
+  }
+  function rlSetWaiting(on, msg = '') {
+    const el = document.getElementById('rlWaiting');
+    el.style.display = on ? 'inline-block' : 'none';
+    if (on) el.textContent = msg;
+    rlUpdateUI();
+  }
+
+  // ── Progress ──────────────────────────────────────────────
+  let uiTimer = null;
+  function startUiTicker() { uiTimer = setInterval(() => { updateStats(); rlUpdateUI(); updateProgress(); }, 200); }
+  function stopUiTicker() { if (uiTimer) { clearInterval(uiTimer); uiTimer = null; } }
+  function updateProgress() {
+    const { done, total } = stats;
+    if (!total) return;
+    const pct = Math.round((done / total) * 100);
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressPct').textContent = pct + '%';
+    const elapsed = (Date.now() - startTime) / 1000;
+    if (done > 5 && elapsed > 1) {
+      const rate = done / elapsed;
+      document.getElementById('progressLabel').textContent =
+        `${done.toLocaleString()} / ${total.toLocaleString()} — ${rate.toFixed(1)}/sec — ETA: ${formatDuration((total - done) / rate * 1000)}`;
+    } else {
+      document.getElementById('progressLabel').textContent = `${done.toLocaleString()} / ${total.toLocaleString()} — starting…`;
+    }
+  }
+  function formatDuration(ms) {
+    const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    if (h > 0) return `${h}h ${m}m`; if (m > 0) return `${m}m ${sec}s`; return `${sec}s`;
+  }
+
+  // ── Main orchestrator ─────────────────────────────────────
+  async function processList() {
+    if (running) return;
+    if (pendingAnswer) pendingAnswer(false);   // clicking Start again cancels an open prompt
+
+    const mode = lookupMode();
+    const seen = new Set(), items = [];
+    let invalid = 0;
+    document.getElementById('listInput').value.split('\n').map(s => s.trim()).filter(Boolean).forEach(v => {
+      if (mode === 'email' && !EMAIL_RE.test(v)) { invalid++; return; }
+      if (mode === 'domain') {
+        v = v.replace(/^.*@/, '').toLowerCase();
+        if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(v)) { invalid++; return; }
+      }
+      if (seen.has(norm(v))) return;
+      seen.add(norm(v)); items.push(v);
+    });
+    const noun = { username: 'username', email: 'valid email address', domain: 'valid domain (e.g. gmail.com)' }[mode];
+    if (!items.length) { notify(`Please enter at least one ${noun}.`); return; }
+
+    const studentDomain = document.getElementById('studentDomain').value.trim().replace(/^@/, '');
+    const staffDomain   = document.getElementById('staffDomain').value.trim().replace(/^@/, '');
+    if (!studentDomain || !staffDomain) { notify('Both email domains are required.'); return; }
+    if (!orgId) { notify('The org ID could not be read, so user roles cannot be checked. Reload the page inside Brightspace.'); return; }
+    if (!Object.keys(rolesById).length) { notify('The role list could not be loaded, so user roles cannot be checked.'); return; }
+
+    const studentRoleIds = new Set([...document.querySelectorAll('.student-role:checked')].map(c => String(c.value)));
+    if (!studentRoleIds.size && !await askConfirm('No roles are marked as Student — every user will get @' + staffDomain + '. Continue?')) return;
+
+    runOpts = {
+      mode, studentDomain, staffDomain, studentRoleIds,
+      dry: document.getElementById('dryRun').checked,
+      verify: document.getElementById('verifyAfter').checked,
+      activeOnly: document.getElementById('activeOnly').checked
+    };
+
+    // Safety: never let a domain scan target the school's own domains
+    if (mode === 'domain') {
+      const own = items.filter(d => d === norm(studentDomain) || d === norm(staffDomain) || d.endsWith('.' + norm(staffDomain)));
+      if (own.length) { notify(`Remove the school domain(s) from the list: ${own.join(', ')}`); return; }
+    }
+
+    if (mode === 'domain') {
+      if (!runOpts.dry && !getCsrfToken()) { notify('No XSRF token found — refresh this page while logged in to Brightspace, then try again.'); return; }
+    } else if (!runOpts.dry) {
+      const msg = `Update the account email for ${items.length.toLocaleString()} ${mode === 'email' ? 'email address(es)' : 'user(s)'}?\n\n` +
+        `Student roles → username@${studentDomain}\nAll other roles → username@${staffDomain}` +
+        (invalid ? `\n\n${invalid} invalid line(s) will be ignored.` : '') +
+        `\n\nThe CSV report keeps each user's old email so changes can be reversed.`;
+      if (!(await askConfirm(msg, `Update ${items.length.toLocaleString()} ${mode === 'email' ? 'address(es)' : 'user(s)'}`))) return;
+      if (!getCsrfToken()) { notify('No XSRF token found — refresh this page while logged in to Brightspace, then try again.'); return; }
+    }
+
+    running = true; stopRequested = false;
+    results = []; domRowCount = 0;
+    stats = { total: mode === 'domain' ? 0 : items.length, done: 0, ok: 0, fail: 0, skip: 0 };
+    RL.remaining = null; RL.limit = null;
+    startTime = Date.now();
+
+    document.getElementById('statOkLbl').textContent = runOpts.dry ? 'Would Change' : 'Updated';
+    const btn = document.getElementById('processBtn');
+    const btnHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spin"></span> ${runOpts.dry ? 'Previewing…' : 'Processing…'}`;
+
+    ['emptyState','logCapNote','exportBtn','clearBtn','exportRow'].forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById('resultList').style.display = 'block';
+    document.getElementById('statsBar').style.display = 'flex';
+    document.getElementById('progressWrap').style.display = 'block';
+    document.getElementById('rlBar').style.display = 'flex';
+    document.getElementById('resultList').innerHTML = '';
+    document.getElementById('stopBtn').textContent = 'Stop';
+    document.getElementById('stopBtn').style.display = 'inline-flex';
+    updateStats(); rlUpdateUI(); startUiTicker();
+
+    // Build the job list
+    let jobs = [];
+    let cancelled = false;
+    if (mode === 'domain') {
+      const { matches, scanned } = await scanDomains(items);
+      if (stopRequested) cancelled = true;
+      else if (!matches.length) {
+        recordResult({ input: items.map(d => '@' + d).join(', '), status: 'skip', detail: `No users found on these domains (${scanned.toLocaleString()} users scanned)` });
+      } else if (!runOpts.dry) {
+        const byDom = items.map(d => `  @${d}: ${matches.filter(m => m.domain === d).length.toLocaleString()}`).join('\n');
+        const ok = await askConfirm(`Scanned ${scanned.toLocaleString()} users. Found ${matches.length.toLocaleString()} with these domains:\n\n${byDom}\n\n` +
+          `Update ALL of them?\nStudent roles → username@${studentDomain}\nAll other roles → username@${staffDomain}\n\n` +
+          `The CSV report keeps each user's old email so changes can be reversed.`, `Update ${matches.length.toLocaleString()} users`);
+        if (!ok) cancelled = true;
+      }
+      if (!cancelled) {
+        stats.total = matches.length;
+        jobs = matches.map(m => ({ label: m.user.ExternalEmail, run: () => processUser(m.user.ExternalEmail, m.user, '') }));
+      }
+    } else {
+      jobs = items.map(i => ({ label: i, run: () => processOneInput(i) }));
+    }
+
+    const concurrency = parseInt(document.getElementById('concurrencySlider').value, 10);
+    let qi = 0;
+    const next = () => (!stopRequested && qi < jobs.length) ? jobs[qi++] : null;
+    await Promise.all(Array.from({ length: concurrency }, async () => {
+      let job;
+      while ((job = next()) !== null) {
+        try { await job.run(); }
+        catch(e) { recordResult({ input: job.label, status: 'fail', detail: `Error: ${e.message}` }); }
+        stats.done++;
+      }
+    }));
+
+    stopUiTicker();
+    rlSetWaiting(false); rlUpdateUI(); updateStats();
+    const stopped = stopRequested || cancelled;
+    if (!stopped) {
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('progressPct').textContent = '100%';
+    }
+    document.getElementById('progressLabel').textContent = cancelled && !stats.done
+      ? 'Cancelled — no users were changed'
+      : `${stopped ? 'Stopped' : 'Completed'} in ${formatDuration(Date.now() - startTime)} — ${stats.ok.toLocaleString()} ${runOpts.dry ? 'would change' : 'updated'}, ` +
+        `${stats.fail.toLocaleString()} failed, ${stats.skip.toLocaleString()} skipped`;
+
+    document.getElementById('stopBtn').style.display = 'none';
+    btn.disabled = false; btn.innerHTML = btnHtml; running = false;
+    document.getElementById('exportBtn').style.display = 'inline-flex';
+    document.getElementById('clearBtn').style.display = 'inline-flex';
+    document.getElementById('exportRow').style.display = 'flex';
+  }
+
+  // ── Find user(s) for one input line ───────────────────────
+  async function findUsers(input) {
+    if (runOpts.mode === 'username') {
+      const res = await apiGet(`/users/?userName=${encodeURIComponent(input)}`, 'GET user');
+      if (res.status === 404) return { notFound: true };
+      if (!res.ok) return { error: `User lookup ${await errText(res)}` };
+      const u = await res.json();
+      return u && u.UserId ? { users: [u] } : { notFound: true };
+    }
+    const res = await apiGet(`/users/?externalEmail=${encodeURIComponent(input)}`, 'GET users');
+    if (res.status === 404) return { notFound: true };
+    if (!res.ok) return { error: `User lookup ${await errText(res)}` };
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : (data && Array.isArray(data.Items)) ? data.Items : [];
+    const users = list.filter(u => u && u.UserId && norm(u.ExternalEmail) === norm(input)); // safety filter
+    return users.length ? { users } : { notFound: true };
+  }
+
+  // ── Org-level role for a user ─────────────────────────────
+  async function getOrgRole(userId) {
+    const res = await apiGet(`/enrollments/orgUnits/${orgId}/users/${userId}`, 'GET role');
+    if (res.status === 404) return { error: 'No org-level role found for this user' };
+    if (!res.ok) return { error: `Role lookup ${await errText(res)}` };
+    const e = await res.json();
+    const roleId = String(e.RoleId ?? (e.Role && e.Role.Id) ?? '');
+    if (!roleId) return { error: 'Role lookup returned no RoleId' };
+    return { roleId, roleName: rolesById[roleId] || (e.Role && e.Role.Name) || `Role ${roleId}` };
+  }
+
+  // ── Names: send back exactly what the PUT expects ─────────
+  // UpdateUserData First/Last update the preferred names if they exist,
+  // otherwise the legal names — so send preferred-if-set, else legal.
+  async function getNamesForPut(user) {
+    try {
+      const res = await apiGet(`/users/${user.UserId}/names`, 'GET names');
+      if (res.ok) {
+        const n = await res.json();
+        return {
+          FirstName: n.PreferredFirstName || n.LegalFirstName,
+          LastName:  n.PreferredLastName  || n.LegalLastName,
+          note: ''
+        };
+      }
+    } catch(e) {}
+    return { FirstName: user.FirstName, LastName: user.LastName, note: ' (names from user record)' };
+  }
+
+  // ── Process one input line ────────────────────────────────
+  async function processOneInput(input) {
+    const found = await findUsers(input);
+    if (found.error)    { recordResult({ input, status: 'fail', detail: found.error }); return; }
+    if (found.notFound) { recordResult({ input, status: 'skip', detail: runOpts.mode === 'email' ? 'No user has this account email' : 'User not found' }); return; }
+
+    const multi = found.users.length > 1;
+    for (const user of found.users) await processUser(input, user, multi ? ` (1 of ${found.users.length} matches)` : '');
+  }
+
+  async function processUser(input, user, suffix) {
+    const base = {
+      input, userId: user.UserId, userName: user.UserName || '',
+      fullName: [user.FirstName, user.LastName].filter(Boolean).join(' '),
+      oldEmail: user.ExternalEmail || '', original: user
+    };
+
+    if (!user.UserName) { recordResult({ ...base, status: 'fail', detail: 'User has no username' }); return; }
+    if (!user.Activation || typeof user.Activation.IsActive !== 'boolean') {
+      recordResult({ ...base, status: 'fail', detail: 'No Activation.IsActive in user data — skipped to avoid changing account status' });
+      return;
+    }
+
+    const role = await getOrgRole(user.UserId);
+    if (role.error) { recordResult({ ...base, status: 'fail', detail: role.error }); return; }
+    const isStudent = runOpts.studentRoleIds.has(role.roleId);
+    const newEmail = `${user.UserName.toLowerCase()}@${isStudent ? runOpts.studentDomain : runOpts.staffDomain}`;
+    Object.assign(base, { role: role.roleName, newEmail });
+
+    const change = `${base.oldEmail || '(none)'} → ${newEmail}`;
+    const tag = `${role.roleName} · ${base.fullName || base.userName}${suffix}`;
+
+    if (norm(base.oldEmail) === norm(newEmail)) {
+      recordResult({ ...base, status: 'skip', detail: `Already correct (${newEmail}) · ${tag}` });
+      return;
+    }
+
+    const names = await getNamesForPut(user);
+    const payload = {
+      OrgDefinedId:  user.OrgDefinedId ?? null,
+      FirstName:     names.FirstName,
+      MiddleName:    user.MiddleName ?? null,
+      LastName:      names.LastName,
+      ExternalEmail: newEmail,
+      UserName:      user.UserName,
+      Activation:    { IsActive: user.Activation.IsActive },
+      Pronouns:      null            // null = leave existing pronouns untouched
+    };
+    base.sent = payload;
+
+    if (runOpts.dry) {
+      recordResult({ ...base, status: 'dry', detail: `Would change ${change} · ${tag}${names.note}` });
+      return;
+    }
+
+    const csrf = getCsrfToken();
+    if (!csrf) { recordResult({ ...base, status: 'fail', detail: 'No XSRF token — refresh the page while logged in' }); return; }
+
+    const putRes = await rlFetch(api(`/users/${user.UserId}`), {
+      method: 'PUT', credentials: 'include',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Csrf-Token': csrf },
+      body: JSON.stringify(payload)
+    }, 'PUT user');
+    if (!putRes.ok) { recordResult({ ...base, status: 'fail', detail: `PUT ${await errText(putRes)}` }); return; }
+
+    if (runOpts.verify) {
+      const vRes = await apiGet(`/users/${user.UserId}`, 'VERIFY');
+      if (vRes.ok) {
+        const v = await vRes.json();
+        if (norm(v.ExternalEmail) !== norm(newEmail)) {
+          recordResult({ ...base, status: 'fail', detail: `PUT accepted but email is ${v.ExternalEmail || '(none)'}` });
+          return;
+        }
+      }
+    }
+    recordResult({ ...base, status: 'ok', detail: `${change} ✓ · ${tag}` });
+  }
+
+  // ── Results ───────────────────────────────────────────────
+  function recordResult(r) {
+    if (r.status === 'ok' || r.status === 'dry') stats.ok++;
+    else if (r.status === 'fail') stats.fail++;
+    else stats.skip++;
+    results.push(r);
+    addToDOM(r);
+  }
+
+  function addToDOM(r) {
+    const list = document.getElementById('resultList');
+    if (domRowCount >= MAX_DOM_ROWS) {
+      const oldest = list.querySelector('.result-row:not(.row-fail)');
+      if (oldest) { oldest.remove(); domRowCount--; }
+      const note = document.getElementById('logCapNote');
+      note.style.display = 'block';
+      note.textContent = `Showing last ${MAX_DOM_ROWS} results — all ${results.length.toLocaleString()} saved to CSV export`;
+    }
+    list.insertAdjacentHTML('beforeend', rowHtml(r));
+    domRowCount++;
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function rowHtml(r) {
+    const icons = {
+      ok:   `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+      fail: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      skip: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+      dry:  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`
+    };
+    const badges = {
+      ok: `<span class="badge badge-ok">Updated</span>`, fail: `<span class="badge badge-fail">Failed</span>`,
+      skip: `<span class="badge badge-skip">Skipped</span>`, dry: `<span class="badge badge-dry">Would Change</span>`
+    };
+    return `
+      <div class="result-row${r.status === 'fail' ? ' row-fail' : ''}" title="${escHtml(r.detail)}">
+        <div class="row-icon ${r.status}">${icons[r.status] || ''}</div>
+        <div class="row-user">
+          <div class="row-input">${escHtml(r.input)}</div>
+          <div class="row-detail">${escHtml(r.detail)}</div>
+        </div>
+        <div class="row-userid">${r.userId ? '#' + r.userId : ''}</div>
+        <div>${badges[r.status] || ''}</div>
+      </div>`;
+  }
+
+  function updateStats() {
+    document.getElementById('statTotal').textContent = stats.total.toLocaleString();
+    document.getElementById('statDone').textContent  = stats.done.toLocaleString();
+    document.getElementById('statOk').textContent    = stats.ok.toLocaleString();
+    document.getElementById('statFail').textContent  = stats.fail.toLocaleString();
+    document.getElementById('statSkip').textContent  = stats.skip.toLocaleString();
+  }
+
+  function clearResults() {
+    stopUiTicker();
+    results = []; domRowCount = 0;
+    stats = { total: 0, done: 0, ok: 0, fail: 0, skip: 0 };
+    document.getElementById('resultList').innerHTML = '';
+    ['resultList','statsBar','progressWrap','rlBar','logCapNote','exportBtn','clearBtn','exportRow']
+      .forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById('emptyState').style.display = 'block';
+    updateStats();
+  }
+
+  // ── CSV export ────────────────────────────────────────────
+  function exportCSV() {
+    const statusLabel = { ok: 'Updated', fail: 'Failed', skip: 'Skipped', dry: 'Would Change (dry run)' };
+    const rows = [['Input','UserId','UserName','Full Name','Org Role','Old Email','New Email','Status','Detail','Original User Data (JSON)','Sent Payload (JSON)']];
+    results.forEach(r => rows.push([
+      r.input, r.userId || '', r.userName || '', r.fullName || '', r.role || '',
+      r.oldEmail || '', r.newEmail || '', statusLabel[r.status] || r.status, r.detail,
+      r.original ? JSON.stringify(r.original) : '', r.sent ? JSON.stringify(r.sent) : ''
+    ]));
+    const csv = rows.map(row => row.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `correct_user_emails_${runOpts.dry ? 'dryrun_' : ''}${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  }
+
+  function escHtml(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+  refreshLookupUI();
+  updatePreview();
+  updateSpeedEstimate();
+  init();
+</script>
+</body>
+</html>

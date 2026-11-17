@@ -1,0 +1,1726 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Set Active Status
+  Sets Divisions, Departments, Templates, Semesters, and Courses to Active or Inactive in bulk.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<meta name="author" content="Jonathan Sorrenti">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>D2L Set Active Status</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand: #003366; --brand-light: #e6eef7; --brand-mid: #336699;
+      --success: #1a7a3c; --success-bg: #e8f5ee;
+      --error: #b91c1c; --error-bg: #fef2f2;
+      --warn: #92400e; --warn-bg: #fffbeb;
+      --skip: #374151; --skip-bg: #f3f4f6;
+      --dry: #6d28d9; --dry-bg: #f3effd;
+      --surface: #ffffff; --surface-2: #f8f9fb;
+      --border: #d1d5db; --border-light: #e5e7eb;
+      --text-primary: #111827; --text-secondary: #4b5563; --text-muted: #9ca3af;
+      --radius: 6px; --radius-lg: 10px;
+      --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-mono: 'Consolas', 'Courier New', monospace;
+      --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+    }
+
+    body { font-family: var(--font); background: #eef1f5; color: var(--text-primary); min-height: 100vh; }
+
+    .header { background: var(--brand); padding: 0 2rem; display: flex; align-items: center; height: 56px; gap: 14px; }
+    .header-logo { display: flex; align-items: center; gap: 10px; }
+    .header-title { color: #fff; font-size: 15px; font-weight: 600; }
+    .header-sub { color: rgba(255,255,255,.65); font-size: 13px; margin-left: auto; }
+    .version-badge { background: rgba(255,255,255,.15); color: rgba(255,255,255,.9); font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,.2); }
+
+    .statusbar { position: sticky; top: 0; z-index: 50; background: var(--surface-2); border-bottom: 1px solid var(--border-light); box-shadow: 0 2px 6px rgba(0,0,0,.05); }
+    .statusbar-inner { max-width: 1400px; margin: 0 auto; }
+
+    .page { max-width: 1400px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; display: flex; flex-direction: column; gap: 1.25rem; }
+    .layout { display: grid; grid-template-columns: minmax(0,1fr) 380px; gap: 1.25rem; align-items: start; }
+    .main-col { display: flex; flex-direction: column; gap: 1.25rem; min-width: 0; }
+    .aside { position: sticky; top: 76px; }
+
+    .card { background: var(--surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+    .card-header { padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; gap: 8px; }
+    .card-header-icon { width: 28px; height: 28px; background: var(--brand-light); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: var(--brand-mid); }
+    .card-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+    .card-header .hdr-note { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+    .card-body { padding: 1.25rem; }
+
+    .lbl { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 5px; }
+    .lbl .opt { color: var(--text-muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
+    input[type="text"] { width: 100%; font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; outline: none; transition: border-color .15s, box-shadow .15s; }
+    input[type="text"]:focus { border-color: var(--brand-mid); box-shadow: 0 0 0 3px rgba(51,102,153,.15); background: var(--surface); }
+    input:disabled { opacity: .65; cursor: not-allowed; }
+    .field { margin-bottom: 0; }
+    .field-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.45; min-height: 1em; }
+
+    /* ── Type picker ── */
+    .seg5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    .seg-opt { border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 11px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; background: var(--surface-2); transition: all .15s; }
+    .seg-opt input { accent-color: var(--brand-mid); }
+    .seg-opt .seg-count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); font-weight: 500; }
+    .seg-opt:has(input:checked) { border-color: var(--brand-mid); background: var(--brand-light); color: var(--brand); font-weight: 600; }
+    .seg-opt:has(input:checked) .seg-count { color: var(--brand-mid); }
+    .type-info { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); line-height: 1.6; margin-top: 10px; }
+
+    /* ── Filters ── */
+    .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px 18px; }
+    .display-row { display: flex; align-items: center; gap: 14px; padding: 1rem 1.25rem; border-top: 1px solid var(--border-light); background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .display-row .btn-primary { width: auto; min-width: 240px; }
+    .display-hint { font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+
+    /* ── Searchable select (combo) ── */
+    .combo { position: relative; }
+    .combo input { padding-right: 28px; }
+    .combo-clear { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 17px; line-height: 1; padding: 2px 4px; display: none; }
+    .combo-clear:hover { color: var(--error); }
+    .combo.has-value .combo-clear, .combo.has-text .combo-clear { display: block; }
+    .combo-caret { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted); }
+    .combo.has-value .combo-caret, .combo.has-text .combo-caret { display: none; }
+    .combo.has-value input { border-color: var(--brand-mid); background: var(--brand-light); color: var(--brand); font-weight: 600; }
+    .combo-list { position: absolute; left: 0; top: calc(100% + 3px); min-width: 100%; width: max-content; max-width: 480px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 22px rgba(0,0,0,.14); max-height: 300px; overflow-y: auto; z-index: 60; display: none; }
+    .combo.open .combo-list { display: block; }
+    .combo-opt { padding: 6px 10px; font-size: 13px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; border-bottom: 1px solid #f1f3f5; min-width: 300px; }
+    .combo-opt:last-child { border-bottom: none; }
+    .combo-opt.active, .combo-opt:hover { background: var(--brand-light); }
+    .combo-opt .co-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .combo-opt .co-code { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .combo-opt .co-id { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+    .combo-note { padding: 7px 10px; font-size: 11px; color: var(--text-muted); background: var(--surface-2); min-width: 300px; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: var(--font); font-size: 14px; font-weight: 600; border-radius: var(--radius); border: none; cursor: pointer; padding: 9px 18px; transition: background .15s, transform .1s, opacity .15s; }
+    .btn:active { transform: scale(.98); }
+    .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .btn-primary { background: var(--brand); color: #fff; width: 100%; }
+    .btn-primary:hover:not(:disabled) { background: #002952; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border); font-size: 12px; padding: 5px 12px; }
+    .btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+    .btn-add { background: var(--brand-light); color: var(--brand); border: 1px solid #c3d9ee; font-size: 12px; padding: 5px 12px; }
+    .btn-add:hover:not(:disabled) { background: #d8e6f4; }
+    .btn-active { background: var(--success); color: #fff; width: 100%; }
+    .btn-active:hover:not(:disabled) { background: #146130; }
+    .btn-inactive { background: #7f1d1d; color: #fff; width: 100%; }
+    .btn-inactive:hover:not(:disabled) { background: #661414; }
+    .btn-stop { background: var(--error-bg); color: var(--error); border: 1px solid #fca5a5; width: 100%; }
+    .btn-delete { background: var(--error); color: #fff; width: 100%; }
+    .btn-delete:hover:not(:disabled) { background: #991b1b; }
+    .confirm-panel.danger { border-color: var(--error); background: var(--error-bg); }
+    .confirm-panel.danger .confirm-title { color: var(--error); }
+    .confirm-panel.danger .btn-go { background: var(--error); }
+    .confirm-panel.danger .btn-go:hover:not(:disabled) { background: #991b1b; }
+    .btn-go { background: var(--success); color: #fff; }
+    .btn-go:hover:not(:disabled) { background: #146130; }
+
+    /* ── List ── */
+    .list-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: .7rem 1.25rem; border-bottom: 1px solid var(--border-light); }
+    .list-toolbar .spacer { flex: 1; }
+    .mini-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .mini-seg button { border: none; background: var(--surface); font-family: var(--font); font-size: 12px; padding: 5px 11px; cursor: pointer; color: var(--text-secondary); border-right: 1px solid var(--border); }
+    .mini-seg button:last-child { border-right: none; }
+    .mini-seg button.on { background: var(--brand-light); color: var(--brand); font-weight: 600; }
+    .mini-seg button:disabled { opacity: .45; cursor: not-allowed; }
+    .na-note { margin: .75rem 1.25rem 0; }
+
+    .pager { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: .6rem 1.25rem; }
+    .pager select { font-family: var(--font); font-size: 12px; padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .pager .pg-info { margin-left: auto; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+    .pager-top { border-bottom: 1px solid var(--border-light); }
+    .pager-bottom { border-top: 1px solid var(--border-light); }
+
+    .list-wrap { position: relative; }
+    .table-scroll { max-height: 62vh; overflow: auto; }
+    table.ou { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+    .ou th { position: sticky; top: 0; z-index: 2; background: var(--surface-2); text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-secondary); padding: 8px 10px; border-bottom: 1px solid var(--border-light); white-space: nowrap; user-select: none; }
+    .ou th[data-sort] { cursor: pointer; }
+    .ou th[data-sort]:hover { color: var(--brand); }
+    .ou th .arrow { font-size: 9px; margin-left: 3px; color: var(--brand-mid); }
+    .ou td { padding: 6px 10px; border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+    .ou tr[data-i] { cursor: pointer; }
+    .ou tr[data-i]:hover td { background: #f7f9fc; }
+    .ou tr.is-sel td { background: #eef4fb; }
+    .ou tr.is-sel:hover td { background: #e4eef9; }
+    .ou input[type="checkbox"] { accent-color: var(--brand-mid); width: 15px; height: 15px; cursor: pointer; vertical-align: middle; }
+    .c-cb { width: 42px; text-align: center; }
+    .c-code { width: 30%; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .c-st { width: 118px; }
+    .ou.no-status .c-st { display: none; }
+    .ou .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+    .ou .oid { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+    .ou td.empty { text-align: center; color: var(--text-muted); padding: 3rem 1rem; cursor: default; font-size: 13px; line-height: 1.6; }
+
+    .list-busy { position: absolute; inset: 0; background: rgba(255,255,255,.72); display: none; align-items: center; justify-content: center; gap: 10px; z-index: 5; font-size: 13px; color: var(--brand); font-weight: 600; }
+
+    .pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; white-space: nowrap; }
+    .pill-active { background: var(--success-bg); color: var(--success); }
+    .pill-inactive { background: #fdecec; color: #7f1d1d; }
+    .pill-na { background: var(--skip-bg); color: var(--text-muted); }
+    .pill-wait { background: var(--brand-light); color: var(--brand-mid); }
+    .pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    /* ── Preview ── */
+    .pv-count { margin-left: auto; font-family: var(--font-mono); font-size: 12px; background: var(--brand); color: #fff; padding: 2px 9px; border-radius: 20px; }
+    .pv-summary { padding: .65rem 1.25rem; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--border-light); line-height: 1.55; }
+    .pv-summary .hid { color: var(--warn); }
+    .pv-list { max-height: 34vh; overflow-y: auto; border-bottom: 1px solid var(--border-light); }
+    .pv-item { display: grid; grid-template-columns: minmax(0,1fr) auto 22px; gap: 8px; align-items: center; padding: 6px 1.25rem; border-bottom: 1px solid #f1f3f5; font-size: 12.5px; }
+    .pv-item:last-child { border-bottom: none; }
+    .pv-item .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pv-item .pc { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pv-del { border: none; background: none; color: var(--text-muted); font-size: 17px; line-height: 1; cursor: pointer; }
+    .pv-del:hover { color: var(--error); }
+    .pv-empty { padding: 1.75rem 1.25rem; text-align: center; font-size: 12.5px; color: var(--text-muted); line-height: 1.6; }
+    .pv-more { padding: 7px 1.25rem; font-size: 11px; color: var(--text-muted); background: var(--surface-2); }
+    .pv-actions { padding: 1rem 1.25rem 1.25rem; display: flex; flex-direction: column; gap: 8px; }
+    .pv-actions .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: .45rem 0; border-bottom: 1px solid var(--border-light); }
+    .toggle-label { font-size: 13px; font-weight: 500; }
+    .toggle-desc { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+    .toggle { position: relative; width: 38px; height: 22px; flex-shrink: 0; margin-left: 12px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track { position: absolute; inset: 0; background: var(--border); border-radius: 11px; cursor: pointer; transition: background .2s; }
+    .toggle-track::after { content: ''; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+    .toggle input:checked + .toggle-track { background: var(--brand-mid); }
+    .toggle input:checked + .toggle-track::after { transform: translateX(16px); }
+    #testRun:checked + .toggle-track { background: var(--dry); }
+
+    .confirm-panel { margin: 0 1.25rem 1rem; padding: 1rem 1.1rem; border: 2px solid #f59e0b; background: var(--warn-bg); border-radius: var(--radius); }
+    .confirm-panel.notice { border-color: var(--brand-mid); background: var(--brand-light); }
+    .confirm-title { font-size: 13px; font-weight: 700; color: var(--warn); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .04em; }
+    .confirm-panel.notice .confirm-title { color: var(--brand); }
+    .confirm-msg { font-size: 12.5px; line-height: 1.55; color: var(--text-primary); white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+    .confirm-btns { display: flex; gap: 8px; margin-top: .85rem; }
+
+    /* ── Results ── */
+    .results-header { display: flex; align-items: center; justify-content: space-between; padding: .875rem 1.25rem; border-bottom: 1px solid var(--border-light); }
+    .results-header h2 { font-size: 13px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; display: flex; align-items: center; gap: 8px; }
+    .results-actions { display: flex; gap: 6px; }
+    .stats-bar { display: flex; gap: 1px; background: var(--border-light); border-bottom: 1px solid var(--border-light); }
+    .stat-cell { flex: 1; padding: .625rem .5rem; background: var(--surface); text-align: center; }
+    .stat-num { font-size: 20px; font-weight: 700; line-height: 1; margin-bottom: 2px; }
+    .stat-lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+    .stat-ok .stat-num { color: var(--success); }
+    .stat-fail .stat-num { color: var(--error); }
+    .stat-dry .stat-num { color: var(--dry); }
+    .stat-skip .stat-num { color: var(--skip); }
+
+    .progress-wrap { padding: .6rem 1.25rem; }
+    .progress-track { height: 6px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--brand-mid), var(--brand)); border-radius: 3px; transition: width .3s ease; width: 0%; }
+    .progress-fill.busy {
+      background-image: linear-gradient(45deg, rgba(255,255,255,.28) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.28) 50%, rgba(255,255,255,.28) 75%, transparent 75%, transparent), linear-gradient(90deg, var(--brand-mid), var(--brand));
+      background-size: 16px 16px, 100% 100%;
+      animation: stripes .8s linear infinite;
+    }
+    @keyframes stripes { from { background-position: 0 0, 0 0; } to { background-position: 16px 0, 0 0; } }
+    .progress-text { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: flex; justify-content: space-between; gap: 10px; }
+
+    .result-list { max-height: 520px; overflow-y: auto; }
+    .result-row { display: grid; grid-template-columns: 28px minmax(0,1fr) 100px 120px; align-items: start; gap: 10px; padding: .65rem 1.25rem; border-bottom: 1px solid var(--border-light); font-size: 13px; animation: rowIn .2s ease; }
+    .result-row:last-child { border-bottom: none; }
+    @keyframes rowIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+    .row-icon { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+    .row-icon.ok { background: var(--success-bg); color: var(--success); }
+    .row-icon.fail { background: var(--error-bg); color: var(--error); }
+    .row-icon.dry { background: var(--dry-bg); color: var(--dry); }
+    .row-icon.skip { background: var(--skip-bg); color: var(--skip); }
+    .row-icon.info { background: var(--brand-light); color: var(--brand-mid); }
+    .row-user { overflow: hidden; }
+    .row-input { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row-detail { font-size: 11px; color: var(--text-secondary); margin-top: 2px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .row-warn { font-size: 11px; color: var(--warn); margin-top: 2px; line-height: 1.5; white-space: pre-wrap; }
+    .row-userid { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); padding-top: 3px; }
+    .results-empty { padding: 1.5rem 1.25rem; font-size: 12.5px; color: var(--text-muted); text-align: center; }
+
+    .badge { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .badge-ok { background: var(--success-bg); color: var(--success); }
+    .badge-fail { background: var(--error-bg); color: var(--error); }
+    .badge-dry { background: var(--dry-bg); color: var(--dry); }
+    .badge-info { background: var(--brand-light); color: var(--brand); }
+    .badge-skip { background: var(--skip-bg); color: var(--skip); }
+
+    .rl-bar { display: flex; align-items: center; gap: 10px; padding: .45rem 1.25rem; border-top: 1px solid var(--border-light); font-size: 11px; color: var(--text-muted); }
+    .rl-track { flex: 1; height: 5px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+    .rl-fill { height: 100%; border-radius: 3px; transition: width .4s ease, background .4s ease; }
+    .rl-fill.ok { background: var(--success); } .rl-fill.warn { background: #f59e0b; } .rl-fill.low { background: var(--error); }
+    .rl-count { font-family: var(--font-mono); white-space: nowrap; }
+    .rl-waiting { color: var(--warn); background: var(--warn-bg); border-radius: 4px; padding: 2px 7px; display: none; }
+
+    .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+    .pill .spin { width: 9px; height: 9px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .api-info { background: var(--brand-light); border: 1px solid #c3d9ee; border-radius: var(--radius); padding: .625rem .875rem; font-size: 12px; color: var(--brand); display: flex; align-items: center; gap: 7px; margin-bottom: 1rem; flex-wrap: wrap; }
+    .api-info strong { font-family: var(--font-mono); }
+    .alert { border-radius: var(--radius); padding: .75rem 1rem; font-size: 12px; margin-bottom: 1rem; line-height: 1.45; }
+    .alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #fcd34d55; }
+    .alert-info { background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border-light); }
+
+    .export-row { padding: .875rem 1.25rem; border-top: 1px solid var(--border-light); display: flex; gap: 8px; background: var(--surface-2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+    .result-list::-webkit-scrollbar, .pv-list::-webkit-scrollbar, .table-scroll::-webkit-scrollbar, .combo-list::-webkit-scrollbar { width: 7px; height: 7px; }
+    .result-list::-webkit-scrollbar-thumb, .pv-list::-webkit-scrollbar-thumb, .table-scroll::-webkit-scrollbar-thumb, .combo-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    @media (max-width: 1080px) {
+      .layout { grid-template-columns: 1fr; }
+      .aside { position: static; }
+      .seg5 { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .header-sub { display: none; }
+      .seg5 { grid-template-columns: 1fr 1fr; }
+      .display-row { flex-direction: column; align-items: stretch; }
+      .c-code { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect width="26" height="26" rx="5" fill="rgba(255,255,255,.15)"/>
+      <path d="M7 19V7h5.5c3.5 0 5.5 1.8 5.5 4.5 0 1.8-1 3.2-2.6 3.9L19 19h-3.2l-2.8-3.2H10V19H7zm3-5.7h2.3c1.7 0 2.7-.8 2.7-2.1 0-1.3-1-2-2.7-2H10v4.1z" fill="white"/>
+    </svg>
+    <span class="header-title">Brightspace Admin — Set Active Status</span>
+  </div>
+  <span class="header-sub">Divisions · Departments · Templates · Semesters · Courses</span>
+  <span class="version-badge" id="versionBadge">LP ver …</span>
+</div>
+
+<div class="statusbar">
+  <div class="statusbar-inner">
+    <div class="progress-wrap">
+      <div class="progress-track"><div class="progress-fill busy" id="progressFill" style="width:5%"></div></div>
+      <div class="progress-text"><span id="progressLabel">Connecting to Brightspace…</span><span id="progressPct">0%</span></div>
+    </div>
+    <div class="rl-bar">
+      <span>API Credits</span>
+      <div class="rl-track"><div class="rl-fill ok" id="rlFill" style="width:100%"></div></div>
+      <span class="rl-count" id="rlCount">—</span>
+      <span class="rl-waiting" id="rlWaiting">⏸ Rate limited — waiting…</span>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- ═════════ What to show ═════════ -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-header-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </div>
+      <h2>Org Unit Type</h2>
+      <button class="btn btn-ghost" id="refreshBtn" onclick="loadAll()" disabled style="margin-left:auto">Refresh D2L Data</button>
+    </div>
+    <div class="card-body">
+      <div id="apiInfoBar" class="api-info" style="display:none">
+        Authenticated via session &nbsp;·&nbsp; LP <strong id="lpVersion">—</strong>
+        <span id="orgNameInfo"></span>
+        <span id="statusModeInfo"></span>
+      </div>
+      <div id="authAlert" class="alert alert-warn" style="display:none"></div>
+      <div class="seg5">
+        <label class="seg-opt"><input type="radio" name="mode" value="division" checked> Divisions <span class="seg-count" id="cnt-division">…</span></label>
+        <label class="seg-opt"><input type="radio" name="mode" value="dept"> Departments <span class="seg-count" id="cnt-dept">…</span></label>
+        <label class="seg-opt"><input type="radio" name="mode" value="template"> Templates <span class="seg-count" id="cnt-template">…</span></label>
+        <label class="seg-opt"><input type="radio" name="mode" value="semester"> Semesters <span class="seg-count" id="cnt-semester">…</span></label>
+        <label class="seg-opt"><input type="radio" name="mode" value="course"> Courses <span class="seg-count" id="cnt-course">…</span></label>
+      </div>
+      <div class="type-info" id="typeInfo">Org unit types: loading…</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="main-col">
+
+      <!-- ═════════ Filters ═════════ -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </div>
+          <h2>Filters</h2>
+          <span class="hdr-note" id="filterNote"></span>
+        </div>
+        <div class="card-body" id="filterPanels"></div>
+        <div class="display-row">
+          <button class="btn btn-primary" id="displayBtn" onclick="displayNow()" disabled>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span id="displayLbl">Loading D2L data…</span>
+          </button>
+          <span class="display-hint">Leave filters empty to show everything. After the first Display, the list updates live as you change filters — your checked items stay checked.</span>
+        </div>
+      </div>
+
+      <!-- ═════════ List ═════════ -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+          <h2 id="listTitle">Divisions</h2>
+          <span class="hdr-note" id="listCount"></span>
+        </div>
+        <div id="naNote" class="alert alert-info na-note" style="display:none"></div>
+        <div class="list-toolbar">
+          <span class="mini-seg" id="statusSeg">
+            <button type="button" data-st="all" class="on">All</button>
+            <button type="button" data-st="active">Active</button>
+            <button type="button" data-st="inactive">Inactive</button>
+          </span>
+          <button class="btn btn-add" id="selAllBtn" onclick="selectMatching(true)">Select All Matching</button>
+          <button class="btn btn-ghost" id="unselAllBtn" onclick="selectMatching(false)">Unselect All Matching</button>
+          <span class="spacer"></span>
+          <button class="btn btn-ghost" id="exportViewBtn" onclick="exportView()">Export List CSV</button>
+        </div>
+        <div class="pager pager-top" id="pagerTop" style="display:none"></div>
+        <div class="list-wrap">
+          <div class="table-scroll" id="tableScroll">
+            <table class="ou">
+              <thead>
+                <tr>
+                  <th class="c-cb"><input type="checkbox" id="pageCheck" title="Select every row on this page" disabled></th>
+                  <th data-sort="name">Item Name <span class="arrow" data-arrow="name"></span></th>
+                  <th class="c-code" data-sort="code">Item Code <span class="arrow" data-arrow="code"></span></th>
+                  <th class="c-st" data-sort="status">Status <span class="arrow" data-arrow="status"></span></th>
+                </tr>
+              </thead>
+              <tbody id="listBody"></tbody>
+            </table>
+          </div>
+          <div class="list-busy" id="listBusy"><span class="spin"></span><span id="listBusyText">Filtering…</span></div>
+        </div>
+        <div class="pager pager-bottom" id="pagerBottom" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ═════════ Preview / actions ═════════ -->
+    <div class="aside">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-header-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <h2 id="pvTitle">Selected Divisions</h2>
+          <span class="pv-count" id="pvCount">0</span>
+        </div>
+        <div class="pv-summary" id="pvSummary"></div>
+        <div class="pv-list" id="pvList"></div>
+        <div id="confirmPanel" class="confirm-panel" style="display:none; margin-top:1rem">
+          <div class="confirm-title" id="confirmTitle">Confirm</div>
+          <div class="confirm-msg" id="confirmMsg"></div>
+          <div class="confirm-btns">
+            <button class="btn btn-go" id="confirmYes">Continue</button>
+            <button class="btn btn-ghost" id="confirmNo">Cancel</button>
+          </div>
+        </div>
+        <div class="pv-actions">
+          <div id="pvNa" class="alert alert-info" style="display:none; margin-bottom:0"></div>
+          <div>
+            <div class="toggle-row">
+              <div><div class="toggle-label">Test Run</div><div class="toggle-desc" id="testRunDesc">Read each course and build the update — nothing is changed</div></div>
+              <label class="toggle"><input type="checkbox" id="testRun"><span class="toggle-track"></span></label>
+            </div>
+            <div class="toggle-row" id="verifyRow" style="border-bottom:none">
+              <div><div class="toggle-label">Verify After Change</div><div class="toggle-desc">Re-read each course to confirm the new status saved</div></div>
+              <label class="toggle"><input type="checkbox" id="verifyAfter" checked><span class="toggle-track"></span></label>
+            </div>
+            <div class="toggle-row" id="skipChildrenRow" style="border-bottom:none; display:none">
+              <div><div class="toggle-label">Skip Items With Children</div><div class="toggle-desc">Don’t delete anything that still has org units under it</div></div>
+              <label class="toggle"><input type="checkbox" id="skipChildren" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+          <div class="row2" id="statusBtns">
+            <button class="btn btn-active" id="setActiveBtn" onclick="runStatus(true)" disabled>Set as Active</button>
+            <button class="btn btn-inactive" id="setInactiveBtn" onclick="runStatus(false)" disabled>Set as Inactive</button>
+          </div>
+          <button class="btn btn-delete" id="deleteBtn" onclick="runDelete()" style="display:none" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            <span id="deleteLbl">Delete</span>
+          </button>
+          <button class="btn btn-ghost" id="clearSelBtn" onclick="clearSelected()" disabled>Clear All Selected</button>
+          <button class="btn btn-stop" id="stopBtn" onclick="requestStop()" style="display:none">Stop After Current Items</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═════════ Results ═════════ -->
+  <div class="card">
+    <div class="results-header">
+      <h2>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-mid)"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Changes &amp; Results
+      </h2>
+      <div class="results-actions">
+        <button class="btn btn-ghost" id="exportBtn" onclick="exportCSV()" style="display:none">Export CSV</button>
+        <button class="btn btn-ghost" id="clearBtn" onclick="clearResults()" style="display:none">Clear</button>
+      </div>
+    </div>
+    <div class="stats-bar">
+      <div class="stat-cell"><div class="stat-num" id="statTotal">0</div><div class="stat-lbl">Items Run</div></div>
+      <div class="stat-cell stat-ok"><div class="stat-num" id="statOk">0</div><div class="stat-lbl">Changed / Deleted</div></div>
+      <div class="stat-cell stat-skip"><div class="stat-num" id="statSkip">0</div><div class="stat-lbl">Skipped</div></div>
+      <div class="stat-cell stat-dry"><div class="stat-num" id="statDry">0</div><div class="stat-lbl">Test Passed</div></div>
+      <div class="stat-cell stat-fail"><div class="stat-num" id="statFail">0</div><div class="stat-lbl">Failed</div></div>
+    </div>
+    <div class="result-list" id="resultList"></div>
+    <div class="export-row" id="exportRow" style="display:none">
+      <button class="btn btn-ghost" onclick="exportCSV()">Download CSV Report (includes before/after status and payloads)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Config ─────────────────────────────────────────────────
+  const PAGE = 200;             // rows per page
+  const WRITE_WORKERS = 4;      // parallel course updates
+  const READ_WORKERS = 4;       // parallel status lookups (fallback mode)
+  const PREVIEW_MAX = 300;      // items drawn in the preview list
+  const LOG_MAX = 1500;         // result rows kept on screen (CSV keeps all)
+
+  // ── State ──────────────────────────────────────────────────
+  let lpVersion = '1.49';
+  const org = { id: null, name: '', tz: '' };
+  const T = { div: null, dept: null, tpl: null, off: null, sem: null };
+
+  // action: 'status' = Set Active/Inactive (courses) · 'delete' = send to the recycle bin
+  const MODES = {
+    division: { label: 'Division',   plural: 'Divisions',   typeKey: 'div',  action: 'delete' },
+    dept:     { label: 'Department', plural: 'Departments', typeKey: 'dept', action: 'delete' },
+    template: { label: 'Template',   plural: 'Templates',   typeKey: 'tpl',  action: 'delete' },
+    semester: { label: 'Semester',   plural: 'Semesters',   typeKey: 'sem',  action: 'delete' },
+    course:   { label: 'Course',     plural: 'Courses',     typeKey: 'off',  action: 'status' }
+  };
+  const MODE_KEYS = Object.keys(MODES);
+  const FILTERS = {
+    division: [['self', 'Division']],
+    dept:     [['self', 'Department']],
+    template: [['dept', 'Department'], ['self', 'Template']],
+    semester: [['self', 'Semester']],
+    course:   [['dept', 'Department'], ['tpl', 'Template'], ['sem', 'Semester'], ['self', 'Course']]
+  };
+
+  const data = {}, byId = {}, loaded = {};
+  MODE_KEYS.forEach(k => { data[k] = []; byId[k] = new Map(); loaded[k] = false; });
+
+  // Each option keeps its own filters, list, page and selection
+  const ST = {};
+  MODE_KEYS.forEach(m => ST[m] = {
+    sel: new Map(), shown: false, busy: false, list: [], listIds: new Set(), constrained: null,
+    page: 0, sortKey: 'name', sortDir: 1, status: 'all', reqId: 0, lastIdx: -1, error: '', combos: {}, hints: {}, tplSync: 0
+  });
+
+  let courseLoadCount = 0;
+  const courseStatus = new Map();      // courseId -> true (active) / false (inactive)
+  let statusMode = 'pending';          // 'bulk' = all known from one query · 'lazy' = looked up per page · 'pending'
+  const stPending = new Set(), stFailed = new Set();
+
+  let loading = false, running = false, stopRequested = false;
+  let results = [];
+  const stats = { total: 0, ok: 0, skip: 0, dry: 0, fail: 0 };
+
+  const RL = { remaining: null, limit: null };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const norm = s => String(s ?? '').trim().toLowerCase();
+  const api = path => `/d2l/api/lp/${lpVersion}${path}`;
+  const $ = id => document.getElementById(id);
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  const byName = (a, b) => collator.compare(a.name, b.name);
+  const mapOU = ou => ({ id: String(ou.Identifier), name: ou.Name || '', code: ou.Code || '' });
+  const hay = it => it._hay || (it._hay = norm(`${it.name} ${it.code} ${it.id}`));
+  const mode = () => document.querySelector('input[name="mode"]:checked').value;
+  const fmt = n => Number(n).toLocaleString();
+
+  function verAtLeast(v, min) {
+    const a = String(v).split('.').map(Number), b = String(min).split('.').map(Number);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const x = a[i] || 0, y = b[i] || 0;
+      if (x !== y) return x > y;
+    }
+    return true;
+  }
+
+  // ── Searchable select ─────────────────────────────────────
+  // freeText: typing filters the list live; picking an option narrows to exactly that item
+  class Combo {
+    constructor(el, opts = {}) {
+      this.el = el; this.items = []; this.value = null; this.text = ''; this.shown = []; this.active = -1; this.nav = false;
+      this.onChange = opts.onChange || (() => {});
+      this.onText = opts.onText || (() => {});
+      this.freeText = !!opts.freeText;
+      this.max = opts.max || 200;
+      this.placeholder = opts.placeholder || 'Search…';
+      el.classList.add('combo');
+      el.innerHTML = `<input type="text" autocomplete="off" spellcheck="false">
+        <svg class="combo-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        <button type="button" class="combo-clear" title="Clear">×</button><div class="combo-list"></div>`;
+      this.input = el.querySelector('input');
+      this.list = el.querySelector('.combo-list');
+      this.input.placeholder = this.placeholder;
+      this.input.addEventListener('focus', () => { this.input.select(); this.open(this.value ? '' : this.input.value); });
+      this.input.addEventListener('input', () => {
+        if (this.freeText) {
+          if (this.value) { this.value = null; this.el.classList.remove('has-value'); }
+          this.text = this.input.value;
+          this.el.classList.toggle('has-text', !!this.text.trim());
+          this.onText(this.text);
+        }
+        this.nav = false;
+        this.open(this.input.value);
+      });
+      this.input.addEventListener('keydown', e => this.key(e));
+      this.input.addEventListener('blur', () => setTimeout(() => this.close(), 120));
+      this.list.addEventListener('mousedown', e => {
+        const o = e.target.closest('.combo-opt');
+        e.preventDefault();
+        if (o) this.select(this.shown[+o.dataset.i]);
+      });
+      el.querySelector('.combo-clear').addEventListener('click', () => {
+        const hadText = this.freeText && this.text;
+        this.reset();
+        if (hadText && !this.value) this.onText('');
+        this.onChange(null);
+        this.input.focus();
+      });
+    }
+    label(it) { return it.name + (it.code ? ` (${it.code})` : ''); }
+    setItems(items) { this.items = items; if (this.el.classList.contains('open')) this.open(this.value ? '' : this.input.value); }
+    setDisabled(on, ph) { this.input.disabled = on; this.input.placeholder = ph || this.placeholder; }
+    set(it) {                                   // silent — no callbacks
+      this.value = it || null;
+      if (it) this.text = '';
+      this.el.classList.toggle('has-value', !!it);
+      this.el.classList.toggle('has-text', !it && this.freeText && !!this.text.trim());
+      this.input.value = it ? this.label(it) : (this.freeText ? this.text : '');
+    }
+    reset() { this.text = ''; this.set(null); this.el.classList.remove('open'); }
+    select(it) { this.set(it); this.el.classList.remove('open'); this.onChange(this.value); }
+    filter(q) {
+      const toks = norm(q).split(/\s+/).filter(Boolean);
+      if (!toks.length) return this.items;
+      return this.items.filter(it => { const h = hay(it); return toks.every(t => h.includes(t)); });
+    }
+    open(q) {
+      if (this.input.disabled) return;
+      const all = this.filter(q);
+      this.shown = all.slice(0, this.max);
+      this.active = this.freeText ? -1 : (this.shown.length ? 0 : -1);
+      let html = this.shown.map((it, i) => `
+        <div class="combo-opt${i === this.active ? ' active' : ''}" data-i="${i}">
+          <span class="co-name" title="${escHtml(it.name)}">${escHtml(it.name)}</span>
+          ${it.code ? `<span class="co-code">${escHtml(it.code)}</span>` : ''}
+          <span class="co-id">#${escHtml(it.id)}</span>
+        </div>`).join('');
+      if (!this.items.length) html = `<div class="combo-note">Nothing loaded yet</div>`;
+      else if (!all.length) html = `<div class="combo-note">No matches${this.freeText ? ' — the list below is filtered by what you typed' : ''}</div>`;
+      else if (all.length > this.shown.length) html += `<div class="combo-note">Showing ${this.shown.length} of ${fmt(all.length)} — keep typing to narrow${this.freeText ? ', or leave the text as a filter' : ''}</div>`;
+      this.list.innerHTML = html;
+      this.el.classList.add('open');
+    }
+    close() {
+      this.el.classList.remove('open');
+      if (this.value) this.input.value = this.label(this.value);
+      else if (!this.freeText) this.input.value = '';
+    }
+    key(e) {
+      const opts = this.list.querySelectorAll('.combo-opt');
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!this.el.classList.contains('open')) { this.open(this.input.value); return; }
+        if (!opts.length) return;
+        this.nav = true;
+        const start = this.active < 0 ? (e.key === 'ArrowDown' ? -1 : 0) : this.active;
+        this.active = (start + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+        opts.forEach((o, i) => o.classList.toggle('active', i === this.active));
+        opts[this.active].scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (this.active >= 0 && this.shown[this.active] && (!this.freeText || this.nav)) this.select(this.shown[this.active]);
+        else { this.close(); this.input.blur(); }
+      } else if (e.key === 'Escape') {
+        this.close(); this.input.blur();
+      }
+    }
+  }
+
+  // ── Filter panels (one per option, so each keeps its own filters) ──
+  const textTimers = {};
+  function buildFilters() {
+    const box = $('filterPanels');
+    for (const m of MODE_KEYS) {
+      const panel = document.createElement('div');
+      panel.className = 'fpanel';
+      panel.dataset.mode = m;
+      panel.innerHTML = `<div class="filters-grid">${FILTERS[m].map(([k, lbl]) => `
+        <div class="field">
+          <label class="lbl">${escHtml(lbl)}${k === 'self' ? ' <span class="opt">(type to filter · pick one to narrow)</span>' : ' <span class="opt">(optional)</span>'}</label>
+          <div data-f="${k}"></div>
+          <p class="field-hint" data-h="${k}"></p>
+        </div>`).join('')}</div>`;
+      box.appendChild(panel);
+      const st = ST[m];
+      for (const [k, lbl] of FILTERS[m]) {
+        const self = k === 'self';
+        st.hints[k] = panel.querySelector(`[data-h="${k}"]`);
+        st.combos[k] = new Combo(panel.querySelector(`[data-f="${k}"]`), {
+          freeText: self,
+          placeholder: self ? `Type to filter ${MODES[m].plural.toLowerCase()}…` : `All ${lbl.toLowerCase()}s — search to pick one`,
+          onChange: v => filterChanged(m, k, v),
+          onText: () => { clearTimeout(textTimers[m]); textTimers[m] = setTimeout(() => { if (ST[m].shown) refresh(m); }, 220); }
+        });
+      }
+    }
+  }
+
+  async function filterChanged(m, k, v) {
+    if (m === 'template' && k === 'dept') await syncTemplateCombo(m, 'self', v);
+    if (m === 'course' && k === 'dept') await syncTemplateCombo(m, 'tpl', v);
+    if (ST[m].shown) refresh(m);
+  }
+
+  // Department picked → the template picker only offers that department's templates
+  async function syncTemplateCombo(m, key, dept) {
+    const st = ST[m], combo = st.combos[key], my = ++st.tplSync;
+    if (!dept) {
+      combo.setDisabled(false);
+      combo.setItems(data.template);
+      st.hints[key].textContent = `${fmt(data.template.length)} template(s) — pick a department to narrow.`;
+      return;
+    }
+    combo.setDisabled(true, 'Loading this department’s templates…');
+    st.hints[key].textContent = 'Loading…';
+    let list;
+    try { list = await templatesUnder(dept.id); }
+    catch (e) {
+      if (my !== st.tplSync) return;
+      combo.setDisabled(false);
+      combo.setItems(data.template);
+      st.hints[key].textContent = `Could not load templates under ${dept.name} (${e.message}) — showing all.`;
+      return;
+    }
+    if (my !== st.tplSync) return;
+    combo.setDisabled(false);
+    combo.setItems(list);
+    if (combo.value && !list.some(t => t.id === combo.value.id)) combo.reset();
+    st.hints[key].textContent = list.length ? `${fmt(list.length)} template(s) under ${dept.name}.` : `No templates under ${dept.name}.`;
+  }
+
+  // Fill each picker once its data has loaded
+  function bindItems(key) {
+    const setHint = (m, k, txt) => { if (ST[m].hints[k]) ST[m].hints[k].textContent = txt; };
+    const n = fmt(data[key].length);
+    if (key === 'division') {
+      ST.division.combos.self.setItems(data.division); setHint('division', 'self', `${n} division(s).`);
+    } else if (key === 'dept') {
+      ST.dept.combos.self.setItems(data.dept); setHint('dept', 'self', `${n} department(s).`);
+      ST.template.combos.dept.setItems(data.dept); setHint('template', 'dept', `${n} department(s).`);
+      ST.course.combos.dept.setItems(data.dept); setHint('course', 'dept', `${n} department(s).`);
+    } else if (key === 'semester') {
+      ST.semester.combos.self.setItems(data.semester); setHint('semester', 'self', `${n} semester(s).`);
+      ST.course.combos.sem.setItems(data.semester); setHint('course', 'sem', `${n} semester(s).`);
+    } else if (key === 'template') {
+      syncTemplateCombo('template', 'self', ST.template.combos.dept.value);
+      syncTemplateCombo('course', 'tpl', ST.course.combos.dept.value);
+    } else if (key === 'course') {
+      ST.course.combos.self.setItems(ST.course.constrained || data.course);
+      setHint('course', 'self', `${n} course offering(s) loaded.`);
+    }
+  }
+
+  // ── Relationship lookups (cached) ─────────────────────────
+  const relCache = new Map();
+  function relIds(parentId, typeId, rel) {
+    const key = `${rel}|${parentId}|${typeId}`;
+    if (!relCache.has(key)) {
+      const p = fetchRel(parentId, typeId, rel).then(list => new Set(list.map(x => String(x.Identifier))));
+      p.catch(() => relCache.delete(key));
+      relCache.set(key, p);
+    }
+    return relCache.get(key);
+  }
+  async function fetchRel(parentId, typeId, rel) {
+    const out = [];
+    let bookmark = '';
+    for (let guard = 0; guard < 3000; guard++) {
+      const res = await apiGet(`/orgstructure/${parentId}/${rel}/paged/?ouTypeId=${typeId}&bookmark=${encodeURIComponent(bookmark)}`, `GET ${rel}`);
+      if (res.status === 404 && guard === 0) {       // older API: non-paged fallback
+        const r2 = await apiGet(`/orgstructure/${parentId}/${rel}/?ouTypeId=${typeId}`, `GET ${rel}`);
+        if (!r2.ok) throw new Error(await errText(r2));
+        return await r2.json();
+      }
+      if (!res.ok) throw new Error(await errText(res));
+      const page = await res.json();
+      const items = Array.isArray(page) ? page : (page.Items || []);
+      out.push(...items);
+      const info = page.PagingInfo || {};
+      if (Array.isArray(page) || !info.HasMoreItems || !info.Bookmark || !items.length) break;
+      bookmark = info.Bookmark;
+    }
+    return out;
+  }
+  async function templatesUnder(deptId) {
+    const ids = await relIds(deptId, T.tpl.Id, 'children');
+    return data.template.filter(t => ids.has(t.id));
+  }
+
+  // ── Build the filtered list ───────────────────────────────
+  async function refresh(m, { keepPage = false } = {}) {
+    const st = ST[m], f = st.combos, my = ++st.reqId;
+    if (!loaded[m]) return;
+    st.busy = true; st.error = '';
+    if (m === mode()) showBusy(true, 'Filtering…');
+    let pool = data[m];
+    try {
+      const jobs = [];
+      if (m === 'template' && f.dept.value) jobs.push([f.dept.value, () => relIds(f.dept.value.id, T.tpl.Id, 'children')]);
+      if (m === 'course') {
+        if (f.dept.value) jobs.push([f.dept.value, () => relIds(f.dept.value.id, T.off.Id, 'descendants')]);
+        if (f.tpl.value)  jobs.push([f.tpl.value,  () => relIds(f.tpl.value.id,  T.off.Id, 'children')]);
+        if (f.sem.value)  jobs.push([f.sem.value,  () => relIds(f.sem.value.id,  T.off.Id, 'descendants')]);
+      }
+      const sets = [];
+      for (const [ou, job] of jobs) {
+        if (m === mode()) showBusy(true, `Loading ${MODES[m].plural.toLowerCase()} under ${ou.name}…`);
+        sets.push(await job());
+        if (my !== st.reqId) return;
+      }
+      if (sets.length) pool = pool.filter(it => sets.every(s => s.has(it.id)));
+      st.constrained = sets.length ? pool : null;
+      if (m === 'course') f.self.setItems(pool);
+
+      const self = f.self;
+      if (self.value) pool = pool.filter(it => it.id === self.value.id);
+      else if (self.text.trim()) {
+        const toks = norm(self.text).split(/\s+/).filter(Boolean);
+        pool = pool.filter(it => { const h = hay(it); return toks.every(t => h.includes(t)); });
+      }
+      if (m === 'course' && st.status !== 'all' && statusMode === 'bulk') {
+        const want = st.status === 'active';
+        pool = pool.filter(it => courseStatus.get(it.id) === want);
+      }
+      pool = sortList(m, pool.slice(), st.sortKey, st.sortDir);
+      st.list = pool;
+      st.listIds = new Set(pool.map(i => i.id));
+    } catch (e) {
+      if (my !== st.reqId) return;
+      st.error = e.message; st.list = []; st.listIds = new Set();
+    }
+    st.busy = false; st.shown = true;
+    if (!keepPage) { st.page = 0; st.lastIdx = -1; }
+    if (m === mode()) { showBusy(false); renderList(); renderPreview(); }
+  }
+
+  function statusRank(m, id) {
+    if (m !== 'course') return 0;
+    const s = courseStatus.get(id);
+    return s === true ? 2 : s === false ? 1 : 0;
+  }
+  function sortList(m, list, key, dir) {
+    if (key === 'name' && dir === 1) return list;   // base data is already name-sorted
+    const cmp = key === 'code' ? (a, b) => collator.compare(a.code, b.code) || byName(a, b)
+              : key === 'status' ? (a, b) => (statusRank(m, b.id) - statusRank(m, a.id)) || byName(a, b)
+              : byName;
+    return list.sort((a, b) => dir * cmp(a, b));
+  }
+
+  function displayNow() {
+    const m = mode();
+    if (!loaded[m]) return;
+    refresh(m);
+  }
+
+  // ── List rendering ────────────────────────────────────────
+  function showBusy(on, text) {
+    $('listBusy').style.display = on ? 'flex' : 'none';
+    if (text) $('listBusyText').textContent = text;
+  }
+
+  function statusPill(m, id) {
+    if (m !== 'course') return `<span class="pill pill-na" title="The Brightspace API has no active status for this org unit type">N/A</span>`;
+    const s = courseStatus.get(id);
+    if (s === true)  return `<span class="pill pill-active"><span class="pill-dot"></span>Active</span>`;
+    if (s === false) return `<span class="pill pill-inactive"><span class="pill-dot"></span>Inactive</span>`;
+    if (stPending.has(id) || statusMode === 'pending') return `<span class="pill pill-wait"><span class="spin"></span>Checking</span>`;
+    if (stFailed.has(id)) return `<span class="pill pill-na" title="Could not read this course">Unknown</span>`;
+    return `<span class="pill pill-na">—</span>`;
+  }
+  function paintStatus(id) {
+    const m = mode();
+    document.querySelectorAll(`[data-sid="${CSS.escape(id)}"]`).forEach(el => el.innerHTML = statusPill(m, id));
+  }
+
+  function renderList() {
+    const m = mode(), st = ST[m], M = MODES[m];
+    $('listTitle').textContent = M.plural;
+    $('statusSeg').style.display = m === 'course' ? '' : 'none';
+    $('statusSeg').querySelectorAll('button').forEach(b => {
+      b.classList.toggle('on', b.dataset.st === st.status);
+      b.disabled = b.dataset.st !== 'all' && statusMode !== 'bulk';
+      b.title = b.disabled ? 'Available once every course’s status is known' : '';
+    });
+    // Only courses have an active status — the other types hide the Status column
+    document.querySelector('table.ou').classList.toggle('no-status', M.action === 'delete');
+    $('naNote').style.display = 'none';
+    if (M.action === 'delete' && st.sortKey === 'status') { st.sortKey = 'name'; st.sortDir = 1; st.list.sort(byName); }
+    document.querySelectorAll('[data-arrow]').forEach(a => a.textContent = a.dataset.arrow === st.sortKey ? (st.sortDir === 1 ? '▲' : '▼') : '');
+
+    showBusy(st.busy);
+    const body = $('listBody');
+    ['selAllBtn', 'unselAllBtn', 'exportViewBtn'].forEach(id => $(id).disabled = !st.shown || !st.list.length);
+
+    if (!st.shown) {
+      body.innerHTML = `<tr><td colspan="4" class="empty">${loaded[m]
+        ? `Set any filters above, then click <strong>Display ${M.plural}</strong>.`
+        : `Loading ${M.plural.toLowerCase()} from Brightspace…`}</td></tr>`;
+      $('pagerTop').style.display = $('pagerBottom').style.display = 'none';
+      $('pageCheck').disabled = true; $('pageCheck').checked = false; $('pageCheck').indeterminate = false;
+      updateListCount();
+      return;
+    }
+
+    const pages = Math.max(1, Math.ceil(st.list.length / PAGE));
+    st.page = Math.min(Math.max(0, st.page), pages - 1);
+    const start = st.page * PAGE, slice = st.list.slice(start, start + PAGE);
+
+    if (st.error) body.innerHTML = `<tr><td colspan="4" class="empty" style="color:var(--error)">Could not build the list: ${escHtml(st.error)}</td></tr>`;
+    else if (!slice.length) body.innerHTML = `<tr><td colspan="4" class="empty">No ${M.plural.toLowerCase()} match these filters.</td></tr>`;
+    else body.innerHTML = slice.map((it, i) => `
+      <tr data-i="${i}">
+        <td class="c-cb"><input type="checkbox" aria-label="Select ${escHtml(it.name)}"></td>
+        <td><div class="nm" title="${escHtml(it.name)}">${escHtml(it.name)}</div><div class="oid">#${escHtml(it.id)}</div></td>
+        <td class="c-code" title="${escHtml(it.code)}">${escHtml(it.code)}</td>
+        <td class="c-st" data-sid="${escHtml(it.id)}">${statusPill(m, it.id)}</td>
+      </tr>`).join('');
+
+    const pagerHtml = renderPager(st, pages, start, slice.length);
+    $('pagerTop').innerHTML = $('pagerBottom').innerHTML = pagerHtml;
+    $('pagerTop').style.display = $('pagerBottom').style.display = st.list.length > PAGE ? 'flex' : 'none';
+    paintPageChecks();
+    if (m === 'course') ensureStatuses(slice);
+  }
+
+  function renderPager(st, pages, start, n) {
+    const p = st.page;
+    const opts = Array.from({ length: pages }, (_, i) => `<option value="${i}"${i === p ? ' selected' : ''}>Page ${fmt(i + 1)} of ${fmt(pages)}</option>`).join('');
+    return `
+      <button class="btn btn-ghost" data-go="first" ${p === 0 ? 'disabled' : ''}>« First</button>
+      <button class="btn btn-ghost" data-go="prev" ${p === 0 ? 'disabled' : ''}>‹ Previous</button>
+      <select class="page-sel" aria-label="Page">${opts}</select>
+      <button class="btn btn-ghost" data-go="next" ${p >= pages - 1 ? 'disabled' : ''}>Next ›</button>
+      <button class="btn btn-ghost" data-go="last" ${p >= pages - 1 ? 'disabled' : ''}>Last »</button>
+      <span class="pg-info">Rows ${fmt(n ? start + 1 : 0)}–${fmt(start + n)} of ${fmt(st.list.length)}</span>`;
+  }
+  function goPage(p) {
+    const st = ST[mode()];
+    const pages = Math.max(1, Math.ceil(st.list.length / PAGE));
+    st.page = Math.min(Math.max(0, p), pages - 1);
+    st.lastIdx = -1;
+    renderList();
+    $('tableScroll').scrollTop = 0;
+  }
+  document.querySelectorAll('.pager').forEach(pg => {
+    pg.addEventListener('click', e => {
+      const b = e.target.closest('[data-go]'); if (!b) return;
+      const st = ST[mode()], last = Math.ceil(st.list.length / PAGE) - 1;
+      goPage({ first: 0, prev: st.page - 1, next: st.page + 1, last }[b.dataset.go]);
+    });
+    pg.addEventListener('change', e => { if (e.target.classList.contains('page-sel')) goPage(+e.target.value); });
+  });
+
+  function paintPageChecks() {
+    const st = ST[mode()], start = st.page * PAGE;
+    const rows = $('listBody').querySelectorAll('tr[data-i]');
+    let on = 0;
+    rows.forEach(tr => {
+      const it = st.list[start + +tr.dataset.i];
+      const s = !!it && st.sel.has(it.id);
+      tr.classList.toggle('is-sel', s);
+      tr.querySelector('input').checked = s;
+      if (s) on++;
+    });
+    const hc = $('pageCheck');
+    hc.disabled = !rows.length;
+    hc.checked = rows.length > 0 && on === rows.length;
+    hc.indeterminate = on > 0 && on < rows.length;
+    updateListCount();
+  }
+
+  function updateListCount() {
+    const m = mode(), st = ST[m];
+    const selTxt = `${fmt(st.sel.size)} selected`;
+    $('listCount').textContent = st.shown ? `${fmt(st.list.length)} match · ${selTxt}` : selTxt;
+  }
+
+  // Row clicks (checkbox or anywhere on the row); shift-click selects a range on the page
+  $('listBody').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-i]'); if (!tr) return;
+    const m = mode(), st = ST[m], start = st.page * PAGE, i = +tr.dataset.i;
+    const it = st.list[start + i]; if (!it) return;
+    const cb = tr.querySelector('input');
+    const on = e.target === cb ? cb.checked : !st.sel.has(it.id);
+    if (e.shiftKey && st.lastIdx >= 0) {
+      const [a, b] = [Math.min(st.lastIdx, i), Math.max(st.lastIdx, i)];
+      for (let k = a; k <= b; k++) { const x = st.list[start + k]; if (x) on ? st.sel.set(x.id, x) : st.sel.delete(x.id); }
+      window.getSelection && window.getSelection().removeAllRanges();
+    } else on ? st.sel.set(it.id, it) : st.sel.delete(it.id);
+    st.lastIdx = i;
+    paintPageChecks();
+    renderPreview();
+  });
+  $('pageCheck').addEventListener('change', e => {
+    const st = ST[mode()], start = st.page * PAGE;
+    st.list.slice(start, start + PAGE).forEach(it => e.target.checked ? st.sel.set(it.id, it) : st.sel.delete(it.id));
+    paintPageChecks();
+    renderPreview();
+  });
+  document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => {
+    const m = mode(), st = ST[m], k = th.dataset.sort;
+    if (!st.shown) return;
+    if (st.sortKey === k) st.sortDir *= -1; else { st.sortKey = k; st.sortDir = 1; }
+    if (st.sortKey === 'name' && st.sortDir === 1) st.list.sort(byName);
+    else sortList(m, st.list, st.sortKey, st.sortDir);
+    st.lastIdx = -1;
+    renderList();
+  }));
+  $('statusSeg').addEventListener('click', e => {
+    const b = e.target.closest('button[data-st]'); if (!b || b.disabled) return;
+    const st = ST.course; st.status = b.dataset.st;
+    if (st.shown) refresh('course'); else renderList();
+  });
+
+  function selectMatching(on) {
+    const m = mode(), st = ST[m];
+    st.list.forEach(it => on ? st.sel.set(it.id, it) : st.sel.delete(it.id));
+    paintPageChecks();
+    renderPreview();
+  }
+  function clearSelected() {
+    const st = ST[mode()];
+    st.sel.clear(); st.lastIdx = -1;
+    paintPageChecks();
+    renderPreview();
+  }
+
+  // ── Preview ───────────────────────────────────────────────
+  function renderPreview() {
+    const m = mode(), st = ST[m], M = MODES[m], n = st.sel.size;
+    $('pvTitle').textContent = `Selected ${M.plural}`;
+    $('pvCount').textContent = fmt(n);
+
+    let act = 0, inact = 0, unk = 0, hidden = 0;
+    for (const it of st.sel.values()) {
+      if (m === 'course') { const s = courseStatus.get(it.id); s === true ? act++ : s === false ? inact++ : unk++; }
+      if (st.shown && !st.listIds.has(it.id)) hidden++;
+    }
+    let sum = n ? `${fmt(n)} ${n === 1 ? M.label.toLowerCase() : M.plural.toLowerCase()} selected` : `Nothing selected yet — check rows in the list.`;
+    if (n && m === 'course') sum += ` · <strong style="color:var(--success)">${fmt(act)} active</strong> · <strong style="color:#7f1d1d">${fmt(inact)} inactive</strong>${unk ? ` · ${fmt(unk)} not checked yet` : ''}`;
+    if (hidden) sum += `<br><span class="hid">${fmt(hidden)} selected item${hidden === 1 ? ' is' : 's are'} hidden by the current filters — still included.</span>`;
+    $('pvSummary').innerHTML = sum;
+
+    const items = Array.from(st.sel.values()).slice(0, PREVIEW_MAX);
+    $('pvList').innerHTML = n
+      ? items.map(it => `
+          <div class="pv-item">
+            <div style="min-width:0"><div class="pn" title="${escHtml(it.name)}">${escHtml(it.name)}</div><div class="pc">${escHtml(it.code || '')} · #${escHtml(it.id)}</div></div>
+            ${M.action === 'status' ? `<span data-sid="${escHtml(it.id)}">${statusPill(m, it.id)}</span>` : '<span></span>'}
+            <button type="button" class="pv-del" data-id="${escHtml(it.id)}" title="Remove from selection">×</button>
+          </div>`).join('') + (n > PREVIEW_MAX ? `<div class="pv-more">+ ${fmt(n - PREVIEW_MAX)} more not shown</div>` : '')
+      : `<div class="pv-empty">Selections for each option are kept separately — switching between Divisions, Departments, Templates, Semesters and Courses never mixes them.</div>`;
+
+    const isDel = M.action === 'delete';
+    const na = $('pvNa');
+    na.style.display = isDel ? '' : 'none';
+    na.innerHTML = `Deleted ${M.plural.toLowerCase()} go to the Org Unit Editor’s <strong>recycle bin</strong> and can be restored from there. D2L may refuse to delete one that still has child org units under it.`;
+    $('statusBtns').style.display = isDel ? 'none' : '';
+    $('deleteBtn').style.display = isDel ? '' : 'none';
+    $('verifyRow').style.display = isDel ? 'none' : '';
+    $('skipChildrenRow').style.display = isDel ? '' : 'none';
+    $('testRunDesc').textContent = isDel ? `Check each ${M.label.toLowerCase()} and its children — nothing is deleted` : 'Read each course and build the update — nothing is changed';
+
+    const canAct = n > 0 && !running && loaded[m];
+    $('setActiveBtn').disabled = !canAct;
+    $('setInactiveBtn').disabled = !canAct;
+    $('deleteBtn').disabled = !canAct;
+    $('clearSelBtn').disabled = !n;
+    $('setActiveBtn').textContent = !isDel && n ? `Set ${fmt(n)} as Active` : 'Set as Active';
+    $('setInactiveBtn').textContent = !isDel && n ? `Set ${fmt(n)} as Inactive` : 'Set as Inactive';
+    $('deleteLbl').textContent = n > 1 ? `Delete ${fmt(n)} ${M.plural}` : `Delete ${M.label}`;
+  }
+  $('pvList').addEventListener('click', e => {
+    const b = e.target.closest('.pv-del'); if (!b) return;
+    ST[mode()].sel.delete(b.dataset.id);
+    paintPageChecks();
+    renderPreview();
+  });
+
+  // ── Mode switching ────────────────────────────────────────
+  function applyMode() {
+    const m = mode();
+    document.querySelectorAll('.fpanel').forEach(p => p.style.display = p.dataset.mode === m ? '' : 'none');
+    $('filterNote').textContent = { division: 'Search divisions', dept: 'Search departments', template: 'Department → Template', semester: 'Search semesters', course: 'Department → Template · Semester · Course' }[m];
+    updateDisplayBtn();
+    renderList();
+    renderPreview();
+  }
+  document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener('change', applyMode));
+
+  function updateDisplayBtn() {
+    const m = mode(), M = MODES[m], btn = $('displayBtn'), lbl = $('displayLbl');
+    if (!loaded[m]) {
+      btn.disabled = true;
+      lbl.textContent = m === 'course' && courseLoadCount ? `Loading courses… ${fmt(courseLoadCount)} found` : `Loading ${M.plural.toLowerCase()}…`;
+      return;
+    }
+    if (!T[M.typeKey]) { btn.disabled = true; lbl.textContent = `${M.label} type not found in D2L`; return; }
+    btn.disabled = false;
+    lbl.textContent = `Display ${M.plural}`;
+  }
+  function setCount(m, txt) { $('cnt-' + m).textContent = txt; }
+
+  // ── Page-load scan ────────────────────────────────────────
+  function setProgress(pct, label) {
+    $('progressFill').style.width = Math.max(3, pct) + '%';
+    $('progressPct').textContent = Math.round(pct) + '%';
+    $('progressLabel').textContent = label;
+  }
+
+  async function loadPagedType(typeId, label, stepStart, stepEnd, onCount) {
+    const out = [];
+    let bookmark = '';
+    for (let guard = 0; guard < 10000; guard++) {
+      const res = await apiGet(`/orgstructure/?orgUnitType=${typeId}&bookmark=${encodeURIComponent(bookmark)}`, `GET ${label}`);
+      if (!res.ok) throw new Error(await errText(res));
+      const page = await res.json();
+      const items = (page && page.Items) || [];
+      out.push(...items.map(mapOU));
+      const creep = stepStart + (stepEnd - stepStart) * (1 - 1 / (1 + out.length / 4000));
+      setProgress(creep, `Loading ${label}… ${fmt(out.length)} found`);
+      if (onCount) onCount(out.length);
+      const info = page.PagingInfo || {};
+      if (!info.HasMoreItems || !info.Bookmark || !items.length) break;
+      bookmark = info.Bookmark;
+    }
+    return out.sort(byName);
+  }
+
+  function findType(types, re, preferId) {
+    return types.find(t => re.test(`${t.Code || ''} ${t.Name || ''}`)) || (preferId ? types.find(t => t.Id === preferId) : null) || null;
+  }
+
+  function indexData(key) { byId[key] = new Map(data[key].map(x => [x.id, x])); }
+
+  async function loadAll() {
+    if (loading || running) return;
+    loading = true;
+    $('refreshBtn').disabled = true;
+    $('progressFill').classList.add('busy');
+    MODE_KEYS.forEach(k => { loaded[k] = false; setCount(k, '…'); });
+    relCache.clear(); courseStatus.clear(); stPending.clear(); stFailed.clear();
+    statusMode = 'pending'; courseLoadCount = 0;
+    updateDisplayBtn(); renderList(); renderPreview();
+    const problems = [];
+
+    setProgress(3, 'Detecting API versions…');
+    try {
+      const r = await fetch('/d2l/api/versions/', { credentials: 'include' });
+      if (!r.ok) throw new Error();
+      const v = await r.json();
+      const lp = v.find(e => (e.ProductCode || '').toLowerCase() === 'lp');
+      if (lp && lp.LatestVersion) lpVersion = lp.LatestVersion;
+    } catch { problems.push(`Could not detect the LP version — using ${lpVersion}. This page must be hosted within Brightspace.`); }
+    $('versionBadge').textContent = 'LP ' + lpVersion;
+    $('lpVersion').textContent = lpVersion;
+    $('apiInfoBar').style.display = 'flex';
+
+    setProgress(6, 'Reading organization info…');
+    try {
+      const r = await apiGet('/organization/info', 'GET org');
+      if (!r.ok) throw new Error(r.status);
+      const o = await r.json();
+      org.id = String(o.Identifier); org.name = o.Name || ''; org.tz = o.TimeZone || '';
+      $('orgNameInfo').textContent = `· ${org.name} (#${org.id})`;
+    } catch (e) { problems.push(`Could not read organization info (${e.message}).`); }
+
+    setProgress(10, 'Reading org unit types…');
+    try {
+      const r = await apiGet('/outypes/', 'GET outypes');
+      if (!r.ok) throw new Error(r.status);
+      const types = await r.json();
+      T.dept = T.sem = null;
+      for (const [key, route] of [['dept', 'department'], ['sem', 'semester']]) {
+        try { const rr = await apiGet(`/outypes/${route}`, `GET ${route} type`); if (rr.ok) T[key] = await rr.json(); } catch {}
+      }
+      T.dept = T.dept || findType(types, /department/i);
+      T.sem  = T.sem  || findType(types, /semester|term/i);
+      T.tpl  = findType(types, /course\s*template/i, 2);
+      T.off  = findType(types, /course\s*offering/i, 3);
+      T.div  = findType(types, /division/i);
+    } catch (e) { problems.push(`Could not read org unit types (${e.message}).`); }
+    const tl = (label, t) => `${label} ${t ? '#' + t.Id : '✗'}`;
+    $('typeInfo').textContent = 'Org unit types: ' + [tl('Division', T.div), tl('Dept', T.dept), tl('Template', T.tpl), tl('Offering', T.off), tl('Semester', T.sem)].join(' · ');
+    [['div', 'Division'], ['dept', 'Department'], ['tpl', 'Course Template'], ['off', 'Course Offering'], ['sem', 'Semester']]
+      .forEach(([k, n]) => { if (!T[k]) problems.push(`Could not find the ${n} org unit type.`); });
+
+    // Small lists first — those options become usable while courses keep loading
+    const steps = [
+      ['division', T.div,  'divisions',        14, 20],
+      ['dept',     T.dept, 'departments',      20, 28],
+      ['semester', T.sem,  'semesters',        28, 34],
+      ['template', T.tpl,  'course templates', 34, 46]
+    ];
+    for (const [key, type, label, a, b] of steps) {
+      setProgress(a, `Loading ${label}…`);
+      data[key] = [];
+      if (type) {
+        try { data[key] = await loadPagedType(type.Id, label, a, b); }
+        catch (e) { problems.push(`Could not load ${label} (${e.message}).`); }
+      }
+      indexData(key); loaded[key] = true;
+      setCount(key, type ? fmt(data[key].length) : '✗');
+      bindItems(key);
+      updateDisplayBtn();
+      if (mode() === key) { renderList(); renderPreview(); }
+    }
+
+    setProgress(46, 'Loading course offerings…');
+    data.course = [];
+    if (T.off) {
+      try {
+        data.course = await loadPagedType(T.off.Id, 'course offerings', 46, 90, n => {
+          courseLoadCount = n;
+          setCount('course', fmt(n) + '…');
+          if (mode() === 'course') updateDisplayBtn();
+        });
+      } catch (e) { problems.push(`Could not load course offerings (${e.message}).`); }
+    }
+    indexData('course'); loaded.course = true;
+    setCount('course', T.off ? fmt(data.course.length) : '✗');
+    bindItems('course');
+    updateDisplayBtn();
+    if (mode() === 'course') { renderList(); renderPreview(); }
+
+    setProgress(92, 'Reading course active status…');
+    await loadCourseStatuses(problems);
+
+    if (problems.length) {
+      $('authAlert').innerHTML = problems.map(escHtml).join('<br>');
+      $('authAlert').style.display = 'block';
+    } else $('authAlert').style.display = 'none';
+
+    $('progressFill').classList.remove('busy');
+    setProgress(100, `Ready — ${fmt(data.division.length)} divisions · ${fmt(data.dept.length)} departments · ${fmt(data.template.length)} templates · ${fmt(data.semester.length)} semesters · ${fmt(data.course.length)} courses`);
+    const inactiveN = statusMode === 'bulk' ? data.course.filter(c => courseStatus.get(c.id) === false).length : null;
+    recordResult({
+      status: 'info', title: 'D2L data loaded',
+      detail: `LP ${lpVersion} · ${org.name || 'org'}${org.tz ? ' · time zone ' + org.tz : ''}\n` +
+              `${fmt(data.division.length)} division(s) · ${fmt(data.dept.length)} department(s) · ${fmt(data.template.length)} template(s) · ${fmt(data.semester.length)} semester(s) · ${fmt(data.course.length)} course offering(s)\n` +
+              (statusMode === 'bulk' ? `Course status: ${fmt(data.course.length - inactiveN)} active · ${fmt(inactiveN)} inactive`
+                                     : 'Course status: looked up per page as you browse'),
+      warnings: problems
+    }, false);
+
+    loading = false;
+    $('refreshBtn').disabled = false;
+    // Re-run any lists already on screen so they pick up fresh data
+    for (const m of MODE_KEYS) if (ST[m].shown) refresh(m, { keepPage: true });
+    renderList(); renderPreview(); rlUpdateUI();
+  }
+
+  // ── Course active status ──────────────────────────────────
+  // Preferred: one filtered query returns every inactive course ID (LP 1.61+).
+  // Fallback: read each course on the page being viewed.
+  async function loadCourseStatuses(problems) {
+    const setInfo = t => $('statusModeInfo').textContent = t;
+    if (!T.off || !data.course.length) { statusMode = 'lazy'; setInfo(''); return; }
+    if (!verAtLeast(lpVersion, '1.61')) {
+      statusMode = 'lazy';
+      setInfo('· course status checked per page');
+      problems.push(`LP ${lpVersion} is older than 1.61, so course status is read one page at a time as you browse (the Active/Inactive list filter is off).`);
+      return;
+    }
+    try {
+      const inactive = new Set();
+      let url = api('/courses/query?activeStatus=false');
+      for (let guard = 0; guard < 5000 && url; guard++) {
+        const res = await rlFetch(url, { method: 'GET', credentials: 'include', headers: { 'Accept': 'application/json' } }, 'GET inactive courses');
+        if (res.status === 404) break;                 // no inactive courses
+        if (!res.ok) throw new Error(await errText(res));
+        const p = await res.json();
+        (p.Objects || []).forEach(o => inactive.add(String(o && typeof o === 'object' ? (o.OrgUnitId ?? o.Identifier ?? o.Id) : o)));
+        setProgress(92 + Math.min(7, guard / 4), `Reading course active status… ${fmt(inactive.size)} inactive found`);
+        url = p.Next || null;
+      }
+      data.course.forEach(c => courseStatus.set(c.id, !inactive.has(c.id)));
+      statusMode = 'bulk';
+      setInfo('· course status loaded for all courses');
+    } catch (e) {
+      statusMode = 'lazy';
+      setInfo('· course status checked per page');
+      problems.push(`Bulk course-status query failed (${e.message}) — status is read one page at a time as you browse instead (the Active/Inactive list filter is off).`);
+    }
+  }
+
+  async function ensureStatuses(items) {
+    if (statusMode !== 'lazy') return;
+    const need = items.filter(it => !courseStatus.has(it.id) && !stPending.has(it.id) && !stFailed.has(it.id));
+    if (!need.length) return;
+    need.forEach(it => { stPending.add(it.id); paintStatus(it.id); });
+    let i = 0;
+    const worker = async () => {
+      while (i < need.length) {
+        const it = need[i++];
+        try {
+          const r = await apiGet(`/courses/${it.id}`, 'GET course status');
+          if (r.ok) { const co = await r.json(); courseStatus.set(it.id, !!co.IsActive); }
+          else stFailed.add(it.id);
+        } catch { stFailed.add(it.id); }
+        stPending.delete(it.id);
+        paintStatus(it.id);
+      }
+    };
+    await Promise.all(Array.from({ length: READ_WORKERS }, worker));
+    renderPreview();
+  }
+
+  // ── Set Active / Inactive ─────────────────────────────────
+  function courseBody(co, target) {
+    const body = {
+      Name: co.Name, Code: co.Code,
+      StartDate: co.StartDate ?? null, EndDate: co.EndDate ?? null,
+      IsActive: target
+    };
+    if (verAtLeast(lpVersion, '1.26')) {
+      const d = co.Description || {};
+      body.Description = d.Html ? { Content: d.Html, Type: 'Html' } : { Content: d.Text || '', Type: 'Text' };
+    }
+    if (verAtLeast(lpVersion, '1.27')) body.CanSelfRegister = !!co.CanSelfRegister;
+    if (verAtLeast(lpVersion, '1.54')) {
+      body.LocaleId = null;                      // null = keep the course's current locale
+      body.ForceLocale = !!co.ForceLocale;
+      body.ShowAddressBook = !!co.ShowAddressBook;
+    }
+    return body;
+  }
+
+  async function runStatus(target) {
+    const m = mode(), st = ST[m], M = MODES[m];
+    if (running) return;
+    if (M.action !== 'status') return;
+    if (pendingAnswer) pendingAnswer(false);
+    const items = Array.from(st.sel.values());
+    if (!items.length) { notify('Check at least one course in the list first.'); return; }
+
+    const want = target ? 'Active' : 'Inactive';
+    const dry = $('testRun').checked, verify = $('verifyAfter').checked;
+    const already = items.filter(it => courseStatus.get(it.id) === target).length;
+    const list = items.slice(0, 15).map(it => `• ${it.name} (${it.code})`).join('\n') + (items.length > 15 ? `\n…and ${fmt(items.length - 15)} more` : '');
+    const calls = verify && !dry ? 3 : 2;
+    const msg = `${dry ? 'TEST RUN — nothing will be changed.\n\n' : ''}Set ${fmt(items.length)} course${items.length === 1 ? '' : 's'} to ${want}?\n` +
+      (already ? `${fmt(already)} already show ${want} and will be skipped after a quick check.\n` : '') +
+      `\n${list}\n\nEach course is read first, then updated (about ${calls} API calls per course).`;
+    if (!await askConfirm(msg, dry ? `Test ${fmt(items.length)}` : `Set ${fmt(items.length)} ${want}`)) return;
+    if (!dry && !getCsrfToken()) { notify('No XSRF token found — refresh this page while logged in to Brightspace, then try again.'); return; }
+
+    setRunningUI(true);
+    const counts = { ok: 0, skip: 0, dry: 0, fail: 0 };
+    let idx = 0, done = 0;
+    const worker = async () => {
+      while (!stopRequested && idx < items.length) {
+        const it = items[idx++];
+        const s = await processCourse(it, target, dry, verify);
+        counts[s] = (counts[s] || 0) + 1;
+        done++;
+        setProgress((done / items.length) * 100, `${dry ? 'Testing' : 'Setting'} ${want} — ${fmt(done)} of ${fmt(items.length)} · ${it.name}`);
+        if (done % 20 === 0) renderPreview();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(WRITE_WORKERS, items.length) }, worker));
+
+    const stopped = done < items.length;
+    setProgress(stopped ? (done / items.length) * 100 : 100,
+      `${dry ? 'Test run' : 'Run'} ${stopped ? `stopped after ${fmt(done)} of ${fmt(items.length)}` : 'complete'} — ` +
+      (dry ? `${fmt(counts.dry)} would change` : `${fmt(counts.ok)} set ${want}`) +
+      `, ${fmt(counts.skip)} already ${want}, ${fmt(counts.fail)} failed${dry ? ' · nothing was changed' : ''}`);
+    setRunningUI(false);
+    if (ST.course.shown && ST.course.status !== 'all') refresh('course', { keepPage: true });
+    else if (mode() === 'course') renderList();
+    renderPreview();
+  }
+
+  async function processCourse(it, target, dry, verify) {
+    const want = target ? 'Active' : 'Inactive';
+    const base = { time: new Date().toISOString(), mode: 'course', dry, id: it.id, name: it.name, code: it.code, target: want, from: '',
+                   title: `${dry ? 'Test: ' : ''}${it.name} (${it.code})` };
+    const warnings = [];
+    const finish = (status, detail, extra = {}) => {
+      recordResult({ ...base, ...extra, status, detail, warnings }, true);
+      paintStatus(it.id);
+      return status;
+    };
+    try {
+      const g = await apiGet(`/courses/${it.id}`, 'GET course');
+      if (!g.ok) return finish('fail', `GET ${await errText(g)}`);
+      const co = await g.json();
+      const was = !!co.IsActive, from = was ? 'Active' : 'Inactive';
+      courseStatus.set(it.id, was); stFailed.delete(it.id);
+      if (was === target) return finish('skip', `Already ${want} — no change needed`, { from });
+
+      const body = courseBody(co, target);
+      if (dry) {
+        if (!getCsrfToken()) warnings.push('No XSRF token found — a real run would fail. Refresh the page while logged in.');
+        return finish('dry', `Would change ${from} → ${want}\nPUT ${api('/courses/' + it.id)}`, { from, payload: body });
+      }
+
+      const p = await rlFetch(api(`/courses/${it.id}`), {
+        method: 'PUT', credentials: 'include',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Csrf-Token': getCsrfToken() },
+        body: JSON.stringify(body)
+      }, 'PUT course');
+      if (!p.ok) return finish('fail', `PUT ${await errText(p, 300)}`, { from, payload: body });
+
+      if (verify) {
+        const v = await apiGet(`/courses/${it.id}`, 'VERIFY');
+        if (v.ok) {
+          const vc = await v.json();
+          courseStatus.set(it.id, !!vc.IsActive);
+          if (!!vc.IsActive !== target) return finish('fail', `Update returned OK but D2L still shows ${vc.IsActive ? 'Active' : 'Inactive'}.`, { from, payload: body });
+          if (vc.Name !== co.Name || vc.Code !== co.Code) warnings.push(`Verify: D2L now shows "${vc.Name}" (${vc.Code}).`);
+        } else { courseStatus.set(it.id, target); warnings.push(`Verify read failed (${v.status}) — the update itself returned OK.`); }
+      } else courseStatus.set(it.id, target);
+
+      return finish('ok', `${from} → ${want}`, { from, payload: body });
+    } catch (e) {
+      return finish('fail', `Error: ${e.message}`);
+    }
+  }
+
+  // ── Delete (recycle) divisions, departments, templates, semesters ──
+  // POST /orgstructure/recyclebin/{id}/recycle — same as Delete in the Org Unit Editor; restorable from its recycle bin.
+  async function childInfo(id) {
+    const res = await apiGet(`/orgstructure/${id}/children/paged/?bookmark=`, 'GET children');
+    if (!res.ok) throw new Error(`children check ${await errText(res)}`);
+    const page = await res.json();
+    const items = Array.isArray(page) ? page : (page.Items || []);
+    const more = !Array.isArray(page) && page.PagingInfo && page.PagingInfo.HasMoreItems;
+    return { count: items.length, more, sample: items.slice(0, 3).map(c => `${c.Name}${c.Type && c.Type.Name ? ' [' + c.Type.Name + ']' : ''}`) };
+  }
+  const childText = c => `${c.count}${c.more ? '+' : ''} child org unit${c.count === 1 && !c.more ? '' : 's'}${c.sample.length ? ` (e.g. ${c.sample.join(', ')})` : ''}`;
+
+  async function runDelete() {
+    const m = mode(), st = ST[m], M = MODES[m];
+    if (running || M.action !== 'delete') return;
+    if (pendingAnswer) pendingAnswer(false);
+    const items = Array.from(st.sel.values());
+    if (!items.length) { notify(`Check at least one ${M.label.toLowerCase()} in the list first.`); return; }
+
+    const dry = $('testRun').checked, skipKids = $('skipChildren').checked;
+    const noun = items.length === 1 ? M.label.toLowerCase() : M.plural.toLowerCase();
+    const list = items.slice(0, 15).map(it => `• ${it.name} (${it.code})`).join('\n') + (items.length > 15 ? `\n…and ${fmt(items.length - 15)} more` : '');
+    const msg = dry
+      ? `TEST RUN — nothing will be deleted.\n\nCheck ${fmt(items.length)} ${noun} for children?\n\n${list}`
+      : `Delete ${fmt(items.length)} ${noun}?\n\n${list}\n\nThey go to the Org Unit Editor recycle bin (restorable there).` +
+        (skipKids ? `\nAny that still have child org units will be skipped.` : `\n⚠ "Skip items with children" is OFF — D2L may delete or refuse ones that still have children.`);
+    const ok = dry ? await askConfirm(msg, `Test ${fmt(items.length)}`) : await askDanger(msg, `Delete ${fmt(items.length)} ${items.length === 1 ? M.label : M.plural}`);
+    if (!ok) return;
+    if (!dry && !getCsrfToken()) { notify('No XSRF token found — refresh this page while logged in to Brightspace, then try again.'); return; }
+
+    setRunningUI(true);
+    const counts = { ok: 0, skip: 0, dry: 0, fail: 0 };
+    const deleted = new Set();
+    let idx = 0, done = 0;
+    const worker = async () => {
+      while (!stopRequested && idx < items.length) {
+        const it = items[idx++];
+        const s = await processDelete(m, it, dry, skipKids);
+        counts[s] = (counts[s] || 0) + 1;
+        if (s === 'ok') deleted.add(it.id);
+        done++;
+        setProgress((done / items.length) * 100, `${dry ? 'Checking' : 'Deleting'} ${M.plural.toLowerCase()} — ${fmt(done)} of ${fmt(items.length)} · ${it.name}`);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(WRITE_WORKERS, items.length) }, worker));
+
+    if (deleted.size) removeDeleted(m, deleted);
+    const stopped = done < items.length;
+    setProgress(stopped ? (done / items.length) * 100 : 100,
+      `${dry ? 'Test run' : 'Delete'} ${stopped ? `stopped after ${fmt(done)} of ${fmt(items.length)}` : 'complete'} — ` +
+      (dry ? `${fmt(counts.dry)} could be deleted` : `${fmt(counts.ok)} deleted`) +
+      `, ${fmt(counts.skip)} skipped (have children), ${fmt(counts.fail)} failed${dry ? ' · nothing was deleted' : ''}`);
+    setRunningUI(false);
+  }
+
+  async function processDelete(m, it, dry, skipKids) {
+    const M = MODES[m];
+    const base = { time: new Date().toISOString(), mode: m, dry, id: it.id, name: it.name, code: it.code, target: 'Deleted', from: 'Exists',
+                   title: `${dry ? 'Test: ' : ''}${M.label} — ${it.name} (${it.code})` };
+    const warnings = [];
+    const finish = (status, detail, extra = {}) => { recordResult({ ...base, ...extra, status, detail, warnings }, true); return status; };
+    try {
+      const g = await apiGet(`/orgstructure/${it.id}`, 'GET org unit');
+      if (g.status === 404) return finish('fail', 'Not found — it may already be deleted.');
+      if (!g.ok) return finish('fail', `GET ${await errText(g)}`);
+
+      let kids = null;
+      try { kids = await childInfo(it.id); } catch (e) { warnings.push(`Could not check for children (${e.message}).`); }
+      const hasKids = kids && (kids.count > 0 || kids.more);
+      if (hasKids && skipKids) return finish('skip', `Skipped — has ${childText(kids)}. Move or delete those first, or turn off "Skip items with children".`, { skipLabel: 'Has Children' });
+      if (hasKids) warnings.push(`Has ${childText(kids)}.`);
+
+      const url = api(`/orgstructure/recyclebin/${it.id}/recycle`);
+      if (dry) {
+        if (!getCsrfToken()) warnings.push('No XSRF token found — a real run would fail. Refresh the page while logged in.');
+        return finish('dry', `Would delete (send to recycle bin)\nPOST ${url}`);
+      }
+
+      const p = await rlFetch(url, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Accept': 'application/json', 'X-Csrf-Token': getCsrfToken() }
+      }, 'POST recycle');
+      if (!p.ok) {
+        let why = `POST ${await errText(p, 300)}`;
+        if (p.status === 400) why += kids && hasKids ? `\nLikely cause: it still has ${childText(kids)}.` : '\nD2L refused the delete (children or permissions).';
+        if (p.status === 403) why += '\nYour role lacks permission to delete org units of this type.';
+        return finish('fail', why);
+      }
+      return finish('ok', `Deleted — sent to the recycle bin (restore from Org Unit Editor › Recycle Bin, ID #${it.id}).`);
+    } catch (e) {
+      return finish('fail', `Error: ${e.message}`);
+    }
+  }
+
+  // Take deleted items out of every list, picker and selection on the page
+  function removeDeleted(m, ids) {
+    data[m] = data[m].filter(x => !ids.has(x.id));
+    indexData(m);
+    ids.forEach(id => ST[m].sel.delete(id));
+    setCount(m, fmt(data[m].length));
+    // Pickers on other options may reference these (e.g. a deleted department used as a filter)
+    for (const k of MODE_KEYS) for (const c of Object.values(ST[k].combos)) if (c.value && ids.has(c.value.id)) c.reset();
+    relCache.clear();
+    bindItems(m);
+    for (const k of MODE_KEYS) if (ST[k].shown) refresh(k, { keepPage: true });
+    renderPreview();
+  }
+
+  function setRunningUI(on) {
+    running = on;
+    stopRequested = false;
+    $('refreshBtn').disabled = on || loading;
+    $('progressFill').classList.toggle('busy', on);
+    ['testRun', 'verifyAfter', 'skipChildren'].forEach(id => $(id).disabled = on);
+    const stop = $('stopBtn');
+    stop.style.display = on ? '' : 'none';
+    stop.textContent = 'Stop After Current Items';
+    stop.disabled = false;
+    renderPreview();
+  }
+  function requestStop() {
+    stopRequested = true;
+    $('stopBtn').textContent = 'Stopping…';
+    $('stopBtn').disabled = true;
+  }
+
+  // ── In-page confirm / notice (no browser pop-ups) ─────────
+  let pendingAnswer = null;
+  function showPanel(title, msg, yesLabel, noLabel, kind) {
+    return new Promise(resolve => {
+      if (pendingAnswer) pendingAnswer(false);
+      const p = $('confirmPanel'), yes = $('confirmYes'), no = $('confirmNo');
+      $('confirmTitle').textContent = title;
+      $('confirmMsg').textContent = msg;
+      p.classList.toggle('notice', kind === 'notice');
+      p.classList.toggle('danger', kind === 'danger');
+      yes.style.display = yesLabel ? '' : 'none';
+      yes.textContent = yesLabel || '';
+      no.textContent = noLabel;
+      const done = v => { p.style.display = 'none'; pendingAnswer = null; resolve(v); };
+      pendingAnswer = done;
+      yes.onclick = () => done(true);
+      no.onclick = () => done(false);
+      p.style.display = 'block';
+      p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+  const askConfirm = (msg, yesLabel = 'Continue') => showPanel('Confirm', msg, yesLabel, 'Cancel', 'warn');
+  const askDanger = (msg, yesLabel) => showPanel('Confirm Delete', msg, yesLabel, 'Cancel', 'danger');
+  const notify = msg => { showPanel('Heads up', msg, null, 'OK', 'notice'); };
+
+  // ── CSRF token ────────────────────────────────────────────
+  function getCsrfToken() {
+    const fromStorage = localStorage.getItem('XSRF.Token');
+    if (fromStorage) return fromStorage;
+    try {
+      if (window.D2L && D2L.LP && D2L.LP.Web && D2L.LP.Web.Authentication && D2L.LP.Web.Authentication.Xsrf) {
+        const t = D2L.LP.Web.Authentication.Xsrf.GetValue();
+        if (t) return t;
+      }
+    } catch (e) {}
+    const meta = document.querySelector('meta[name="csrf-token"], meta[name="d2l-csrf-token"]');
+    return meta && meta.content ? meta.content : null;
+  }
+
+  // ── Rate-limit aware fetch ────────────────────────────────
+  function rlConsumeHeaders(res) {
+    const rem = res.headers.get('X-Rate-Limit-Remaining'), lim = res.headers.get('X-Rate-Limit-Limit');
+    if (rem !== null) RL.remaining = parseInt(rem, 10);
+    if (lim !== null) RL.limit = parseInt(lim, 10);
+  }
+  function computeDynamicDelay() {
+    if (RL.remaining === null) return 0;
+    const pct = RL.remaining / (RL.limit || 150);
+    if (pct > 0.30) return 0; if (pct > 0.15) return 100; if (pct > 0.05) return 300; return 800;
+  }
+  async function rlFetch(url, options, label) {
+    const delay = computeDynamicDelay();
+    if (delay > 0) await sleep(delay);
+    const MAX_RETRIES = 5;
+    let attempt = 0;
+    while (true) {
+      const res = await fetch(url, options);
+      rlConsumeHeaders(res);
+      rlUpdateUI();
+      if (res.status !== 429) return res;
+      if (++attempt > MAX_RETRIES) return res;
+      const ra = res.headers.get('Retry-After');
+      const waitMs = ra ? parseInt(ra, 10) * 1000 : Math.min(1000 * Math.pow(2, attempt - 1), 30000);
+      rlSetWaiting(true, `⏸ 429 on ${label} — retry ${attempt}/${MAX_RETRIES} in ${waitMs / 1000}s…`);
+      await sleep(waitMs);
+      rlSetWaiting(false);
+    }
+  }
+  const apiGet = (path, label) => rlFetch(api(path), { method: 'GET', credentials: 'include', headers: { 'Accept': 'application/json' } }, label);
+  async function errText(res, max = 120) { const t = await res.text().catch(() => res.statusText); return `${res.status}: ${t.substring(0, max)}`; }
+
+  function rlUpdateUI() {
+    const fill = $('rlFill'), count = $('rlCount');
+    if (RL.remaining === null) { count.textContent = '—'; fill.style.width = '100%'; fill.className = 'rl-fill ok'; return; }
+    const cap = RL.limit || 150, pct = Math.max(0, Math.min(100, (RL.remaining / cap) * 100));
+    fill.style.width = pct + '%';
+    count.textContent = `${fmt(RL.remaining)} / ${fmt(cap)} credits`;
+    fill.className = 'rl-fill ' + (pct > 30 ? 'ok' : pct > 10 ? 'warn' : 'low');
+  }
+  function rlSetWaiting(on, msg = '') {
+    const el = $('rlWaiting');
+    el.style.display = on ? 'inline-block' : 'none';
+    if (on) el.textContent = msg;
+    rlUpdateUI();
+  }
+
+  // ── Results ───────────────────────────────────────────────
+  function recordResult(r, counts) {
+    if (counts) {
+      stats.total++;
+      if (stats[r.status] !== undefined) stats[r.status]++;
+      results.push(r);
+      ['exportBtn', 'clearBtn'].forEach(id => $(id).style.display = 'inline-flex');
+      $('exportRow').style.display = 'flex';
+    }
+    updateStats();
+    const list = $('resultList');
+    list.insertAdjacentHTML('afterbegin', resultRowHtml(r));   // newest on top
+    while (list.children.length > LOG_MAX) list.lastElementChild.remove();
+    list.scrollTop = 0;
+  }
+
+  function resultRowHtml(r) {
+    const icons = {
+      ok:   `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+      fail: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+      dry:  `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
+      skip: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="12" x2="18" y2="12"/></svg>`,
+      info: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="11" x2="12" y2="17"/><circle cx="12" cy="7" r=".5"/></svg>`
+    };
+    const badges = {
+      ok: `<span class="badge badge-ok">${r.target === 'Deleted' ? 'Deleted' : 'Set ' + escHtml(r.target || '')}</span>`,
+      fail: `<span class="badge badge-fail">Failed</span>`,
+      dry: `<span class="badge badge-dry">Test Passed</span>`,
+      skip: `<span class="badge badge-skip">${escHtml(r.skipLabel || 'Already ' + (r.target || ''))}</span>`,
+      info: `<span class="badge badge-info">Loaded</span>`
+    };
+    const warn = (r.warnings && r.warnings.length) ? `<div class="row-warn">⚠ ${r.warnings.map(escHtml).join('\n⚠ ')}</div>` : '';
+    return `
+      <div class="result-row">
+        <div class="row-icon ${r.status}">${icons[r.status] || ''}</div>
+        <div class="row-user">
+          <div class="row-input" title="${escHtml(r.title)}">${escHtml(r.title)}</div>
+          <div class="row-detail">${escHtml(r.detail)}</div>
+          ${warn}
+        </div>
+        <div class="row-userid">${r.id ? '#' + escHtml(r.id) : ''}</div>
+        <div>${badges[r.status] || ''}</div>
+      </div>`;
+  }
+
+  function updateStats() {
+    $('statTotal').textContent = fmt(stats.total);
+    $('statOk').textContent = fmt(stats.ok);
+    $('statSkip').textContent = fmt(stats.skip);
+    $('statDry').textContent = fmt(stats.dry);
+    $('statFail').textContent = fmt(stats.fail);
+  }
+
+  function clearResults() {
+    results = [];
+    Object.assign(stats, { total: 0, ok: 0, skip: 0, dry: 0, fail: 0 });
+    $('resultList').innerHTML = '';
+    ['exportBtn', 'clearBtn', 'exportRow'].forEach(id => $(id).style.display = 'none');
+    updateStats();
+  }
+
+  // ── CSV export ────────────────────────────────────────────
+  function downloadCsv(rows, name) {
+    const csv = rows.map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = `${name}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  }
+  function exportCSV() {
+    const label = { ok: 'Changed', fail: 'Failed', dry: 'Test Passed', skip: 'Skipped' };
+    const rows = [['Time', 'Type', 'Test Run', 'Result', 'Org Unit ID', 'Name', 'Code', 'Status Before', 'Target Status', 'Detail', 'Warnings', 'Sent Payload (JSON)']];
+    results.forEach(r => rows.push([
+      r.time, MODES[r.mode] ? MODES[r.mode].label : r.mode, r.dry ? 'Yes' : 'No', label[r.status] || r.status,
+      r.id, r.name, r.code, r.from || '', r.target || '', r.detail, (r.warnings || []).join(' | '),
+      r.payload ? JSON.stringify(r.payload) : ''
+    ]));
+    downloadCsv(rows, 'set_active_status_results');
+  }
+  function exportView() {
+    const m = mode(), st = ST[m];
+    const rows = [['Org Unit ID', 'Name', 'Code', 'Status', 'Selected']];
+    st.list.forEach(it => {
+      const s = m === 'course' ? courseStatus.get(it.id) : undefined;
+      rows.push([it.id, it.name, it.code, m !== 'course' ? 'N/A' : s === true ? 'Active' : s === false ? 'Inactive' : 'Unknown', st.sel.has(it.id) ? 'Yes' : '']);
+    });
+    downloadCsv(rows, `${MODES[m].plural.toLowerCase()}_list`);
+  }
+
+  function escHtml(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ── Init ──────────────────────────────────────────────────
+  buildFilters();
+  applyMode();
+  loadAll();
+</script>
+</body>
+</html>
