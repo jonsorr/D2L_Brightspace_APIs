@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Automated Assignment Schedule
+  A course Content page that builds itself: every dated activity, grouped by due date.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assignment Schedule</title>
+
+<!-- ============================================================================
+     ASSIGNMENT SCHEDULE — D2L Brightspace course page
+     Self-contained: one HTML file, no Bootstrap, no external JS.
+
+     WHAT IT DOES
+       1. Reads the course Content tool for every item that has a due date
+       2. Then reads Assignments (dropbox), Quizzes and Discussions for due dates
+       3. Merges the four lists, removes duplicates, drops anything with no due date
+       4. Groups by due date (sorted by date, then by name) and links each item
+          straight to the activity
+
+     AUTHENTICATION
+       Every call is a same-origin GET against /d2l/api/... with
+       credentials:"same-origin", so it rides the signed-in person's session.
+       No API key, no OAuth, no CSRF token. A student sees the student view of
+       the course; an instructor sees theirs.
+
+     DEPLOY
+       Upload it to the folder your Content templates live in (see the
+       d2l.Tools.Content.TemplatePath config variable), then instructors add it
+       from Content > Create New > Create a File > Browse Templates. It can also
+       be uploaded as a content topic. Nothing else to configure — the org unit
+       id is read from the page URL.
+
+     PERSONALIZE
+       Everything worth changing is in the CONFIG block below.
+============================================================================ -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+/* Namespaced under .asch so nothing leaks into Brightspace chrome. */
+html,body{margin:0;padding:0;}
+body{background:#fff;}
+
+.asch{
+  /* Palette — shared with the Department Tools dashboard */
+  --blue:#006EB3;          /* 5.4:1 on white — safe for text */
+  --blue-dark:#004E80;
+  --blue-wash:#eef6fc;
+  --amber:#f5a81c;         /* marker and outline only, never text on white */
+  --amber-wash:#fff8ec;
+  --amber-line:#f2ddb3;
+  --alert-ink:#b3261e;      /* 5.7:1 on the wash below — AA for body text */
+  --alert-wash:#fdeceb;
+  --alert-line:#f2c4c0;
+  --ink:#1c2b36;
+  --muted:#5a6772;         /* 5.8:1 on white */
+  --line:#e3e9ee;
+  --line-soft:#f0f4f7;
+  --card:#ffffff;
+  --font-display:"Playfair Display",Georgia,"Times New Roman",serif;
+  --font-body:"Lato",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --font-mono:"DM Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  font-family:var(--font-body);
+  color:var(--ink);
+  line-height:1.5;
+  max-width:960px;
+  margin:0 auto;
+  padding:20px 18px 44px;
+  -webkit-font-smoothing:antialiased;
+}
+.asch *{box-sizing:border-box;}
+
+/* visually hidden, still read aloud */
+.asch-sr{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;}
+
+/* ---------------- masthead ---------------- */
+.asch-head{border-bottom:3px solid var(--blue);padding-bottom:14px;margin-bottom:8px;}
+.asch-title{font-family:var(--font-display);font-weight:700;font-size:clamp(26px,4.4vw,36px);
+  line-height:1.15;margin:0;letter-spacing:-.01em;color:var(--ink);}
+.asch-course{margin:6px 0 0;font-size:15px;color:var(--muted);}
+.asch-summary{margin:12px 0 0;font-size:14px;color:var(--muted);display:flex;
+  flex-wrap:wrap;align-items:baseline;gap:6px 14px;}
+.asch-count{font-family:var(--font-mono);font-weight:500;color:var(--ink);}
+.asch-jump{color:var(--blue);font-weight:700;text-decoration:none;border-bottom:1px solid rgba(0,110,179,.35);}
+.asch-jump:hover{color:var(--blue-dark);border-bottom-color:var(--blue-dark);}
+.asch-jump:focus-visible{outline:3px solid var(--blue);outline-offset:2px;border-radius:2px;}
+
+/* ---------------- loading ---------------- */
+.asch-load{margin:26px 0;}
+.asch-load[hidden]{display:none!important;}
+.asch-bar{height:4px;border-radius:4px;background:var(--line);overflow:hidden;}
+.asch-bar-fill{height:100%;width:0;background:var(--blue);border-radius:4px;
+  transition:width .45s cubic-bezier(.2,.7,.2,1);}
+.asch-load-label{margin:10px 0 0;font-size:14px;color:var(--muted);}
+
+/* ---------------- schedule ---------------- */
+.asch-list{list-style:none;margin:18px 0 0;padding:0;}
+.asch-day{display:grid;grid-template-columns:170px 1fr;gap:0 22px;
+  padding:18px 0;border-top:1px solid var(--line);}
+.asch-day:first-child{border-top:0;}
+
+.asch-date{margin:0;position:sticky;top:12px;align-self:start;}
+.asch-dow{display:block;font-size:13px;font-weight:700;color:var(--muted);}
+.asch-dnum{display:block;font-family:var(--font-display);font-weight:700;
+  font-size:24px;line-height:1.2;color:var(--ink);}
+.asch-dyear{display:block;font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:2px;}
+
+/* whatever is due next gets the one loud accent on the page: the whole
+   group sits in a boxed, amber-outlined card */
+.asch-day.is-next{
+  border:2px solid var(--amber);
+  border-radius:10px;
+  background:var(--amber-wash);
+  padding:16px 14px;
+  margin:12px -14px;
+}
+.asch-day.is-next + .asch-day{border-top:0;}   /* no rule hugging the box */
+.asch-day.is-next .asch-date::before{content:"";display:block;width:34px;height:4px;
+  border-radius:4px;background:var(--amber);margin-bottom:8px;}
+.asch-day.is-next .asch-dnum{color:var(--blue-dark);}
+.asch-day.is-next .asch-link{border-color:var(--amber-line);background:var(--card);}
+.asch-day.is-next .asch-link:hover{border-color:var(--blue);background:var(--blue-wash);}
+.asch-day.is-past .asch-dnum,.asch-day.is-past .asch-dow{color:var(--muted);}
+.asch-day.is-past .asch-item-name{color:var(--muted);}
+
+.asch-items{list-style:none;margin:0;padding:0;}
+.asch-item + .asch-item{margin-top:6px;}
+
+.asch-link{display:grid;grid-template-columns:minmax(0,1fr) auto auto;
+  column-gap:12px;row-gap:4px;align-items:baseline;
+  text-decoration:none;color:inherit;padding:9px 12px;border-radius:8px;
+  border:1px solid var(--line);background:var(--card);}
+a.asch-link:hover{border-color:var(--blue);background:var(--blue-wash);}
+a.asch-link:focus-visible{outline:3px solid var(--blue);outline-offset:2px;}
+.asch-item-name{grid-column:1;min-width:0;overflow-wrap:anywhere;
+  font-size:16px;font-weight:700;color:var(--blue-dark);
+  text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px;}
+a.asch-link:hover .asch-item-name{color:var(--blue-dark);text-decoration-thickness:2px;}
+.asch-kind{grid-column:2;justify-self:end;font-size:12px;font-weight:700;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:2px 9px;background:var(--line-soft);
+  white-space:nowrap;}
+.asch-time{grid-column:3;justify-self:end;min-width:62px;text-align:right;
+  font-family:var(--font-mono);font-size:13px;color:var(--muted);
+  font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+/* availability window — a quiet second line under each item */
+.asch-avail{grid-column:1 / -1;margin:1px 0 0;padding-left:9px;
+  border-left:2px solid var(--line);font-size:12.5px;line-height:1.4;color:var(--muted);}
+.asch-avail-dates{font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
+.asch-day.is-next .asch-avail{border-left-color:var(--amber-line);}
+a.asch-link:hover .asch-avail{border-left-color:var(--blue);}
+
+/* not open yet, or already closed — no link, and it should look inert */
+.asch-link.is-locked{background:var(--line-soft);border-style:dashed;cursor:default;}
+.asch-link.is-locked .asch-item-name{color:var(--muted);text-decoration:none;}
+.asch-day.is-next .asch-link.is-locked{background:var(--line-soft);}
+
+/* ---------------- items with no due date ---------------- */
+.asch-extra{margin:28px 0 0;padding-top:4px;border-top:2px solid var(--line);}
+.asch-extra[hidden]{display:none!important;}
+.asch-nodue-title{display:block;font-family:var(--font-display);font-weight:700;
+  font-size:17px;line-height:1.25;color:var(--muted);}
+.asch-day.is-nodue{border-top:0;}
+.asch-day.is-nodue .asch-item-name{color:var(--blue-dark);}
+
+/* ---------------- messages ---------------- */
+.asch-note{margin:24px 0 0;padding:16px 18px;border:1px solid var(--line);
+  border-left:4px solid var(--blue);border-radius:8px;background:var(--line-soft);
+  font-size:15px;color:var(--ink);}
+.asch-note[hidden]{display:none!important;}
+.asch-note p{margin:0;}
+.asch-note p + p{margin-top:8px;}
+.asch-foot{margin:30px 0 0;padding:14px 18px;text-align:center;
+  font-size:14px;line-height:1.5;color:var(--alert-ink);background:var(--alert-wash);
+  border:1px solid var(--alert-line);border-radius:10px;}
+.asch-foot[hidden]{display:none!important;}
+
+/* ---------------- narrow screens ---------------- */
+@media (max-width:640px){
+  .asch{padding:16px 14px 36px;}
+  .asch-day{grid-template-columns:1fr;gap:10px 0;}
+  .asch-date{position:static;display:flex;align-items:baseline;gap:8px;}
+  .asch-dnum{font-size:19px;}
+  .asch-day.is-next{margin-left:-8px;margin-right:-8px;padding:14px 10px;}
+  .asch-day.is-next .asch-date::before{margin:0 4px 0 0;align-self:center;width:4px;height:18px;}
+  .asch-link{grid-template-columns:minmax(0,1fr) auto;}
+  .asch-item-name{grid-column:1 / -1;}
+  .asch-kind{grid-column:1;justify-self:start;}
+  .asch-time{grid-column:2;}
+}
+
+/* ---------------- print ---------------- */
+@media print{
+  .asch{max-width:none;padding:0;}
+  .asch-load,.asch-jump{display:none!important;}
+  .asch-day{break-inside:avoid;background:none!important;}
+  .asch-day.is-next{border:2px solid #666;margin:8px 0;}
+  .asch-link{border:0;padding:2px 0;}
+  .asch-item-name{color:#000;}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .asch-bar-fill{transition:none;}
+}
+@media (prefers-contrast:more){
+  .asch-link{border-color:var(--ink);}
+  .asch-kind{border-color:var(--ink);color:var(--ink);}
+}
+</style>
+</head>
+
+<body>
+<main class="asch" id="asch-root">
+
+  <header class="asch-head">
+    <h1 class="asch-title" id="asch-title">Assignment Schedule</h1>
+    <p class="asch-course" id="asch-course" hidden></p>
+  </header>
+
+  <p class="asch-summary" id="asch-summary" hidden></p>
+
+  <div class="asch-load" id="asch-load" role="status" aria-live="polite">
+    <div class="asch-bar" aria-hidden="true"><div class="asch-bar-fill" id="asch-bar"></div></div>
+    <p class="asch-load-label" id="asch-load-label">Reading the course&hellip;</p>
+  </div>
+
+  <ol class="asch-list" id="asch-list" aria-labelledby="asch-title" aria-busy="true"></ol>
+
+  <div class="asch-note" id="asch-note" hidden></div>
+
+  <section class="asch-extra" id="asch-nodue" hidden>
+    <div class="asch-day is-nodue">
+      <h2 class="asch-date" id="asch-nodue-h"><span class="asch-nodue-title">Always available after the start date</span></h2>
+      <ul class="asch-items" id="asch-nodue-items" aria-labelledby="asch-nodue-h"></ul>
+    </div>
+  </section>
+
+  <p class="asch-foot" id="asch-foot" hidden>Note: Only the activities that you have access to will appear on the schedule. Any assignments that have unmet Release Conditions will not be listed.</p>
+
+  <span class="asch-sr" id="asch-live" aria-live="polite"></span>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============================== CONFIG ==============================
+     Change these and nothing else.                                      */
+  var CONFIG = {
+    heading:          "Assignment Schedule",
+    showCourseName:   true,   // print the course title under the heading
+    scanContent:      true,   // Content tool
+    scanAssignments:  true,   // Assignments / dropbox folders
+    scanQuizzes:      true,   // Quizzes
+    scanDiscussions:  true,   // Discussion topics
+    linkTarget:       "content", // "content" = open in the Content viewer when the
+                                 // item lives in Content; "tool" = always open the
+                                 // Assignments / Quizzes / Discussions page
+    includeModuleDueDates: false, // treat a module's own due date as a listed item
+    showPastItems:    true,   // false hides everything before today
+    showNoDueDate:    true,   // list Dropbox/Quiz/Discussion items that have no due date
+    availabilityStyle:"compact", // "compact" -> Oct 1 – Oct 4 | "sentence" -> Availability starts on Oct 1 and ends on Oct 4
+    highlightNextDue: true,   // box and outline the group that is due next
+    concurrency:      6,      // simultaneous API calls
+    timeZone:         "",     // "" = the reader's own zone. Force one with e.g.
+                              // "America/New_York" if your dates must match the
+                              // college calendar regardless of where someone is.
+    openInNewTab:     false,
+    demoMode:         "auto", // "auto" shows sample rows outside Brightspace | "on" | "off"
+    debug:            false   // true -> console log of every route and the merge
+  };
+
+  var TYPE_LABEL = {
+    Assignment: "Dropbox",
+    Quiz: "Quiz",
+    Discussion: "Discussion",
+    Survey: "Survey",
+    Checklist: "Checklist",
+    SelfAssessment: "Self assessment",
+    Content: "Content"
+  };
+
+  function dbg(){
+    if (!CONFIG.debug || !window.console) return;
+    try { console.log.apply(console, ["[Assignment Schedule]"].concat([].slice.call(arguments))); } catch(e){}
+  }
+
+  /* ---------------------------- elements ---------------------------- */
+  var root     = document.getElementById("asch-root");
+  if (!root) return;
+  var listEl   = document.getElementById("asch-list");
+  var loadEl   = document.getElementById("asch-load");
+  var barEl    = document.getElementById("asch-bar");
+  var labelEl  = document.getElementById("asch-load-label");
+  var noteEl   = document.getElementById("asch-note");
+  var sumEl    = document.getElementById("asch-summary");
+  var courseEl = document.getElementById("asch-course");
+  var footEl   = document.getElementById("asch-foot");
+  var liveEl   = document.getElementById("asch-live");
+  var titleEl  = document.getElementById("asch-title");
+
+  if (CONFIG.heading) titleEl.textContent = CONFIG.heading;
+  document.title = CONFIG.heading || document.title;
+
+  var progress = 0;
+  function setProgress(frac, label){
+    progress = Math.max(progress, Math.min(1, frac));
+    barEl.style.width = Math.round(progress * 100) + "%";
+    if (label) labelEl.textContent = label;
+  }
+  function stopLoading(){ setProgress(1); loadEl.hidden = true; }
+  function announce(msg){
+    liveEl.textContent = "";
+    window.setTimeout(function(){ liveEl.textContent = msg; }, 60);
+  }
+  function showNote(paragraphs){
+    noteEl.innerHTML = "";
+    (Array.isArray(paragraphs) ? paragraphs : [paragraphs]).forEach(function(text){
+      var p = document.createElement("p");
+      p.textContent = text;
+      noteEl.appendChild(p);
+    });
+    noteEl.hidden = false;
+  }
+
+  /* ------------------------- rate limiting -------------------------
+     D2L meters API calls per user per minute and answers 429 when the
+     budget runs out. Every request goes through rawFetch, which reads the
+     remaining-credit headers, eases off before the wall, and honours
+     Retry-After when it hits one.                                     */
+  var RL = { remaining: Infinity, resetAt: 0 };
+  var RL_FLOOR = 3, RL_MAX_RETRIES = 6;
+
+  function sleep(ms){ return new Promise(function(r){ window.setTimeout(r, ms); }); }
+
+  function noteRateHeaders(res){
+    var rem = res.headers.get("X-Rate-Limit-Remaining");
+    if (rem){ var n = parseInt(rem, 10); if (!isNaN(n)) RL.remaining = n; }
+    var reset = res.headers.get("X-Rate-Limit-Reset");
+    if (reset){
+      var s = parseFloat(reset);
+      if (!isNaN(s)) RL.resetAt = (s > 1e6) ? s * 1000 : Date.now() + Math.max(0, s) * 1000;
+    }
+  }
+  function backoffMs(res, attempt){
+    var ra = res.headers.get("Retry-After");
+    if (ra){
+      var secs = parseInt(ra, 10);
+      if (!isNaN(secs) && String(secs) === ra.trim()) return secs * 1000;
+      var when = Date.parse(ra);
+      if (!isNaN(when)) return Math.max(0, when - Date.now());
+    }
+    return Math.min(16000, Math.pow(2, attempt) * 1000) + Math.floor(Math.random() * 300);
+  }
+  function awaitCredit(){
+    if (RL.remaining > RL_FLOOR) return Promise.resolve();
+    var wait = RL.resetAt - Date.now();
+    if (wait <= 0){ RL.remaining = Infinity; return Promise.resolve(); }
+    dbg("rate limit low, pausing", wait, "ms");
+    return sleep(Math.min(wait + 100, 65000)).then(function(){ RL.remaining = Infinity; });
+  }
+  function rawFetch(url, attempt){
+    return awaitCredit().then(function(){
+      if (isFinite(RL.remaining)) RL.remaining -= 1;
+      return fetch(url, {
+        method: "GET",
+        credentials: "same-origin",
+        headers: { "Accept": "application/json" },
+        redirect: "follow"
+      });
+    }).then(function(res){
+      noteRateHeaders(res);
+      if (res.status === 429){
+        if (attempt >= RL_MAX_RETRIES) throw new Error(url + " -> 429");
+        var delay = backoffMs(res, attempt);
+        dbg("429, backing off", delay, "ms");
+        return sleep(delay).then(function(){ return rawFetch(url, attempt + 1); });
+      }
+      if (!res.ok) throw new Error(url + " -> " + res.status);
+      return res;
+    });
+  }
+  function getJSON(url){ return rawFetch(url, 0).then(function(r){ return r.json(); }); }
+
+  /* D2L returns lists three ways: a bare array, an ObjectListPage
+     { Next, Objects:[...] }, or a PagedResultSet { Items:[...] }. */
+  function rowsOf(data){
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.Objects)) return data.Objects;
+    if (Array.isArray(data.Items)) return data.Items;
+    return [];
+  }
+  function getAllRows(url){
+    var acc = [];
+    function step(u, guard){
+      return getJSON(u).then(function(data){
+        acc = acc.concat(rowsOf(data));
+        var next = data && data.Next;
+        return (next && guard > 0) ? step(next, guard - 1) : acc;
+      });
+    }
+    return step(url, 25);
+  }
+  /* Run tasks with a ceiling on how many are in flight at once. */
+  function pool(items, limit, fn){
+    var i = 0, out = [];
+    function worker(){
+      if (i >= items.length) return Promise.resolve();
+      var idx = i++;
+      return Promise.resolve(fn(items[idx], idx)).then(function(v){ out[idx] = v; }, function(){ out[idx] = null; })
+        .then(worker);
+    }
+    var workers = [];
+    for (var k = 0; k < Math.min(limit, items.length); k++) workers.push(worker());
+    return Promise.all(workers).then(function(){ return out; });
+  }
+
+  /* ------------------------ course context ------------------------ */
+  function resolveOrgUnitId(){
+    var replaced = "{OrgUnitId}";               // substituted inside a custom widget
+    if (/^\d+$/.test(replaced)) return replaced;
+
+    var hunt = [];
+    try { hunt.push(window.location.href); } catch(e){}
+    try { hunt.push(document.referrer); } catch(e){}
+    try { hunt.push(window.parent.location.href); } catch(e){}   // throws when cross-origin
+
+    var patterns = [
+      /\/content\/enforced\/(\d+)-/,
+      /\/d2l\/le\/content\/(\d+)/,
+      /\/d2l\/home\/(\d+)/,
+      /\/d2l\/le\/(\d+)\//,
+      /[?&]ou=(\d+)/
+    ];
+    for (var i = 0; i < hunt.length; i++){
+      var src = hunt[i] || "";
+      for (var p = 0; p < patterns.length; p++){
+        var m = src.match(patterns[p]);
+        if (m) return m[1];
+      }
+    }
+    return null;
+  }
+
+  function resolveVersions(){
+    return getJSON("/d2l/api/versions/").then(function(list){
+      function pick(code){
+        var v = (list || []).filter(function(x){
+          return x && String(x.ProductCode).toLowerCase() === code;
+        })[0];
+        return (v && v.Version) ? v.Version : null;
+      }
+      var le = pick("le"), lp = pick("lp");
+      if (le && lp) return { le: le, lp: lp };
+      throw new Error("versions incomplete");
+    }).catch(function(){
+      return Promise.all([
+        getJSON("/d2l/api/le/versions/").catch(function(){ return null; }),
+        getJSON("/d2l/api/lp/versions/").catch(function(){ return null; })
+      ]).then(function(r){
+        return {
+          le: (r[0] && r[0].LatestVersion) ? r[0].LatestVersion : "1.74",
+          lp: (r[1] && r[1].LatestVersion) ? r[1].LatestVersion : "1.47"
+        };
+      });
+    });
+  }
+
+  /* --------------------------- helpers --------------------------- */
+  function firstDate(){
+    for (var i = 0; i < arguments.length; i++){
+      var v = arguments[i];
+      if (v == null || v === "") continue;
+      var t = Date.parse(v);
+      if (!isNaN(t)) return new Date(t).toISOString();
+    }
+    return null;
+  }
+  function cleanText(s){
+    if (s == null) return "";
+    var d = document.createElement("div");
+    d.innerHTML = String(s);
+    return (d.textContent || "").replace(/\s+/g, " ").trim();
+  }
+  function normName(s){
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+  function activityLabel(t){
+    switch (Number(t)){
+      case 3:  return "Assignment";
+      case 4:  return "Quiz";
+      case 5:
+      case 6:  return "Discussion";
+      case 10: return "Checklist";
+      case 11: return "SelfAssessment";
+      case 12: return "Survey";
+      default: return "Content";
+    }
+  }
+  /* Pull the underlying tool id out of an activity URL, so a content topic
+     pointing at dropbox 4821 dedupes against dropbox folder 4821. */
+  function toolIdFromUrl(url){
+    var u = String(url || "");
+    var m;
+    if ((m = u.match(/\/discussions\/topics\/(\d+)/i))) return { type: "Discussion", id: m[1] };
+    if ((m = u.match(/[?&]db=(\d+)/i)))                 return { type: "Assignment", id: m[1] };
+    if ((m = u.match(/[?&]qi=(\d+)/i)))                 return { type: "Quiz",       id: m[1] };
+    return null;
+  }
+
+  /* ---------------------------- links ---------------------------- */
+  function contentLink(ou, topicId){
+    return "/d2l/le/content/" + ou + "/viewContent/" + topicId + "/View";
+  }
+  function toolLink(ou, type, id){
+    if (id == null) return null;
+    if (type === "Assignment") return "/d2l/lms/dropbox/user/folder_submit_files.d2l?db=" + id + "&ou=" + ou;
+    if (type === "Quiz")       return "/d2l/lms/quizzing/user/quiz_summary.d2l?qi=" + id + "&ou=" + ou;
+    if (type === "Discussion") return "/d2l/le/" + ou + "/discussions/topics/" + id + "/View";
+    if (type === "Survey")     return "/d2l/lms/survey/user/surveys_list.d2l?ou=" + ou;
+    if (type === "Checklist")  return "/d2l/lms/checklist/user/checklists_list.d2l?ou=" + ou;
+    return null;
+  }
+
+  /* ====================== STEP 1 — CONTENT ======================
+     Two routes, because they answer for different people.
+
+     content/myItems/ gives the calling user their own scheduled items —
+     name, url, activity type and due date, already filtered to what they
+     can see, in one request. That is the right answer for a student.
+
+     Instructors are not "assigned" content, so that route can come back
+     empty for them. When it does, walk the table of contents and read each
+     module's structure, which carries DueDate on every child topic.
+     (The ToC itself does not expose DueDate — only start and end.)         */
+
+  function fetchToc(le, ou){
+    return getJSON("/d2l/api/le/" + le + "/" + ou + "/content/toc")
+      .then(function(toc){ return (toc && toc.Modules) ? toc.Modules : []; })
+      .catch(function(err){ dbg("toc failed", String(err)); return []; });
+  }
+
+  /* index every ToC topic by its content topic id, so we can recover the
+     underlying tool id (ToolItemId) for deduplication. */
+  function indexToc(modules){
+    var byTopic = {}, moduleIds = [];
+    (function walk(list){
+      (list || []).forEach(function(m){
+        if (!m) return;
+        moduleIds.push(String(m.ModuleId));
+        (m.Topics || []).forEach(function(t){
+          if (!t) return;
+          byTopic[String(t.TopicId)] = t;
+        });
+        walk(m.Modules);
+      });
+    })(modules);
+    return { byTopic: byTopic, moduleIds: moduleIds };
+  }
+
+  function contentItemFrom(ou, opts){
+    var due = opts.due;
+    var topicId = opts.topicId != null ? String(opts.topicId) : null;
+    var type = opts.type || "Content";
+    var toolId = opts.toolId != null ? String(opts.toolId) : null;
+
+    // if we only have a url, try to read the tool id out of it
+    if (!toolId && opts.url){
+      var guess = toolIdFromUrl(opts.url);
+      if (guess){ toolId = guess.id; if (type === "Content") type = guess.type; }
+    }
+    var href = null;
+    if (CONFIG.linkTarget === "tool") href = toolLink(ou, type, toolId);
+    if (!href && topicId) href = contentLink(ou, topicId);
+    if (!href) href = toolLink(ou, type, toolId);
+    if (!href && opts.url && /^\/d2l\//i.test(opts.url)) href = opts.url;
+
+    return {
+      name: cleanText(opts.name),
+      due: due,
+      start: opts.start || null,
+      end: opts.end || null,
+      type: type,
+      toolId: toolId,
+      topicId: topicId,
+      href: href,
+      fromTool: false,
+      sources: ["Content"]
+    };
+  }
+
+  function scanContentMyItems(le, ou, tocIndex){
+    return getAllRows("/d2l/api/le/" + le + "/" + ou + "/content/myItems/")
+      .then(function(rows){
+        dbg("content/myItems rows:", rows.length);
+        var items = [], sawAny = rows.length > 0;
+        rows.forEach(function(r){
+          if (!r || r.IsExempt) return;
+          var due = firstDate(r.DueDate);
+          if (!due) return;                       // Content only contributes dated items
+          var topicId = r.ItemId != null ? String(r.ItemId) : null;
+          var toc = topicId ? tocIndex.byTopic[topicId] : null;
+          var item = contentItemFrom(ou, {
+            name: r.ItemName,
+            due: due,
+            start: firstDate(r.StartDate, toc && toc.StartDateTime),
+            end:   firstDate(r.EndDate,   toc && toc.EndDateTime),
+            type: activityLabel(r.ActivityType != null ? r.ActivityType : (toc && toc.ActivityType)),
+            toolId: toc && toc.ToolItemId != null ? toc.ToolItemId : null,
+            topicId: topicId,
+            url: r.ItemUrl || (toc && toc.Url)
+          });
+          if (item && item.name) items.push(item);
+        });
+        return { items: items, sawAny: sawAny };
+      })
+      .catch(function(err){ dbg("content/myItems failed", String(err)); return { items: [], sawAny: false }; });
+  }
+
+  function scanContentStructure(le, ou, tocIndex){
+    var base = "/d2l/api/le/" + le + "/" + ou + "/content/modules/";
+    return pool(tocIndex.moduleIds, CONFIG.concurrency, function(mid){
+      return getJSON(base + mid + "/structure/").catch(function(){ return null; });
+    }).then(function(results){
+      var items = [];
+      results.forEach(function(children){
+        rowsOf(children).forEach(function(obj){
+          if (!obj || obj.IsHidden) return;
+
+          if (Number(obj.Type) === 0){                       // module
+            if (!CONFIG.includeModuleDueDates) return;
+            var mdue = firstDate(obj.ModuleDueDate);
+            if (!mdue) return;
+            items.push({
+              name: cleanText(obj.Title), due: mdue,
+              start: firstDate(obj.ModuleStartDate), end: firstDate(obj.ModuleEndDate),
+              type: "Content", toolId: null, topicId: null, fromTool: false,
+              href: "/d2l/le/content/" + ou + "/Home?itemIdentifier=D2L.LE.Content.ContentObject.ModuleCO-" + obj.Id,
+              sources: ["Content"]
+            });
+            return;
+          }
+
+          if (obj.IsExempt) return;                          // topic
+          var due = firstDate(obj.DueDate);
+          if (!due) return;
+          var toc = tocIndex.byTopic[String(obj.Id)];
+          var item = contentItemFrom(ou, {
+            name: obj.Title,
+            due: due,
+            start: firstDate(obj.StartDate, toc && toc.StartDateTime),
+            end:   firstDate(obj.EndDate,   toc && toc.EndDateTime),
+            type: activityLabel(obj.ActivityType != null ? obj.ActivityType : (toc && toc.ActivityType)),
+            toolId: obj.ToolItemId != null ? obj.ToolItemId : (toc && toc.ToolItemId),
+            topicId: obj.Id,
+            url: obj.Url || (toc && toc.Url)
+          });
+          if (item && item.name) items.push(item);
+        });
+      });
+      dbg("content structure walk items:", items.length);
+      return items;
+    });
+  }
+
+  function scanContent(le, ou, tocIndex){
+    if (!CONFIG.scanContent) return Promise.resolve([]);
+    return scanContentMyItems(le, ou, tocIndex).then(function(r){
+      if (r.sawAny) return r.items;
+      // nothing scheduled for this reader — fall back to the structure walk
+      return scanContentStructure(le, ou, tocIndex);
+    });
+  }
+
+  /* ================= STEP 2 — ASSIGNMENTS / QUIZZES / DISCUSSIONS ====== */
+
+  function scanAssignments(le, ou){
+    if (!CONFIG.scanAssignments) return Promise.resolve({ items: [], failed: false });
+    return getAllRows("/d2l/api/le/" + le + "/" + ou + "/dropbox/folders/").then(function(rows){
+      var items = [];
+      rows.forEach(function(f){
+        if (!f || f.IsHidden) return;
+        var av = f.Availability || f.Dates || {};
+        var id = f.Id != null ? String(f.Id) : null;
+        items.push({
+          name: cleanText(f.Name),
+          due:   firstDate(f.DueDate, av.DueDate),
+          start: firstDate(f.StartDate, av.StartDate),
+          end:   firstDate(f.EndDate, av.EndDate),
+          type: "Assignment",
+          toolId: id,
+          topicId: null,
+          href: toolLink(ou, "Assignment", id),
+          fromTool: true,
+          sources: ["Dropbox"]
+        });
+      });
+      dbg("dropbox folders:", items.length, "of", rows.length);
+      return { items: items, failed: false };
+    }).catch(function(err){
+      dbg("dropbox failed", String(err));
+      return { items: [], failed: true };
+    });
+  }
+
+  function scanQuizzes(le, ou){
+    if (!CONFIG.scanQuizzes) return Promise.resolve({ items: [], failed: false });
+    return getAllRows("/d2l/api/le/" + le + "/" + ou + "/quizzes/").then(function(rows){
+      var items = [];
+      rows.forEach(function(q){
+        if (!q) return;
+        if (q.IsActive === false) return;
+        var av = q.Dates || {};
+        var id = (q.QuizId != null ? q.QuizId : q.Id);
+        id = id != null ? String(id) : null;
+        items.push({
+          name: cleanText(q.Name),
+          due:   firstDate(q.DueDate, av.DueDate),
+          start: firstDate(q.StartDate, av.StartDate),
+          end:   firstDate(q.EndDate, av.EndDate),
+          type: "Quiz",
+          toolId: id,
+          topicId: null,
+          href: toolLink(ou, "Quiz", id),
+          fromTool: true,
+          sources: ["Quizzes"]
+        });
+      });
+      dbg("quizzes:", items.length, "of", rows.length);
+      return { items: items, failed: false };
+    }).catch(function(err){
+      dbg("quizzes failed", String(err));
+      return { items: [], failed: true };
+    });
+  }
+
+  /* Discussion topics only carry DueDate from LE API v1.90 onward. On an
+     older tenant a discussion still shows up here as long as it sits in
+     Content, because the content topic reports the activity's due date. */
+  function scanDiscussions(le, ou){
+    if (!CONFIG.scanDiscussions) return Promise.resolve({ items: [], failed: false });
+    var base = "/d2l/api/le/" + le + "/" + ou + "/discussions/forums/";
+    return getAllRows(base).then(function(forums){
+      var ids = [];
+      forums.forEach(function(f){
+        if (!f || f.IsHidden) return;
+        var fid = (f.ForumId != null ? f.ForumId : f.Id);
+        if (fid != null) ids.push(String(fid));
+      });
+      return pool(ids, CONFIG.concurrency, function(fid){
+        return getAllRows(base + fid + "/topics/").catch(function(){ return []; });
+      }).then(function(lists){
+        var items = [];
+        lists.forEach(function(topics){
+          (topics || []).forEach(function(t){
+            if (!t || t.IsHidden) return;
+            var av = t.Dates || {};
+            var id = (t.TopicId != null ? t.TopicId : t.Id);
+            id = id != null ? String(id) : null;
+            items.push({
+              name: cleanText(t.Name),
+              due:   firstDate(t.DueDate, av.DueDate),
+              start: firstDate(t.StartDate, av.StartDate),
+              end:   firstDate(t.EndDate, av.EndDate),
+              type: "Discussion",
+              toolId: id,
+              topicId: null,
+              href: toolLink(ou, "Discussion", id),
+              fromTool: true,
+              sources: ["Discussions"]
+            });
+          });
+        });
+        dbg("discussion topics:", items.length);
+        return { items: items, failed: false };
+      });
+    }).catch(function(err){
+      dbg("discussions failed", String(err));
+      return { items: [], failed: true };
+    });
+  }
+
+  /* ====================== STEP 3 — MERGE / DEDUPE ======================
+     The same assignment legitimately arrives twice: once from Content
+     (because it was added as a topic) and once from its own tool. Match on
+     the underlying tool id first — that is exact. Fall back to name plus
+     due date, which catches items whose content link is a quicklink we
+     could not resolve to an id.                                           */
+  function mergeItems(groups){
+    var byKey = {}, ordered = [];
+
+    function keyTool(it){ return it.toolId ? it.type + "#" + it.toolId : null; }
+    /* Undated items need the type in the key too, or a dropbox folder and a
+       quiz that happen to share a name would collapse into one row. */
+    function keyName(it){
+      return "n#" + normName(it.name) + "@" + (it.due || ("none|" + it.type));
+    }
+
+    function absorb(target, incoming){
+      // the tool is the authority on name and type; Content is the authority on
+      // a link that keeps the reader inside the Content viewer
+      if (incoming.fromTool){
+        if (incoming.name) target.name = incoming.name;
+        if (incoming.type) target.type = incoming.type;
+        if (!target.toolId && incoming.toolId) target.toolId = incoming.toolId;
+        if (!target.due && incoming.due) target.due = incoming.due;
+        /* the tool owns the availability window, including the absence of one,
+           so take both values from it rather than filling blanks */
+        if (!target.fromTool){ target.start = incoming.start; target.end = incoming.end; }
+        target.fromTool = true;
+      } else {
+        if (!target.start) target.start = incoming.start;
+        if (!target.end)   target.end   = incoming.end;
+      }
+      if (!target.topicId && incoming.topicId) target.topicId = incoming.topicId;
+      if (!target.href && incoming.href) target.href = incoming.href;
+      if (CONFIG.linkTarget === "tool" && incoming.fromTool && incoming.href){
+        target.href = incoming.href;
+      }
+      incoming.sources.forEach(function(s){
+        if (target.sources.indexOf(s) < 0) target.sources.push(s);
+      });
+    }
+
+    groups.forEach(function(list){
+      (list || []).forEach(function(it){
+        if (!it || !it.name) return;
+        var kt = keyTool(it), kn = keyName(it);
+        var hit = (kt && byKey[kt]) || byKey[kn];
+        if (hit){ absorb(hit, it); if (kt) byKey[kt] = hit; byKey[kn] = hit; return; }
+        if (kt) byKey[kt] = it;
+        byKey[kn] = it;
+        ordered.push(it);
+      });
+    });
+
+    dbg("merged to", ordered.length, "unique items");
+    return ordered;
+  }
+
+  /* ========================= STEP 4 — GROUP ========================= */
+  function tzOpts(base){
+    var o = {};
+    for (var k in base) if (Object.prototype.hasOwnProperty.call(base, k)) o[k] = base[k];
+    if (CONFIG.timeZone) o.timeZone = CONFIG.timeZone;
+    return o;
+  }
+  var fmtKey, fmtDow, fmtDay, fmtYear, fmtTime, fmtFull, fmtShort;
+  try {
+    fmtKey  = new Intl.DateTimeFormat("en-CA", tzOpts({ year:"numeric", month:"2-digit", day:"2-digit" }));
+    fmtDow  = new Intl.DateTimeFormat(undefined, tzOpts({ weekday:"long" }));
+    fmtDay  = new Intl.DateTimeFormat(undefined, tzOpts({ month:"long", day:"numeric" }));
+    fmtYear = new Intl.DateTimeFormat(undefined, tzOpts({ year:"numeric" }));
+    fmtTime = new Intl.DateTimeFormat(undefined, tzOpts({ hour:"numeric", minute:"2-digit" }));
+    fmtShort= new Intl.DateTimeFormat(undefined, tzOpts({ month:"short", day:"numeric" }));
+    fmtFull = new Intl.DateTimeFormat(undefined, tzOpts({ weekday:"long", month:"long", day:"numeric", year:"numeric" }));
+  } catch(e){ /* very old browser — fall back below */ }
+
+  function dayKey(d){ return fmtKey ? fmtKey.format(d) : d.toISOString().slice(0,10); }
+
+  /* "Oct 1", or "Oct 1, 2027" once the date leaves the current year. */
+  function shortDate(iso){
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    var txt = fmtShort ? fmtShort.format(d) : iso.slice(0, 10);
+    var yr  = fmtYear ? fmtYear.format(d) : null;
+    var now = fmtYear ? fmtYear.format(new Date()) : null;
+    return (yr && now && yr !== now) ? txt + ", " + yr : txt;
+  }
+
+  /* The availability window, in two registers: a compact chip for the page and
+     a full sentence for screen readers (and for anyone who sets
+     CONFIG.availabilityStyle to "sentence"). */
+  function hasPassed(iso){
+    var t = Date.parse(iso);
+    return !isNaN(t) && t < Date.now();
+  }
+  /* "Dec 11, 11:59 PM" — end dates show the cut-off time, since that is the
+     moment the activity actually locks. */
+  function shortDateTime(iso){
+    var d = new Date(iso);
+    var day = shortDate(iso);
+    if (!day) return null;
+    var time = (fmtTime && !isNaN(d.getTime())) ? fmtTime.format(d) : "";
+    return time ? day + ", " + time : day;
+  }
+  function availability(it){
+    var s = it.start ? shortDate(it.start) : null;
+    var e = it.end   ? shortDateTime(it.end) : null;
+
+    // a window that has already come round reads in the past tense
+    var opens  = (it.start && hasPassed(it.start)) ? "Opened"  : "Opens";
+    var closes = (it.end   && hasPassed(it.end))   ? "Closed"  : "Closes";
+    var starts = (it.start && hasPassed(it.start)) ? "started" : "starts";
+    var ends   = (it.end   && hasPassed(it.end))   ? "ended"   : "ends";
+
+    if (!s && !e) return { label: "Always available", dates: "", full: "Always available", always: true };
+    if (s && !e)  return { label: opens,  dates: s, full: "Availability " + starts + " on " + s, always: false };
+    if (!s && e)  return { label: closes, dates: e, full: "Availability " + ends + " on " + e, always: false };
+    return {
+      label: "Available",
+      dates: s + " \u2013 " + e,
+      full: "Availability " + starts + " on " + s + " and " + ends + " on " + e,
+      always: false
+    };
+  }
+  function groupByDay(items){
+    var map = {}, order = [];
+    items.forEach(function(it){
+      /* An item with no due date but a closing date still belongs on the
+         calendar — it lands on the day it closes. */
+      var d = new Date(it.due || it.end);
+      if (isNaN(d.getTime())) return;
+      var k = dayKey(d);
+      if (!map[k]){ map[k] = { key:k, date:d, items:[] }; order.push(map[k]); }
+      map[k].items.push(it);
+    });
+    order.sort(function(a, b){ return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+    order.forEach(function(g){
+      g.items.sort(function(a, b){
+        var byName = a.name.localeCompare(b.name, undefined, { numeric:true, sensitivity:"base" });
+        if (byName !== 0) return byName;
+        return a.due < b.due ? -1 : a.due > b.due ? 1 : 0;
+      });
+    });
+    return order;
+  }
+
+  /* ========================= STEP 5 — RENDER ========================= */
+  function el(tag, cls){ var n = document.createElement(tag); if (cls) n.className = cls; return n; }
+
+  /* One row: the name, its tool, the due time, and the availability window.
+     The whole row is the link, so the tap target is the full width. */
+  function itemRow(it){
+    var row = el("li", "asch-item");
+
+    /* Nothing to click on if the window has not opened or has already shut —
+       the link would only land the reader on an access-denied page. */
+    var notYet = !!(it.start && !hasPassed(it.start));
+    var over   = !!(it.end   &&  hasPassed(it.end));
+    var locked = notYet || over;
+
+    var a = el((it.href && !locked) ? "a" : "span", "asch-link" + (locked ? " is-locked" : ""));
+    if (it.href && !locked){
+      a.href = it.href;
+      if (CONFIG.openInNewTab){ a.target = "_blank"; a.rel = "noopener"; }
+    }
+
+    var name = el("span", "asch-item-name");
+    name.textContent = it.name;
+    a.appendChild(name);
+
+    var kind = el("span", "asch-kind");
+    kind.textContent = TYPE_LABEL[it.type] || it.type;
+    a.appendChild(kind);
+
+    var srText = "";
+    var t = el("time", "asch-time");
+    if (it.due){
+      var d = new Date(it.due);
+      t.setAttribute("datetime", it.due);
+      t.textContent = fmtTime ? fmtTime.format(d) : "";
+      srText = ", due " + (fmtFull ? fmtFull.format(d) : "");
+    } else {
+      srText = ", no due date";
+    }
+    if (locked) srText += notYet ? ", not open yet" : ", closed";
+    a.appendChild(t);          // stays in the flow when empty, so rows line up
+
+    var av = availability(it);
+    var sentence = CONFIG.availabilityStyle === "sentence";
+    var avEl = el("span", "asch-avail" + (av.always ? " is-always" : ""));
+    if (sentence){
+      avEl.textContent = av.full;
+    } else {
+      avEl.appendChild(document.createTextNode(av.label));
+      if (av.dates){
+        avEl.appendChild(document.createTextNode(" "));
+        var dates = el("span", "asch-avail-dates");
+        dates.textContent = av.dates;
+        avEl.appendChild(dates);
+      }
+      avEl.setAttribute("aria-hidden", "true");   // the sentence below says it properly
+      srText += (srText ? ". " : "") + av.full;
+    }
+
+    if (srText){
+      var sr = el("span", "asch-sr");
+      sr.textContent = srText;
+      a.appendChild(sr);
+    }
+    a.appendChild(avEl);
+
+    row.appendChild(a);
+    return row;
+  }
+
+  function render(groups, noDueItems){
+    noDueItems = noDueItems || [];
+    listEl.innerHTML = "";
+    listEl.setAttribute("aria-busy", "false");
+
+    var todayKey = dayKey(new Date());
+    var thisYear = fmtYear ? fmtYear.format(new Date()) : String(new Date().getFullYear());
+    var shownDays = 0, shownItems = 0;
+
+    /* "Due next" is the first group that has not gone by — today's group when
+       something is due today, otherwise the soonest date after it. Once every
+       due date is in the past, nothing is highlighted. */
+    var nextKey = null;
+    if (CONFIG.highlightNextDue){
+      for (var n = 0; n < groups.length; n++){
+        if (groups[n].key >= todayKey){ nextKey = groups[n].key; break; }
+      }
+    }
+    var nextId = null, nextIsToday = (nextKey !== null && nextKey === todayKey);
+
+    groups.forEach(function(g){
+      var isToday = g.key === todayKey;
+      var isNext  = g.key === nextKey;
+      var isPast  = g.key < todayKey;
+      if (isPast && !CONFIG.showPastItems) return;
+
+      shownDays++;
+      shownItems += g.items.length;
+
+      var li = el("li", "asch-day" + (isNext ? " is-next" : "") + (isPast ? " is-past" : ""));
+      var headingId = "asch-d-" + g.key;
+      if (isToday) li.setAttribute("aria-current", "date");
+      if (isNext)  nextId = headingId;
+
+      var h2 = el("h2", "asch-date");
+      h2.id = headingId;
+
+      var dow = el("span", "asch-dow");
+      dow.textContent = fmtDow ? fmtDow.format(g.date) : "";
+      var dnum = el("span", "asch-dnum");
+      dnum.textContent = fmtDay ? fmtDay.format(g.date) : g.key;
+      h2.appendChild(dow);
+      h2.appendChild(document.createTextNode(" "));
+      h2.appendChild(dnum);
+
+      var yr = fmtYear ? fmtYear.format(g.date) : "";
+      if (yr && yr !== thisYear){
+        var ys = el("span", "asch-dyear");
+        ys.textContent = yr;
+        h2.appendChild(ys);
+      }
+      if (isToday || isNext){
+        var badge = el("span", "asch-sr");
+        badge.textContent = isToday
+          ? (isNext ? " (today, due next)" : " (today)")
+          : " (due next)";
+        h2.appendChild(badge);
+      }
+      li.appendChild(h2);
+
+      var ul = el("ul", "asch-items");
+      ul.setAttribute("aria-labelledby", headingId);
+
+      g.items.forEach(function(it){ ul.appendChild(itemRow(it)); });
+
+      li.appendChild(ul);
+      listEl.appendChild(li);
+    });
+
+    /* What is left has neither a due date nor a closing date, so it has no
+       place on the calendar: it opens and then stays open. Ordered by the day
+       it opens, then by name, with the ones that were never gated at all —
+       no start date either — last. Content is deliberately excluded; plenty of
+       content topics are meant to carry no dates and would swamp the list. */
+    var noDue = [];
+    if (CONFIG.showNoDueDate){
+      noDue = noDueItems.filter(function(it){ return it.type !== "Content"; })
+        .sort(function(a, b){
+          var ak = a.start ? dayKey(new Date(a.start)) : "\uffff";
+          var bk = b.start ? dayKey(new Date(b.start)) : "\uffff";
+          if (ak !== bk) return ak < bk ? -1 : 1;
+          return a.name.localeCompare(b.name, undefined, { numeric:true, sensitivity:"base" });
+        });
+    }
+    var noDueUl = document.getElementById("asch-nodue-items");
+    var noDueSection = document.getElementById("asch-nodue");
+    if (noDueUl && noDueSection){
+      noDueUl.innerHTML = "";
+      noDue.forEach(function(it){ noDueUl.appendChild(itemRow(it)); });
+      noDueSection.hidden = noDue.length === 0;
+    }
+
+    // the only thing left above the schedule is the jump link
+    sumEl.innerHTML = "";
+    if (nextId){
+      var jump = el("a", "asch-jump");
+      jump.href = "#" + nextId;
+      jump.textContent = nextIsToday ? "Go to today" : "Go to what's due next";
+      sumEl.appendChild(jump);
+    }
+    sumEl.hidden = sumEl.childNodes.length === 0;
+    footEl.hidden = false;
+
+    announce(shownDays
+      ? (shownItems + " assignments found across " + shownDays + " dates" +
+         (noDue.length ? ", plus " + noDue.length + " that stay open." : "."))
+      : (noDue.length + " assignments found, none with a date."));
+    dbg("rendered", shownItems, "dated items and", noDue.length, "open-ended");
+  }
+
+  function renderEmpty(extra){
+    listEl.setAttribute("aria-busy", "false");
+    sumEl.hidden = true;
+    var msgs = ["No due dates are set in this course yet. Once an assignment, quiz, discussion or content item has a due date, it will appear here."];
+    if (extra) msgs.push(extra);
+    showNote(msgs);
+    footEl.hidden = false;
+  }
+
+  /* =========================== DEMO DATA ===========================
+     Shown only when the page is opened outside a Brightspace course, so
+     the layout can be checked without a live shell.                    */
+  function demoItems(){
+    var now = new Date();
+    function at(dayOffset, h, m){
+      var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset, h, m, 0);
+      return d.toISOString();
+    }
+    function row(name, type, due, start, end){
+      return { name:name, type:type, due:due, start:start||null, end:end||null,
+               href:"#", fromTool:true, sources:[type] };
+    }
+    return [
+      row("Syllabus Quiz",          "Quiz",       at(-3,23,59), at(-10,0,0), at(-3,23,59)),
+      row("Introduce Yourself",     "Discussion", at(-3,23,59), null, null),
+      row("Module 1 Reading Check", "Content",    at(0,23,59),  at(-7,0,0), null),
+      row("Lab 1: Measurement",     "Assignment", at(0,23,59),  null, at(2,23,59)),
+      row("Chapter 2 Problem Set",  "Assignment", at(4,23,59),  at(-2,8,0), at(6,23,59)),
+      row("Case Study Discussion",  "Discussion", at(4,13,0),   null, null),
+      row("Exam 1",                 "Quiz",       at(11,22,0),  at(11,8,0), at(11,22,0)),
+      row("Research Proposal",      "Assignment", at(18,23,59), at(1,0,0), null),
+      row("Extra Credit Essay",     "Assignment", null,         at(-14,0,0), at(25,23,59)),
+      row("Practice Quiz",          "Quiz",       null,         null, at(25,23,59)),
+      row("Course Resources Drop",  "Assignment", null,         at(-14,0,0), null),
+      row("Bonus Reading Forum",    "Discussion", null,         at(2,0,0),   null),
+      row("Open Q&A Forum",         "Discussion", null,         null,        null)
+    ];
+  }
+
+  /* ============================= BOOT ============================= */
+  function boot(){
+    var ou = resolveOrgUnitId();
+    var onD2L = /\/d2l\//i.test(window.location.pathname) || /\/content\/enforced\//i.test(window.location.pathname);
+
+    if (!ou){
+      if (CONFIG.demoMode === "on" || (CONFIG.demoMode === "auto" && !onD2L)){
+        stopLoading();
+        var demo = demoItems();
+        render(groupByDay(demo.filter(function(d){ return !!d.due || !!d.end; })),
+               demo.filter(function(d){ return !d.due && !d.end; }));
+        showNote("Preview only — showing sample rows. Live due dates appear once this page is opened inside a Brightspace course.");
+        return;
+      }
+      stopLoading();
+      listEl.setAttribute("aria-busy", "false");
+      showNote("This page could not tell which course it is in. Open it from inside a course — as a content topic or a course widget — and the schedule will build itself.");
+      return;
+    }
+
+    setProgress(.08, "Checking your session\u2026");
+
+    var LE, failedTools = [];
+
+    resolveVersions().then(function(v){
+      LE = v.le;
+      dbg("versions", JSON.stringify(v), "ou", ou);
+
+      if (CONFIG.showCourseName){
+        getJSON("/d2l/api/lp/" + v.lp + "/courses/" + ou).then(function(c){
+          var name = c && (c.Name || c.Code);
+          if (name){ courseEl.textContent = cleanText(name); courseEl.hidden = false; }
+        }).catch(function(){ /* students often cannot read this route; not important */ });
+      }
+
+      setProgress(.2, "Reading the Content tool\u2026");
+      return fetchToc(LE, ou);
+    }).then(function(modules){
+      var tocIndex = indexToc(modules);
+      dbg("toc modules:", tocIndex.moduleIds.length, "topics:", Object.keys(tocIndex.byTopic).length);
+      return scanContent(LE, ou, tocIndex);
+    }).then(function(contentItems){
+      setProgress(.5, "Reading Assignments, Quizzes and Discussions\u2026");
+      return Promise.all([
+        Promise.resolve(contentItems),
+        scanAssignments(LE, ou),
+        scanQuizzes(LE, ou),
+        scanDiscussions(LE, ou)
+      ]);
+    }).then(function(res){
+      setProgress(.85, "Sorting due dates\u2026");
+
+      var merged = mergeItems([res[0], res[1].items, res[2].items, res[3].items]);
+      stopLoading();
+
+      /* On the calendar: anything with a due date, plus anything that has no
+         due date but does close — those sit on their closing day. Everything
+         else drops to the group at the foot of the page. */
+      var onCalendar = merged.filter(function(it){
+        return !!it.due || (it.type !== "Content" && !!it.end);
+      });
+      var openEnded = merged.filter(function(it){
+        return !it.due && !it.end && it.type !== "Content";
+      });
+      dbg("on calendar:", onCalendar.length, "| open ended:", openEnded.length);
+
+      /* A tool that refused to answer only matters if nothing of that kind
+         reached the list another way. Most student accounts cannot read the
+         quiz route directly, yet their quizzes arrive through Content — no
+         reason to warn about that. */
+      function reallyMissing(failed, type){
+        if (!failed) return false;
+        for (var i = 0; i < merged.length; i++) if (merged[i].type === type) return false;
+        return true;
+      }
+      if (reallyMissing(res[1].failed, "Assignment"))  failedTools.push("Dropbox");
+      if (reallyMissing(res[2].failed, "Quiz"))        failedTools.push("Quizzes");
+      if (reallyMissing(res[3].failed, "Discussion"))  failedTools.push("Discussions");
+
+      var warning = failedTools.length
+        ? "Due dates from " + failedTools.join(", ") +
+          " could not be read with your account, so anything only in those tools may be missing."
+        : null;
+
+      if (!onCalendar.length && !(CONFIG.showNoDueDate && openEnded.length)){
+        renderEmpty(warning);
+      } else {
+        render(groupByDay(onCalendar), openEnded);
+        if (warning) showNote(warning);
+      }
+    }).catch(function(err){
+      dbg("boot failed", String(err));
+      stopLoading();
+      listEl.setAttribute("aria-busy", "false");
+      showNote(["The schedule could not be built.",
+                "Reload the page. If it keeps failing, your session may have expired — sign back in to Brightspace and try again."]);
+      footEl.hidden = false;
+    });
+  }
+
+  /* Size the host iframe to the content when this file is embedded
+     same-origin, so nothing is clipped. No-ops everywhere else. */
+  var fitPending;
+  function fitFrame(){
+    try {
+      var fe = window.frameElement;
+      if (!fe) return;
+      var h = Math.ceil(root.getBoundingClientRect().height) + 8;
+      if (h > 0) fe.style.height = h + "px";
+    } catch(e){ /* cross-origin or not framed */ }
+  }
+  function scheduleFit(){
+    window.cancelAnimationFrame(fitPending);
+    fitPending = window.requestAnimationFrame(fitFrame);
+  }
+  if (window.ResizeObserver){ try { new ResizeObserver(scheduleFit).observe(root); } catch(e){} }
+  window.addEventListener("resize", scheduleFit);
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
+})();
+</script>
+</body>
+</html>
