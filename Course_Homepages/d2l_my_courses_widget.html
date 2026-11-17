@@ -1,0 +1,2582 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  My Courses Widget
+  Org homepage widget with Past / Last / This / Next Semester tabs and role-based course cards.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Courses</title>
+<!-- ============================================================================
+     MY COURSES — D2L Brightspace org homepage widget
+     Self-contained: one HTML file. Same auth model as the Current Grade,
+     Class Grade Overview and Visual TOC widgets — every call is a same-origin
+     GET with credentials:'include', so it rides the logged-in user's session.
+     No API key, no XSRF token.
+
+     TABS
+       Past Semesters · Last Semester · This Semester · Next Semester
+       Term windows (CONFIG.termWindows; defaults shown):
+         Fall   (Y): starts on/after Aug 15 Y  and ends on/before Dec 20 Y
+         Spring (Y): starts on/after Dec 15 Y-1 and ends on/before May 15 Y
+         Summer (Y): starts on/after May 1  Y  and ends on/before Aug 15 Y
+       The current term is taken from today's date: Fall runs through Dec 20,
+       Spring Dec 21 – May 15, Summer May 16 – Aug 15, Fall again from Aug 16.
+       Inactive course offerings are never shown.
+       A fifth tab, "Master Semester", appears on the far right only when the
+       user has active course offerings whose real parent Semester org unit is
+       the Master Semester. Those courses are shown there instead of a date tab.
+
+     ROLES
+       Student / Incomplete  → open/closed follows Brightspace access (CanAccess).
+       Any other role        → always open (past, current and future).
+
+     API ROUTES USED
+       /d2l/api/versions/                                   version discovery
+       /d2l/api/lp/{lp}/users/whoami                        current user id
+       /d2l/api/lp/{lp}/enrollments/myenrollments/          courses (paged)
+       /d2l/api/le/{le}/{ou}/content/toc                    tools in use
+       /d2l/api/le/{le}/{ou}/content/completions/mycount/   student content progress
+       /d2l/api/le/{le}/{ou}/content/topics/{t}/completions/users/{u}
+                                                            student activity status
+       /d2l/api/le/{le}/updates/myUpdates/                  instructor counts
+       /d2l/api/lp/{lp}/enrollments/myenrollments/{ou}/parentOrgUnits
+       /d2l/api/lp/{lp}/orgstructure/{semester}/children/paged/  Master Semester courses (fast path)
+       /d2l/api/lp/{lp}/courses/{ou}                        real Semester (Master Semester tab)
+
+     SPEED
+       • Results are saved in sessionStorage for CONFIG.cacheMinutes, so returning
+         to the homepage paints instantly and then refreshes in the background.
+         The saved copy is only used for the same signed-in user, and is cleared
+         when the browser tab closes. The Refresh button bypasses it.
+       • The page paints as soon as enrollments arrive; tool counts fill in after.
+       • Each tab shows only the CONFIG.maxCoursesPerTab (26) most recently
+         accessed courses, and tool counts load only for those cards. When a tab
+         has more, a "View All Courses (26+)" link opens Brightspace's All
+         Courses popup. Without D2L's My Courses widget on the page, the widget
+         loads D2L's component in an isolated full-screen frame to get that popup
+         (CONFIG.myCourses), then removes the frame when the popup closes;
+         if it can't, a built-in All Courses window opens on the parent page.
+============================================================================ -->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #f0f4f8;
+    --card:     #ffffff;
+    --header:   #006EB3;        /* primary blue */
+    --header-2: #0059a0;
+    --accent:   #f5a81c;        /* accent amber — ADA-safe on blue */
+    --text:     #1a2940;
+    --muted:    #4f6575;        /* 5.9:1 on white */
+    --border:   #dde3ec;
+    --icon:     #494c4e;        /* D2L icon grey */
+    --radius:   14px;
+    --focus:    #0b2b45;        /* focus ring — 14:1 on white, 3.5:1 against the primary blue */
+
+    --closed-bg:     #eef1f5;
+    --closed-border: #c3cbd5;
+    --closed-text:   #45525e;   /* 6.9:1 on --closed-bg */
+    --closed-spine:  #8b98a6;
+
+    --todo-bg:  #fff4dc; --todo-text:  #5c3d00; --todo-border:  #e0b252;
+    --done-bg:  #e8f3ef; --done-text:  #003d26; --done-border:  #8cc4a8;
+    --info-bg:  #edf2f7; --info-text:  #1a2940; --info-border:  #cfd8e3;
+  }
+
+  html, body { background: transparent; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text);
+    padding: 8px;
+    /* no min-height: the page must shrink so the iframe can follow content height */
+  }
+
+  /* ── WIDGET ── */
+  .widget {
+    width: 100%;
+    background: var(--card);
+    border-radius: var(--radius);
+    overflow: clip;
+    box-shadow: 0 4px 28px rgba(0, 0, 0, 0.11);
+    animation: fadeUp 0.4s ease both;
+  }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes spin   { to { transform: rotate(360deg); } }
+
+  /* ── HEADER ── */
+  .widget-header {
+    background: var(--header);
+    color: #fff;
+    padding: 16px 22px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .header-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .header-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 19px; font-weight: 700; line-height: 1.2; color: #fff;
+  }
+  .header-subtitle { font-size: 12px; color: #ffffff; }
+
+  .refresh-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 6px 10px; background: none; border: none; cursor: pointer;
+    color: #ffffff; border-radius: 7px; font-family: inherit;
+    min-width: 44px; min-height: 44px;     /* WCAG 2.5.5 touch target */
+    transition: color 0.2s, background 0.2s; flex-shrink: 0;
+  }
+  .refresh-btn:hover         { color: #fff; background: rgba(255,255,255,0.12); }
+  .refresh-btn:focus-visible { outline: 3px solid #ffffff; outline-offset: 1px; }   /* white on primary blue 5.3:1 */
+  .refresh-btn.spinning .btn-icon { animation: spin 0.7s linear infinite; display: inline-block; }
+  .btn-icon  { font-size: 16px; line-height: 1; }
+  .btn-label { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; line-height: 1; white-space: nowrap; }
+
+  /* ── ROLE FILTER ── */
+  .widget-header { position: relative; }
+  .widget-header { flex-wrap: wrap; }
+  .header-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; position: relative; margin-left: auto; }
+  .mc-filter { position: static; }
+  .mc-filter-btn { position: relative; }
+  .mc-filter-btn[disabled] { opacity: 0.6; cursor: default; }
+  .mc-filter-btn[aria-expanded="true"] { background: #004b7a; }   /* white text 8.6:1 */
+  .mc-filter-icon { width: 16px; height: 16px; display: inline-block; }
+  .mc-filter-icon svg { width: 16px; height: 16px; display: block; }
+  .mc-filter-badge {
+    position: absolute; top: 2px; right: 2px; min-width: 18px; padding: 0 5px;
+    font-family: 'DM Mono', monospace; font-size: 10px; line-height: 16px; text-align: center;
+    background: var(--accent); color: #1a2940; border-radius: 10px;
+  }
+  .mc-filter-badge:empty { display: none; }
+  .mc-filter-panel {
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+    width: min(300px, calc(100vw - 32px)); max-height: 340px; overflow-y: auto;
+    background: #fff; color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.18); padding: 12px 14px;
+  }
+  .mc-filter-panel fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .mc-filter-panel legend { font-size: 12.5px; font-weight: 700; color: var(--text); padding: 0; margin-bottom: 8px; }
+  .mc-filter-list { display: flex; flex-direction: column; gap: 2px; }
+  .mc-filter-opt {
+    display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 6px; margin: 0 -6px;
+    border-radius: 6px; cursor: pointer; font-size: 13.5px;
+  }
+  .mc-filter-opt:hover { background: #f2f6fa; }
+  .mc-filter-opt input { width: 18px; height: 18px; margin: 0; accent-color: var(--header); flex-shrink: 0; cursor: pointer; }
+  .mc-filter-opt input:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .mc-filter-name { flex: 1; }
+  .mc-filter-count { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted); }
+  .mc-filter-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .mc-filter-act {
+    flex: 1; min-height: 32px; font: inherit; font-size: 12.5px; font-weight: 600;
+    color: var(--header); background: #fff; border: 1px solid #9cc6e3; border-radius: 7px; cursor: pointer;
+  }
+  .mc-filter-act:hover { background: #e6f1f9; }
+  .mc-filter-act:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  .last-updated {
+    background: var(--header-2);
+    font-size: 11px; color: #ffffff;
+    padding: 5px 22px; text-align: right; min-height: 22px;
+  }
+
+  /* ── TABS ── */
+  /* Tabs share the row equally but never get narrower than their longest word;
+     if they can't all fit, they wrap to a second row instead of squeezing. */
+  .mc-tablist {
+    display: flex; flex-wrap: wrap; align-items: stretch;
+    gap: 6px;
+    padding: 14px 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mc-tab {
+    position: relative;
+    flex: 1 1 0;
+    min-width: 7.5em;                      /* ~110px — always wider than "Semesters" */
+    /* Every tab is three lines: word 1 / word 2 / course count */
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px;
+    padding: 9px 8px 8px;
+    font-family: inherit; font-size: 14.5px; font-weight: 600;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 9px 9px 0 0;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .mc-tab:hover { background: #e3eaf2; }
+  .mc-tab[aria-selected="true"] {
+    background: var(--header); border-color: var(--header); color: #fff;
+  }
+  .mc-tab[aria-selected="true"]::after {   /* amber underline on active tab */
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--accent);
+  }
+  .mc-tab:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; z-index: 1; }
+  /* Break only between words — never inside one */
+  .mc-tab-name { display: flex; flex-direction: column; align-items: center; text-align: center; line-height: 1.2; }
+  .mc-tab-line { display: block; white-space: nowrap; }
+  .mc-tab-count {
+    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+    min-width: 22px; padding: 1px 7px; border-radius: 20px; flex-shrink: 0; white-space: nowrap;
+    background: #fff; color: var(--header); border: 1px solid var(--border);
+  }
+  .mc-tab[aria-selected="true"] .mc-tab-count { background: rgba(255,255,255,0.18); color: #fff; border-color: rgba(255,255,255,0.4); }
+
+  /* ── PANEL ── */
+  .mc-panel { padding: 16px; }
+  .mc-panel:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+
+  .mc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 12px;
+  }
+
+  .mc-term-group + .mc-term-group { margin-top: 18px; }
+  .mc-status-group + .mc-status-group, .mc-status-group + .mc-viewall { margin-top: 22px; }
+  .mc-status-heading {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text);
+    margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  .mc-status-heading .mc-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .mc-status-heading .mc-status-count { font-family: 'DM Mono', monospace; font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: 0; text-transform: none; }
+  .dot-open { background: var(--header); }
+  .dot-notstarted { background: var(--accent); }
+  .dot-ended { background: #7a8794; }
+  .mc-status-group .mc-term-group { margin-left: 2px; }
+  .mc-status-group .mc-term-group + .mc-term-group { margin-top: 14px; }
+  .mc-status-group .mc-term-heading { font-size: 14px; }
+  .mc-term-heading {
+    font-family: 'Playfair Display', serif;
+    font-size: 15px; font-weight: 700; color: var(--text);
+    margin: 0 0 9px; padding-bottom: 5px; border-bottom: 2px solid var(--accent);
+    display: inline-block;
+  }
+
+  .mc-empty {
+    padding: 28px 16px; text-align: center; font-size: 13px; color: var(--muted);
+    border: 1px dashed var(--border); border-radius: 10px; background: #fafbfc;
+  }
+
+  /* ── COURSE CARD ── */
+  .mc-card {
+    position: relative;
+    display: flex; flex-direction: column; gap: 7px;
+    padding: 13px 14px 13px 18px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    box-shadow: 0 1px 2px rgba(22,33,43,0.05);
+    overflow: hidden;
+    min-width: 0;
+  }
+  .mc-card::before {                       /* status spine */
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+    background: var(--header);
+  }
+  .mc-card.is-open:hover { box-shadow: 0 6px 18px rgba(22,33,43,0.10); border-color: #c9d4e0; }
+
+  .mc-card.is-closed {
+    background: var(--closed-bg);
+    border-style: dashed;
+    border-color: var(--closed-border);
+    box-shadow: none;
+    color: var(--closed-text);
+  }
+  .mc-card.is-closed::before {
+    background: repeating-linear-gradient(180deg, var(--closed-spine) 0 6px, transparent 6px 10px);
+  }
+
+  .mc-card-top { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+  .mc-name {
+    font-size: 14.5px; font-weight: 700; line-height: 1.3; color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  .mc-card.is-closed .mc-name { color: var(--closed-text); }
+
+  .mc-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .mc-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 20px; white-space: nowrap; border: 1px solid;
+  }
+  .mc-chip svg { width: 11px; height: 11px; }
+  .chip-open   { background: #e6f1f9; color: #004b7a; border-color: #9cc6e3; }
+  .chip-closed { background: #fff;    color: #45525e; border-color: var(--closed-border); }
+  .chip-role   { background: #fff8eb; color: #5c3d00; border-color: #e6c27a; }
+  .chip-notstarted { background: var(--accent); color: #1a2940; border-color: #d48f0c; }   /* accent amber, dark text 8.5:1 */
+  .chip-ended  { background: #f1f3f5; color: #3d4852; border-color: #b9c2cb; }       /* 9.2:1 */
+  .mc-card.is-ended::before { background: #7a8794; }
+  .mc-card.is-notstarted::before { background: var(--accent); }
+
+  .mc-meta {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: var(--muted); line-height: 1.35;
+  }
+  .mc-card.is-closed .mc-meta { color: var(--closed-text); }
+  .mc-meta strong { font-weight: 600; color: inherit; }
+
+  .mc-ico { width: 16px; height: 16px; flex: 0 0 16px; color: var(--icon); }
+  .mc-ico svg { width: 16px; height: 16px; display: block; }
+  .mc-card.is-closed .mc-ico { color: var(--closed-text); }
+
+  /* links (homepage / gradebook) */
+  .mc-link {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 13px; font-weight: 600;
+    color: var(--header); text-decoration: underline; text-underline-offset: 2px;
+    width: fit-content; border-radius: 4px;
+    min-height: 26px; padding: 2px 0;
+  }
+  .mc-link .mc-ico { color: var(--header); }
+  .mc-link:hover { color: #004b7a; }
+  .mc-link:focus-visible, .mc-tool:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  /* tool rows */
+  .mc-tools {
+    display: flex; flex-direction: column; gap: 2px;
+    border-top: 1px solid #eef2f7; border-bottom: 1px solid #eef2f7;
+    padding: 6px 0; margin: 1px 0;
+  }
+  .mc-tools-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 3px;
+  }
+  .mc-tool {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 6px; margin: 0 -6px; min-height: 28px;
+    border-radius: 6px;
+    font-size: 13px; color: var(--text); text-decoration: none;
+    transition: background 0.15s;
+  }
+  .mc-tool:hover { background: #f2f6fa; }
+  .mc-tool-name { font-weight: 600; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(0,110,179,0.35); }
+  .mc-pill {
+    margin-left: auto; white-space: nowrap;
+    font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500;
+    padding: 1px 8px; border-radius: 20px; border: 1px solid;
+  }
+  .pill-todo { background: var(--todo-bg); color: var(--todo-text); border-color: var(--todo-border); }
+  .pill-done { background: var(--done-bg); color: var(--done-text); border-color: var(--done-border); }
+  .pill-info { background: var(--info-bg); color: var(--info-text); border-color: var(--info-border); }
+
+  .mc-tools-note { font-size: 12px; color: var(--muted); padding: 3px 0; }
+
+  /* tool skeleton while counts load */
+  .mc-skel-row { height: 14px; margin: 6px 0; border-radius: 4px; background: #edf1f5; position: relative; overflow: hidden; }
+  .mc-skel-row:nth-child(2) { width: 82%; }
+  .mc-skel-row:nth-child(3) { width: 68%; }
+  .mc-skel-row::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.75), transparent);
+    transform: translateX(-100%); animation: shimmer 1.2s infinite;
+  }
+  @keyframes shimmer { to { transform: translateX(100%); } }
+
+  /* ── VIEW ALL COURSES ── */
+  .mc-viewall {
+    margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+  }
+  .mc-viewall-note { font-size: 12.5px; color: var(--muted); }
+  .mc-viewall-link { font-size: 14px; min-height: 32px; padding: 4px 10px; }
+  .mc-viewall-link svg { width: 16px; height: 16px; }
+  .mc-viewall-link[aria-busy="true"] { opacity: 0.7; cursor: progress; }
+
+  /* ── DEBUG REPORT (only in debug mode) ── */
+  .mc-debug { margin: 6px 16px 16px; padding: 12px 14px; border: 2px dashed var(--accent); border-radius: 10px; background: #fffaf0; }
+  .mc-debug h2 { font-size: 15px; font-weight: 700; margin-bottom: 6px; color: var(--text); }
+  .mc-debug-sum { font-size: 12.5px; line-height: 1.5; color: var(--text); margin-bottom: 8px; }
+  .mc-debug-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 8px; font-size: 12.5px; }
+  .mc-debug-tools input[type="search"] { min-height: 32px; padding: 4px 8px; font: inherit; border: 1px solid #7a8a99; border-radius: 6px; min-width: 200px; }
+  .mc-debug-tools input:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+  .mc-debug-chk { display: inline-flex; align-items: center; gap: 6px; }
+  .mc-debug-tools .mc-filter-act { flex: 0 0 auto; padding: 0 12px; }
+  .mc-debug-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+  .mc-debug-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .mc-debug-table { border-collapse: collapse; width: 100%; font-size: 12px; min-width: 980px; }
+  .mc-debug-table th, .mc-debug-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid #eef2f7; }
+  .mc-debug-table th { background: #f2f6fa; font-weight: 700; position: sticky; top: 0; }
+  .mc-debug-table tr.is-hidden td { background: #fff8eb; }
+  .mc-debug-badge { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .is-hidden .mc-debug-badge { color: #8a3b00; }
+  .is-shown .mc-debug-badge { color: #00593a; }
+  .mc-debug-sub { color: var(--muted); }
+  .mc-debug-note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  /* ── LOADING / ERROR ── */
+  .state-loading { padding: 48px 20px; text-align: center; }
+  .spinner {
+    width: 34px; height: 34px; border: 3px solid #dde8f4; border-top-color: var(--header);
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 14px;
+  }
+  .loading-msg { font-size: 13px; color: var(--muted); }
+  .noscript-hint { font-size: 12.5px; color: var(--muted); max-width: 420px; margin: 10px auto 0; opacity: 0;
+    animation: hintIn 0.3s ease 6s forwards; }
+  @keyframes hintIn { to { opacity: 1; } }
+
+  .state-error { padding: 40px 22px; text-align: center; }
+  .error-icon { font-size: 28px; margin-bottom: 10px; }
+  .state-error .error-detail { font-size: 12px; margin-top: 8px; font-family: 'DM Mono', monospace; overflow-wrap: anywhere; }
+  .state-error p { font-size: 13px; color: var(--muted); line-height: 1.5; max-width: 480px; margin: 0 auto; }
+  .retry-btn {
+    display: inline-block; margin-top: 16px; padding: 8px 20px;
+    background: var(--header); color: #fff; border: none; border-radius: 8px;
+    font-size: 12px; font-family: inherit; cursor: pointer;
+  }
+  .retry-btn:hover { opacity: 0.9; }
+  .retry-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  .demo-note { font-size: 11px; color: var(--muted); padding: 0 16px 14px; }
+
+  .sr-only {
+    position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .hidden { display: none !important; }
+
+  /* ── NARROW WIDTHS ── */
+  @media (max-width: 620px) {
+    .mc-tablist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 12px 12px 0; }
+    .mc-tab { min-width: 0; }
+    .mc-tab { border-radius: 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px; font-size: 13.5px; }
+    .mc-tab[aria-selected="true"]::after { display: none; }
+    .mc-tab:last-child:nth-child(odd) { grid-column: 1 / -1; }   /* 5th tab spans the row */
+    .mc-panel { padding: 12px; }
+    .widget-header { padding: 14px 16px 12px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .widget, .spinner, .refresh-btn.spinning .btn-icon, .mc-skel-row::after { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<main class="widget" aria-labelledby="mcTitle" data-version="2026-10-26.2">
+
+  <div class="widget-header">
+    <div class="header-left">
+      <h1 class="header-title" id="mcTitle">My Courses</h1>
+      <span class="header-subtitle" id="mcSubtitle">Your course offerings by semester</span>
+    </div>
+    <div class="header-actions">
+      <div class="mc-filter" data-filter="role">
+        <button class="refresh-btn mc-filter-btn" id="roleFilterBtn" type="button" aria-expanded="false" aria-controls="roleFilterPanel" disabled>
+          <span class="btn-icon mc-filter-icon" aria-hidden="true"></span>
+          <span class="btn-label">Role Filter</span>
+          <span class="mc-filter-badge" aria-hidden="true"></span>
+          <span class="sr-only mc-filter-sr"></span>
+        </button>
+        <div class="mc-filter-panel" id="roleFilterPanel" hidden>
+          <fieldset>
+            <legend>Show courses where my role is</legend>
+            <div class="mc-filter-list"></div>
+          </fieldset>
+          <div class="mc-filter-actions">
+            <button type="button" class="mc-filter-act" data-act="all">Select all</button>
+            <button type="button" class="mc-filter-act" data-act="reset">Reset</button>
+          </div>
+        </div>
+      </div>
+      <div class="mc-filter" data-filter="status">
+        <button class="refresh-btn mc-filter-btn" id="statusFilterBtn" type="button" aria-expanded="false" aria-controls="statusFilterPanel" disabled>
+          <span class="btn-icon mc-filter-icon" aria-hidden="true"></span>
+          <span class="btn-label">Course Filter</span>
+          <span class="mc-filter-badge" aria-hidden="true"></span>
+          <span class="sr-only mc-filter-sr"></span>
+        </button>
+        <div class="mc-filter-panel" id="statusFilterPanel" hidden>
+          <fieldset>
+            <legend>Show courses that are</legend>
+            <div class="mc-filter-list"></div>
+          </fieldset>
+          <div class="mc-filter-actions">
+            <button type="button" class="mc-filter-act" data-act="all">Select all</button>
+            <button type="button" class="mc-filter-act" data-act="reset">Reset</button>
+          </div>
+        </div>
+      </div>
+      <button class="refresh-btn" id="refreshBtn" type="button" title="Refresh courses" aria-label="Refresh courses" onclick="initWidget(true)">
+        <span class="btn-icon" aria-hidden="true">↻</span>
+        <span class="btn-label">Refresh</span>
+      </button>
+    </div>
+  </div>
+  <div class="last-updated" id="lastUpdated" aria-live="polite"></div>
+
+  <!-- LOADING -->
+  <div class="state-loading" id="stateLoading" role="status">
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="loading-msg" id="loadingMsg" aria-live="polite">Loading your courses…</p>
+    <!-- Shown only if the script never starts (e.g. a viewer that blocks JavaScript) -->
+    <p class="noscript-hint" id="noscriptHint">This widget needs JavaScript. If it doesn't load, open it inside Brightspace or in a regular browser tab.</p>
+  </div>
+
+  <!-- ERROR -->
+  <div class="state-error hidden" id="stateError">
+    <div class="error-icon" aria-hidden="true">⚠️</div>
+    <p id="errorMsg" role="alert">Your courses couldn't be loaded right now.</p>
+    <p class="error-detail" id="errorDetail"></p>
+    <button class="retry-btn" type="button" onclick="initWidget(true)">Retry</button>
+  </div>
+
+  <!-- CONTENT -->
+  <div id="stateContent" class="hidden">
+    <div class="mc-tablist" id="mcTablist" role="tablist" aria-label="Semester"></div>
+    <div class="mc-panel" id="mcPanel" role="tabpanel" tabindex="0"></div>
+    <p class="demo-note hidden" id="demoNote">Preview — sample courses. Live data appears once this is placed on the Brightspace homepage.</p>
+  </div>
+
+  <span class="sr-only" id="srLive" aria-live="polite"></span>
+</main>
+
+<script>
+  /* =========================== CONFIG =========================== */
+  const BASE_URL = window.location.origin;   // your Brightspace site; nothing to change
+
+  const CONFIG = {
+    courseOfferingTypeId: 3,               // org unit type id for Course Offerings
+    studentRoles: ['student', 'incomplete'],// Classlist roles treated as students (case-insensitive)
+    /* Term windows, as [month, day]. A course offering lands in a term when it
+       starts on/after "from" and ends on/before "to". Spring's "from" is in
+       the previous calendar year (December). EDIT to match your calendar. */
+    termWindows: {
+      spring: { from: [12, 15], to: [5, 15] },
+      summer: { from: [5, 1],   to: [8, 15] },
+      fall:   { from: [8, 15],  to: [12, 20] },
+    },
+    strictTermWindows: true,               // true  = a course must fit a term window by start AND end date
+                                           // false = also place courses whose end date overruns, by start date
+    courseConcurrency: 3,                  // courses whose tool counts load at the same time
+    activityConcurrency: 6,                // per-course activity completion checks at once
+    activityCheckCap: 150,                 // max activity topics checked per course (safety cap)
+    openInNewTab: false,                   // false = open links in the full window (_top)
+    semesterTypeId: 5,                     // org unit type id for Semesters
+    masterSemesterMatch: /master\s*semester/i,  // matches the Master Semester's Name or Code
+    semesterConcurrency: 8,                // per-course real-term lookups at once
+    cacheMinutes: 10,
+    maxCoursesPerTab: 26,
+    // Role filter: courses where the user has these Classlist roles show on load.
+    // Other roles stay hidden until the user ticks them in the Filter menu.
+    defaultRoles: ['Student', 'Learner', 'Instructor', 'Faculty'],   // EDIT to match your org's role names                  // each tab shows the N most recently accessed courses
+    viewAllLabel: 'View All Courses (26+)',// link shown under a tab that has more than maxCoursesPerTab
+
+    /* D2L's own "All Courses" popup lives inside D2L's My Courses web component.
+       When that widget isn't on the homepage, the widget loads the component in
+       an isolated, transparent full-screen frame (never in the homepage itself),
+       clicks its View All Courses link, and removes the frame when it closes. */
+    myCourses: {
+      tag: 'd2l-my-courses-v2',            // D2L's My Courses web component
+      // File inside D2L's BSI library. The release folder (e.g. 2026.10.234) is
+      // read from the page at runtime, so D2L updates don't break the link.
+      bsiFile: 'unbundled/d2l-my-courses-v2.js',
+      // Used only if the BSI release folder can't be found on the page:
+      scripts: ['https://s.brightspace.com/lib/bsi/2026.10.234/unbundled/d2l-my-courses-v2.js'],
+      // Optional: the id of your org homepage's own D2L "My Courses" widget
+      // (open it in Homepage Management > Widgets; the number is in the URL).
+      // Leave blank and View All Courses still opens; D2L just can't load that
+      // widget's saved user settings. {userId}, {widgetId} and {rootOrgUnitId}
+      // are filled in at runtime.
+      widgetId: '',
+      attributes: {
+        'enrollments-url': '/d2l/le/manageCourses/api/mycourses',
+        'departments-url': '/d2l/le/manageCourses/api/mydepartments',
+        'semesters-url': '/d2l/le/manageCourses/api/mysemesters',
+        'roles-url': '/d2l/le/manageCourses/api/myroles',
+        'pin-url': '/d2l/api/lp/1.47/enrollments/myenrollments/{orgUnitId}/pin',
+        'my-notifications-url': '/d2l/le/manageCourses/api/mynotifications',
+        'user-settings-url': '/d2l/api/le/manageCourses/homepage-component/{widgetId}/user-settings/{userId}',
+        'data-token-receiver-scope': '*:*:*',
+        'standard-semester-name': 'Semester',
+        'has-semesters': 'true',
+        'standard-department-name': 'Department',
+        'has-departments': 'true',
+        'image-catalog-location': 'https://course-image-catalog.api.brightspace.com/',
+        'advanced-search-url': '/d2l/le/manageCourses/search/{rootOrgUnitId}',
+        'show-semester': 'true',
+        'org-unit-type-ids': '{"type":"Array","value":[3]}',
+        'widget-id': '{widgetId}',
+        'show-course-start-date': 'true',
+        'show-course-end-date': 'true',
+        'show-unread-dropbox-submissions': 'true',
+        'show-pending-enrollment-requests': 'true',
+        'show-ungraded-quiz-attempts': 'true',
+        'show-unread-discussion-messages': 'true',
+        'show-pinned-tab': 'true',
+        'last-enrollments-search-name': 'search-my-enrollments',
+        'promoted-search-type': 'BySemester',
+        'promoted-search-type-direction': 'desc',
+        'updated-sort-logic': 'true',
+      },
+      timeoutMs: 15000,                    // give up and use the fallback after this
+    },
+    useLegacyDialog: false,                // true = try D2L.DialogManager.OpenUrl first (classic only)
+  };
+
+  // Master debug switch — logs API results to the browser console.
+  document.getElementById('noscriptHint')?.remove();   // script is running — hint not needed
+  const VERSION = '2026-10-26.2';
+  /* DEBUG MODE — shows a "Why is a course missing?" report under the widget and
+     logs details to the console. Turn it on WITHOUT editing this file, either:
+       • add  #mcdebug  to the end of the homepage address and reload
+         (e.g. https://yourschool.brightspace.com/d2l/home#mcdebug), or
+       • run once in the browser console:  localStorage.myCoursesWidgetDebug = '1'
+         (turn off: localStorage.removeItem('myCoursesWidgetDebug'))
+     Works while impersonating a student, so you see exactly what they see.   */
+  const DEBUG = (() => {
+    try { if (localStorage.getItem('myCoursesWidgetDebug') === '1') return true; } catch { /* storage blocked */ }
+    for (const w of [window, window.parent, window.top]) {
+      try { if (/[#?&]mcdebug\b/i.test(w.location.hash + w.location.search)) return true; } catch { /* cross-origin */ }
+    }
+    return false;
+  })();
+  console.info(`[My Courses] widget version ${VERSION}${DEBUG ? ' (debug on)' : ''}`);
+  // Always-on, short trail for the View All Courses link (shown in the console)
+  const trail = msg => console.info('[My Courses] View All:', msg);
+  const log  = (...a) => { if (DEBUG) console.log('[My Courses]', ...a); };
+  const warn = (...a) => { if (DEBUG) console.warn('[My Courses]', ...a); };
+
+  const IS_LIVE = (() => {
+    try {
+      // Live whenever the page is served from a web server (your Brightspace
+      // site). Opened straight from disk (file://) or localhost = demo preview.
+      return /^https?:$/.test(window.location.protocol) &&
+             !/^(localhost|127\.0\.0\.1|)$/.test(window.location.hostname);
+    } catch { return false; }
+  })();
+
+  // Talk to the API on the same origin the widget is served from (no CORS),
+  // falling back to BASE_URL only for the offline preview.
+  const ORIGIN = IS_LIVE ? window.location.origin : BASE_URL;
+
+  const LINK_TARGET = CONFIG.openInNewTab ? '_blank' : '_top';
+  // Screen-reader warning when links open a new tab (WCAG 3.2.5 best practice)
+  const NEW_TAB_SR  = CONFIG.openInNewTab ? '<span class="sr-only"> (opens in new tab)</span>' : '';
+  const REL         = CONFIG.openInNewTab ? ' rel="noopener"' : '';
+
+  /* ===================== D2L ICONS (Brightspace UI tier1) =====================
+     Inline copies of Brightspace's own icon set so they render inside the widget
+     iframe without loading D2L's web components. Fill is currentColor.          */
+  const ICONS = {
+    // Content TOC "topic file"
+    content:    '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.85 3.15l-2.99-3A.508.508 0 0 0 12.5 0H3.4A1.417 1.417 0 0 0 2 1.43v15.14A1.417 1.417 0 0 0 3.4 18h11.2a1.417 1.417 0 0 0 1.4-1.43V3.5a.47.47 0 0 0-.15-.35zM5.026 2H10a1 1 0 0 1 0 2H5.026a1 1 0 0 1 0-2zM13 16H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2z"/></svg>',
+    // Content TOC "assignment"
+    dropbox:    '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18 12v5a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1v-5a1 1 0 0 1 2 0v4h14v-4a1 1 0 0 1 2 0z"/><path fill="currentColor" d="M13.85 3.15l-2.99-3A.507.507 0 0 0 10.5 0H5.4A1.417 1.417 0 0 0 4 1.43v11.14A1.417 1.417 0 0 0 5.4 14h7.2a1.417 1.417 0 0 0 1.4-1.43V3.5a.47.47 0 0 0-.15-.35zM7 2h1a1 1 0 0 1 0 2H7a1 1 0 0 1 0-2zm4 10H7a1 1 0 0 1 0-2h4a1 1 0 0 1 0 2zm0-4H7a1 1 0 0 1 0-2h4a1 1 0 0 1 0 2z"/></svg>',
+    // Content TOC "discussion topic"
+    discussion: '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 8v5a2.006 2.006 0 0 1-2 2H6l-2.29 2.71A1.007 1.007 0 0 1 3 18a.84.84 0 0 1-.38-.08A.987.987 0 0 1 2 17v-2a1.5 1.5 0 0 1-.37-.04 1.98 1.98 0 0 1-1.59-1.59A1.5 1.5 0 0 1 0 13V8a1.5 1.5 0 0 1 .04-.37 1.98 1.98 0 0 1 1.59-1.59A1.5 1.5 0 0 1 2 6h8a2.006 2.006 0 0 1 2 2z"/><path fill="currentColor" d="M16 0H8a1.5 1.5 0 0 0-.37.04 1.98 1.98 0 0 0-1.59 1.59A1.5 1.5 0 0 0 6 2v2h4a4 4 0 0 1 4 4v1h2a2.006 2.006 0 0 0 2-2V2a2.006 2.006 0 0 0-2-2z"/></svg>',
+    // Content TOC "quiz"
+    quiz:       '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M14.6 0H3.4A1.417 1.417 0 0 0 2 1.43v15.14A1.417 1.417 0 0 0 3.4 18h11.2a1.417 1.417 0 0 0 1.4-1.43V1.43A1.417 1.417 0 0 0 14.6 0zM9 16a1 1 0 1 1 1-1 1 1 0 0 1-1 1zm1-6.13V12a1 1 0 0 1-2 0V9a1 1 0 0 1 1-1 2 2 0 1 0-2-2 1 1 0 0 1-2 0 4 4 0 1 1 5 3.87z"/></svg>',
+    // Course homepage
+    home:       '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17.75 8.66A1.012 1.012 0 0 1 17 9a.99.99 0 0 1-.66-.25L16 8.458V16a2.006 2.006 0 0 1-2 2h-2.5a.5.5 0 0 1-.5-.5V12a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v5.5a.5.5 0 0 1-.5.5H4a2.006 2.006 0 0 1-2-2v-3c-.01-1.41-.01-3.26 0-4.53l-.34.28a1 1 0 1 1-1.32-1.5l8-7a1 1 0 0 1 1.32 0l2.48 2.17A1.17 1.17 0 0 1 13 2h1a1.107 1.107 0 0 1 1 1v2l2.66 2.25a1 1 0 0 1 .09 1.41z"/></svg>',
+    // Grades tool (award ribbon)
+    grades:     '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M13.94 3.68a1.64 1.64 0 0 0-.83-1.05 1.71 1.71 0 0 0-.49-1.25 1.665 1.665 0 0 0-1.25-.49A1.678 1.678 0 0 0 9 .26a1.678 1.678 0 0 0-2.37.63 1.665 1.665 0 0 0-1.25.49 1.71 1.71 0 0 0-.49 1.25A1.678 1.678 0 0 0 4.26 5a1.678 1.678 0 0 0 .63 2.37 1.71 1.71 0 0 0 .49 1.25 1.628 1.628 0 0 0 1.25.49 1.393 1.393 0 0 0 .37.46v8.15a.264.264 0 0 0 .07.19.214.214 0 0 0 .18.09.234.234 0 0 0 .17-.07l.01-.01L9 16.5l1.58 1.43a.234.234 0 0 0 .17.07.214.214 0 0 0 .18-.09.264.264 0 0 0 .07-.19V9.57a1.393 1.393 0 0 0 .37-.46 1.628 1.628 0 0 0 1.25-.49 1.71 1.71 0 0 0 .49-1.25A1.678 1.678 0 0 0 13.74 5a1.64 1.64 0 0 0 .2-1.32zM9 7a2 2 0 1 1 2-2 2 2 0 0 1-2 2z"/></svg>',
+    lock:       '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M14 7h-1V4a4 4 0 0 0-8 0v3H4a2.006 2.006 0 0 0-2 2v7a2.006 2.006 0 0 0 2 2h10a2.006 2.006 0 0 0 2-2V9a2.006 2.006 0 0 0-2-2zM7 4a2 2 0 0 1 4 0v3H7V4zm3 8.75V15a1 1 0 0 1-2 0v-2.27A1.92 1.92 0 0 1 7 11a2 2 0 0 1 4 0 1.953 1.953 0 0 1-1 1.75z"/></svg>',
+    filter:     '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M14.35 4.855L10 9.21v2.8c0 1.31-2 2.45-2 1.89V9.2L3.65 4.856a.476.476 0 0 1-.11-.54A.5.5 0 0 1 4 4h10a.5.5 0 0 1 .46.31.476.476 0 0 1-.11.545z"/><circle fill="currentColor" cx="9" cy="17" r="1"/><circle fill="currentColor" cx="5" cy="1" r="1"/><circle fill="currentColor" cx="13" cy="1" r="1"/><circle fill="currentColor" cx="9" cy="1" r="1"/></svg>',
+    list:       '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><g fill="currentColor"><rect width="18" height="4" rx="2"/><rect width="18" height="4" y="7" rx="2"/><rect width="18" height="4" y="14" rx="2"/></g></svg>',
+    calendar:   '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M17 3h-3V1a1 1 0 0 0-2 0v2H6V1a1 1 0 0 0-2 0v2H1a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1zm-1 13H2V9h14v7z"/></svg>',
+    time:       '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M11.92 2.55A1.976 1.976 0 0 0 12 2a2.006 2.006 0 0 0-2-2H8a2.006 2.006 0 0 0-2 2 1.976 1.976 0 0 0 .08.55 8 8 0 1 0 5.84 0zM14 12H9a1 1 0 0 1-1-1V5a1 1 0 0 1 2 0v5h4a1 1 0 0 1 0 2z"/></svg>',
+  };
+  const ico = name => `<span class="mc-ico">${ICONS[name]}</span>`;
+
+  /* ============================ TERM LOGIC ============================
+     A term is an integer index: year*3 + (Spring 0 | Summer 1 | Fall 2),
+     so "previous" and "next" terms are simply index − 1 and + 1.           */
+  const SEASONS = ['Spring', 'Summer', 'Fall'];
+  const termIndex = (season, year) => year * 3 + SEASONS.indexOf(season);
+  const termLabel = i => SEASONS[((i % 3) + 3) % 3] + ' ' + Math.floor(i / 3);
+  const localDate = (y, m, d) => new Date(y, m - 1, d);   // local midnight
+
+  // Term windows from CONFIG.termWindows, newest first, for a start year y.
+  //   from = first allowed start day, last = last allowed end day,
+  //   before = the local midnight after "last" (so 11:59 PM end times count).
+  const TW = CONFIG.termWindows;
+  const dayAfter = d => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+  function termWindowsFor(y) {
+    const at = (yr, md) => localDate(yr, md[0], md[1]);
+    return [
+      { idx: termIndex('Spring', y + 1), from: at(y, TW.spring.from),     last: at(y + 1, TW.spring.to) },
+      { idx: termIndex('Fall',   y),     from: at(y, TW.fall.from),       last: at(y, TW.fall.to) },
+      { idx: termIndex('Summer', y),     from: at(y, TW.summer.from),     last: at(y, TW.summer.to) },
+      { idx: termIndex('Spring', y),     from: at(y - 1, TW.spring.from), last: at(y, TW.spring.to) },
+    ].map(w => Object.assign(w, { before: dayAfter(w.last) }));
+  }
+
+  // Which term is it today? Each term runs until its window's end date.
+  function currentTermIndex(now = new Date()) {
+    const y = now.getFullYear();
+    const after = md => dayAfter(localDate(y, md[0], md[1]));
+    if (now >= after(TW.fall.to))   return termIndex('Spring', y + 1);   // after Fall ends
+    if (now >= after(TW.summer.to)) return termIndex('Fall',   y);       // after Summer ends
+    if (now >= after(TW.spring.to)) return termIndex('Summer', y);       // after Spring ends
+    return termIndex('Spring', y);
+  }
+
+  /* Place a course offering in a term from its Start/End dates, using
+     CONFIG.termWindows (defaults):
+       Fall   (Y): start >= Aug 15 Y   and end <= Dec 20 Y
+       Spring (Y): start >= Dec 15 Y-1 and end <= May 15 Y
+       Summer (Y): start >= May 1  Y   and end <= Aug 15 Y
+     Where windows overlap (Dec 15–20, May 1–15, Aug 15) the term whose window
+     opened most recently before the start date wins. "before" is the first
+     local midnight AFTER the allowed end day, so 11:59 PM end times count.
+     Returns a term index, or null if the course fits no window.              */
+  function classifyCourse(start, end) {
+    if (!start || isNaN(start)) return null;
+    const y = start.getFullYear();
+    const windows = termWindowsFor(y);                    // newest window first
+    for (const w of windows) {
+      if (start < w.from) continue;
+      if (!end || isNaN(end) || end < w.before) return w.idx;
+      return CONFIG.strictTermWindows ? null : w.idx;     // older windows end even earlier
+    }
+    return null;
+  }
+
+  // Debug: plain-language reason a course fits no semester window
+  function whyNoTerm(c) {
+    const fmt = d => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    const sem = c.semesterName ? ` Its Brightspace semester is "${c.semesterName}", which isn't the Master Semester or a named term.`
+              : ' No Brightspace semester was found for it.';
+    if (!c.start) return 'No start date is set on the course offering, and no term was found in its code or name.' + sem + ' Hidden by design.';
+    const y = c.start.getFullYear();
+    const windows = termWindowsFor(y);
+    const w = windows.find(x => c.start >= x.from);
+    if (w && c.end) {
+      return `Starts ${fmt(c.start)} (${termLabel(w.idx)}) but ends ${fmt(c.end)}, after ${termLabel(w.idx)}'s latest end date of ${fmt(w.last)}, ` +
+             `and no term was found in its code, name or semester.` + sem;
+    }
+    return `Start ${fmt(c.start)} / end ${fmt(c.end)} don't fit any semester window.`;
+  }
+
+  function categoryFor(termIdx, cur) {
+    if (termIdx == null) return null;
+    if (termIdx === cur)     return 'this';
+    if (termIdx === cur - 1) return 'last';
+    if (termIdx === cur + 1) return 'next';
+    if (termIdx <  cur - 1)  return 'past';
+    return null;                                          // two+ terms ahead — not shown
+  }
+
+  /* ============================ FETCH LAYER ============================
+     Same rate-limit-aware wrapper as the Class Grade Overview widget:
+       • tracks X-Rate-Limit-Remaining / -Reset on every response
+       • pauses proactively when credits are nearly gone
+       • retries 429s (Retry-After or exponential backoff) and network errors */
+  const _rl = { remaining: Infinity, resetAt: 0 };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  async function throttleIfNeeded() {
+    if (_rl.remaining > 3) return;
+    const now  = Date.now();
+    const wait = _rl.resetAt > now ? (_rl.resetAt - now + 300) : 5000;
+    warn(`Rate limit low (${_rl.remaining} remaining). Pausing ${wait} ms.`);
+    await sleep(Math.min(wait, 65000));
+    _rl.remaining = Infinity;
+  }
+
+  async function tryFetch(url, maxRetries = 4) {
+    if (!/^https?:/i.test(url)) url = ORIGIN + url;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      await throttleIfNeeded();
+      let res;
+      try {
+        res = await fetch(url, { credentials: 'include', headers: { Accept: 'application/json' } });
+      } catch {
+        if (attempt < maxRetries) { await sleep(Math.min(1000 * Math.pow(2, attempt), 30000)); continue; }
+        return { ok: false, status: 0, json: null };
+      }
+
+      const remHdr   = res.headers.get('X-Rate-Limit-Remaining');
+      const resetHdr = res.headers.get('X-Rate-Limit-Reset');
+      if (remHdr !== null) _rl.remaining = parseInt(remHdr, 10);
+      if (resetHdr !== null) {
+        const s = parseFloat(resetHdr);
+        if (!isNaN(s)) _rl.resetAt = s > 1e6 ? s * 1000 : Date.now() + s * 1000;  // epoch or seconds-until
+      }
+
+      if (res.status === 429) {
+        if (attempt >= maxRetries) return { ok: false, status: 429, json: null };
+        const ra   = res.headers.get('Retry-After');
+        const wait = ra ? Math.max(parseInt(ra, 10) * 1000, 1000)
+                        : Math.min(1000 * Math.pow(2, attempt + 1), 30000);
+        warn(`429 — retrying in ${wait} ms (attempt ${attempt + 1}/${maxRetries})`);
+        await sleep(wait);
+        _rl.remaining = Infinity;
+        continue;
+      }
+
+      const json = res.ok ? await res.json().catch(() => null) : null;
+      return { ok: res.ok, status: res.status, json };
+    }
+    return { ok: false, status: 0, json: null };
+  }
+
+  // ObjectListPage { Next, Objects } / PagedResultSet { Items } / bare array
+  function rowsOf(data) {
+    if (!data) return null;
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.Objects)) return data.Objects;
+    if (Array.isArray(data.Items))   return data.Items;
+    return null;
+  }
+
+  // Follow ObjectListPage "Next" links
+  async function getAllRows(path) {
+    const acc = [];
+    let url = path, guard = 0;
+    while (url && guard++ < 25) {
+      const r = await tryFetch(url);
+      if (!r.ok || !r.json) { if (!acc.length) return null; break; }
+      acc.push(...(rowsOf(r.json) || []));
+      url = r.json.Next || null;
+    }
+    return acc;
+  }
+
+  // Concurrency-limited map
+  async function pool(items, limit, fn) {
+    let i = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (i < items.length) { const item = items[i++]; await fn(item); }
+    });
+    await Promise.all(workers);
+  }
+
+  /* ---------- small sessionStorage cache (per browser tab, cleared on close) ---------- */
+  const CACHE_KEY = 'd2lMyCoursesWidget.v1';
+  function cacheRead() {
+    try { return JSON.parse(sessionStorage.getItem(CACHE_KEY) || 'null'); } catch { return null; }
+  }
+  function cacheWrite(patch) {
+    try {
+      const cur = cacheRead() || {};
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ...cur, ...patch }));
+    } catch { /* storage full or blocked — cache is optional */ }
+  }
+
+  async function discoverVersions() {
+    const cached = cacheRead();
+    if (cached?.versions) return cached.versions;              // saves one request per page load
+    const r = await tryFetch('/d2l/api/versions/');
+    let v = { lp: '1.49', le: '1.82' };
+    if (r.ok && Array.isArray(r.json)) {
+      const find = id => {
+        const e = r.json.find(x => String(x.ProductCode).toLowerCase() === id);
+        return e ? (e.LatestVersion || (e.SupportedVersions || []).slice(-1)[0] || null) : null;
+      };
+      v = { lp: find('lp') || v.lp, le: find('le') || v.le };
+    }
+    cacheWrite({ versions: v });
+    return v;
+  }
+
+  // The org's root org unit id (used by D2L's All Courses search link).
+  let _rootOu;
+  async function rootOrgUnitId() {
+    if (_rootOu !== undefined) return _rootOu;
+    try {
+      const { lp } = await discoverVersions();
+      const r = await tryFetch(`/d2l/api/lp/${lp}/organization/info`);
+      _rootOu = (r.ok && r.json && r.json.Identifier) ? String(r.json.Identifier) : null;
+    } catch { _rootOu = null; }
+    return _rootOu;
+  }
+
+  // Non-fatal: the user id is only needed for student activity completions.
+  async function whoAmI(lp) {
+    const r = await tryFetch(`/d2l/api/lp/${lp}/users/whoami`);
+    if (!r.ok || !r.json) { warn('whoami failed', r.status); return null; }
+    return String(r.json.Identifier);
+  }
+
+  async function fetchMyEnrollments(lp, onProgress) {
+    const items = [];
+    let bookmark = null, guard = 0;
+    do {
+      // isActive=true lets Brightspace drop inactive offerings server-side (fewer pages).
+      // Debug mode asks for them too, so the report can say "inactive".
+      const url = `/d2l/api/lp/${lp}/enrollments/myenrollments/?orgUnitTypeId=${CONFIG.courseOfferingTypeId}${DEBUG ? '' : '&isActive=true'}`
+                + (bookmark ? `&bookmark=${encodeURIComponent(bookmark)}` : '');
+      const r = await tryFetch(url);
+      if (!r.ok || !r.json) {
+        if (!items.length) {
+          const why = r.status === 403 ? 'access denied (HTTP 403)'
+                    : r.status === 429 ? 'too many requests (HTTP 429)'
+                    : r.status === 0   ? 'network or connection error'
+                    : `HTTP ${r.status}`;
+          throw new Error(`Enrollments request failed: ${why}.`);
+        }
+        break;
+      }
+      items.push(...(r.json.Items || []));
+      if (onProgress) onProgress(items.length);
+      const p = r.json.PagingInfo || {};
+      bookmark = p.HasMoreItems ? p.Bookmark : null;
+    } while (bookmark && guard++ < 200);
+    return items;
+  }
+
+  function toCourse(item) {
+    const ou = item.OrgUnit || {}, a = item.Access || {};
+    const role = String(a.ClasslistRoleName || '');
+    const parse = s => { if (!s) return null; const d = new Date(s); return isNaN(d) ? null : d; };
+    const isStudent = CONFIG.studentRoles.includes(role.trim().toLowerCase());
+    return {
+      id:           String(ou.Id),
+      name:         ou.Name || ou.Code || 'Untitled course',
+      code:         ou.Code || '',
+      start:        parse(a.StartDate),
+      end:          parse(a.EndDate),
+      isActive:     a.IsActive !== false,
+      canAccess:    a.CanAccess === true,
+      role,
+      isStudent,
+      // Non-students can always get into their courses (past, current, future).
+      isOpen:       isStudent ? a.CanAccess === true : true,
+      lastAccessed: a.LastAccessed || null,
+    };
+  }
+
+  // Courses round-trip through the cache as JSON, so revive the Date fields.
+  const serializeCourses = list => list.map(c => ({ ...c, start: c.start?.toISOString() || null, end: c.end?.toISOString() || null }));
+  const hydrateCourses   = list => (list || []).map(c => ({ ...c, start: c.start ? new Date(c.start) : null, end: c.end ? new Date(c.end) : null }));
+
+  /* ===================== CONTENT TOC HELPERS (from Visual TOC) ===================== */
+  function eachVisibleTopic(mod, fn, includeHidden) {
+    if (!includeHidden && mod.IsHidden) return;
+    (mod.Topics || []).forEach(t => { if (includeHidden || !t.IsHidden) fn(t); });
+    (mod.Modules || []).forEach(child => eachVisibleTopic(child, fn, includeHidden));
+  }
+
+  // "Dropbox" | "Quiz" | "Discussion" | null — ActivityType first, TypeIdentifier backstop
+  function activityKind(t) {
+    switch (t.ActivityType) {
+      case 3: return 'Dropbox';
+      case 4: return 'Quiz';
+      case 5: case 6: return 'Discussion';
+    }
+    const ti = String(t.TypeIdentifier || '').toLowerCase();
+    if (ti.includes('dropbox') || ti.includes('assignment')) return 'Dropbox';
+    if (ti.includes('quiz')) return 'Quiz';
+    if (ti.includes('discuss') || ti.includes('forum')) return 'Discussion';
+    return null;
+  }
+  const isRequiredTopic = t => (t.CompletionType === 1 || t.CompletionType === 2) && !t.IsExempt;
+
+  async function fetchToc(le, ou) {
+    const r = await tryFetch(`/d2l/api/le/${le}/${ou}/content/toc`);
+    return (r.ok && r.json) ? (r.json.Modules || []) : null;
+  }
+
+  /* ---------- STUDENT: items not yet completed, per tool ----------
+     Content     = required content topics − completed (content/completions/mycount
+                   roll-up, minus the activity topics already counted below)
+     Discussion / Dropbox / Quiz = activity topics in Content whose topic
+                   completion has no CompletionDate yet (these tools auto-complete
+                   the topic when the student posts / submits / attempts).        */
+  async function studentStats(le, ou, userId) {
+    // TOC and the completion roll-up don't depend on each other — fetch both at once
+    const rowsP   = getAllRows(`/d2l/api/le/${le}/${ou}/content/completions/mycount/?level=2`).catch(() => null);
+    const modules = await fetchToc(le, ou);
+    if (!modules) return { error: true };
+
+    const topics = [];
+    modules.forEach(m => eachVisibleTopic(m, t => topics.push(t), false));
+
+    const content = topics.filter(t => !activityKind(t));
+    const acts    = topics.filter(t => activityKind(t) && !t.IsExempt);
+
+    // Activity completions
+    const done = new Set();
+    if (userId) await pool(acts.slice(0, CONFIG.activityCheckCap), CONFIG.activityConcurrency, async t => {
+      const r = await tryFetch(`/d2l/api/le/${le}/${ou}/content/topics/${t.TopicId}/completions/users/${userId}`);
+      if (r.ok && r.json && (r.json.CompletionDate || r.json.CompletedDate)) done.add(String(t.TopicId));
+    });
+
+    // Content roll-up (per module, summed) — same route the Visual TOC uses
+    const rows = await rowsP;
+    let completedAll = null;
+    if (rows && rows.length) {
+      completedAll = rows.reduce((t, r) => {
+        const req = Number(r.RequiredItems) || 0, c = Number(r.CompletedItems) || 0;
+        return t + Math.min(c, req);
+      }, 0);
+    }
+
+    const contentReq      = content.filter(isRequiredTopic).length;
+    const actReqDone      = acts.filter(t => isRequiredTopic(t) && done.has(String(t.TopicId))).length;
+    const contentDone     = completedAll == null ? null : Math.max(0, Math.min(completedAll - actReqDone, contentReq));
+
+    const kinds = { Discussion: { found: 0, notDone: 0 }, Dropbox: { found: 0, notDone: 0 }, Quiz: { found: 0, notDone: 0 } };
+    acts.forEach(t => {
+      const k = kinds[activityKind(t)];
+      k.found++;
+      if (userId && !done.has(String(t.TopicId))) k.notDone++;
+    });
+
+    log('student stats', ou, { content: content.length, contentReq, contentDone, kinds });
+    if (!userId) ['Discussion', 'Dropbox', 'Quiz'].forEach(k => { kinds[k].notDone = null; });  // unknown without user id
+    return {
+      content: {
+        topics:  content.length,
+        tracked: contentReq > 0 && contentDone != null,
+        notDone: contentDone == null ? null : contentReq - contentDone,
+      },
+      ...kinds,
+    };
+  }
+
+  /* ---------- NON-STUDENT: items waiting to be assessed ----------
+     Content tools in use come from the TOC; counts come from the Updates
+     service (the same numbers as Brightspace's Updates widget).          */
+  async function fetchUpdatesBatch(le, ouIds) {
+    const map = {};
+    if (!ouIds.length) return map;
+    for (let i = 0; i < ouIds.length; i += 100) {
+      const chunk = ouIds.slice(i, i + 100);
+      const rows = await getAllRows(`/d2l/api/le/${le}/updates/myUpdates/?orgUnitIdsCSV=${chunk.join(',')}&updateTypesCSV=4,5,6`);
+      if (rows) {
+        rows.forEach(u => { map[String(u.OrgUnitId)] = u; });
+      } else {
+        // Batch route unavailable — fall back to one call per course
+        await pool(chunk, 3, async ou => {
+          const r = await tryFetch(`/d2l/api/le/${le}/${ou}/updates/myUpdates?updateTypesCSV=4,5,6`);
+          if (r.ok && r.json) map[String(ou)] = r.json;
+        });
+      }
+    }
+    log('updates', map);
+    return map;
+  }
+
+  async function staffStats(le, ou, upd) {
+    const modules = await fetchToc(le, ou);
+    const used = { Discussion: false, Dropbox: false, Quiz: false };
+    let contentTopics = 0;
+    if (modules) {
+      modules.forEach(m => eachVisibleTopic(m, t => {
+        const k = activityKind(t);
+        if (k) used[k] = true; else contentTopics++;
+      }, true));
+    }
+    const n = v => (typeof v === 'number' && v >= 0) ? v : null;
+    return {
+      tocLoaded: !!modules,
+      contentTopics,
+      used,
+      ungradedQuizzes:    upd ? n(upd.UngradedQuizzes) : null,
+      unreadDiscussions:  upd ? n(upd.UnreadDiscussions) : null,
+      newSubmissions:     upd ? n(upd.UnreadAssignmentSubmissions) : null,
+    };
+  }
+
+  /* ===================== MASTER SEMESTER (real term) =====================
+     A course offering's "real term" is its parent Semester org unit.
+       1. One call lists the Semester org units the user is (implicitly)
+          enrolled in. If none of them is the Master Semester, we're done —
+          most users cost exactly one extra request.
+       2. Otherwise each active course's parent Semester is looked up:
+          myenrollments/{ou}/parentOrgUnits (student-readable), falling back
+          to courses/{ou} → Semester.
+       If step 1 returns no semesters at all (tenant doesn't expose them),
+       step 2 runs for every active course so detection still works.       */
+  const isMasterOu = ou => !!ou && (CONFIG.masterSemesterMatch.test(ou.Name || '') ||
+                                    CONFIG.masterSemesterMatch.test(ou.Code || ''));
+  const isSemesterOu = ou => !!ou && ou.Type &&
+    (String(ou.Type.Id) === String(CONFIG.semesterTypeId) || /^semester$/i.test(ou.Type.Code || ''));
+
+  async function fetchSemesterEnrollments(lp) {
+    const items = [];
+    let bookmark = null, guard = 0;
+    do {
+      const r = await tryFetch(`/d2l/api/lp/${lp}/enrollments/myenrollments/?orgUnitTypeId=${CONFIG.semesterTypeId}`
+                               + (bookmark ? `&bookmark=${encodeURIComponent(bookmark)}` : ''));
+      if (!r.ok || !r.json) return null;
+      items.push(...(r.json.Items || []));
+      bookmark = r.json.PagingInfo?.HasMoreItems ? r.json.PagingInfo.Bookmark : null;
+    } while (bookmark && guard++ < 20);
+    return items.map(i => i.OrgUnit).filter(Boolean);
+  }
+
+  // → { id, name, code } of the course's parent Semester, or null
+  async function semesterOfCourse(lp, ou) {
+    const r = await tryFetch(`/d2l/api/lp/${lp}/enrollments/myenrollments/${ou}/parentOrgUnits`);
+    if (r.ok && r.json) {
+      const sem = (rowsOf(r.json) || []).map(i => i.OrgUnit).find(isSemesterOu);
+      if (sem) return { id: String(sem.Id), name: sem.Name || '', code: sem.Code || '' };
+    }
+    const c = await tryFetch(`/d2l/api/lp/${lp}/courses/${ou}`);
+    const s = c.ok && c.json && c.json.Semester;
+    if (s) return { id: String(s.Identifier ?? s.Id ?? ''), name: s.Name || '', code: s.Code || '' };
+    return null;
+  }
+
+  /* Read a term out of text like "Fall 2026", "Spring 2027 - Continuing Ed",
+     a course code ending "2027CSP" / "2026CFA" / "2026FA", or "SS26" / "FS26". */
+  function termFromText(s) {
+    if (!s) return null;
+    const S = { SP: 'Spring', SU: 'Summer', FA: 'Fall', SS: 'Spring', US: 'Summer', FS: 'Fall' };
+    let m = /\b(spring|summer|fall)\b[^0-9a-z]{0,6}(20\d{2})\b/i.exec(s);
+    if (m) return termIndex(m[1][0].toUpperCase() + m[1].slice(1).toLowerCase(), +m[2]);
+    m = /(20\d{2})\s*C?(SP|SU|FA)\b/i.exec(s);
+    if (m) return termIndex(S[m[2].toUpperCase()], +m[1]);
+    m = /\b(SS|US|FS)(\d{2})\b/.exec(s);
+    if (m) return termIndex(S[m[1]], 2000 + +m[2]);
+    return null;
+  }
+
+  /* Courses whose dates don't fit a semester window (or have no dates):
+       1. term in the course's own code or name (no API call) — e.g. CE courses
+          "…_2027CSP" or "… Spring 2027 - Continuing Ed"
+       2. otherwise the course's real Semester in Brightspace: the Master
+          Semester → Master Semester tab; a named term → that term's tab
+       3. still nothing → stays hidden (the debug report says why)          */
+  async function placeUnfitCourses(lp, courses) {
+    const unfit = courses.filter(c => c.isActive && !c.isMaster && classifyCourse(c.start, c.end) == null);
+    const lookups = [];
+    unfit.forEach(c => {
+      const t = termFromText(c.code) ?? termFromText(c.name);
+      if (t != null) { c.termOverride = t; c.placedBy = `term in its ${termFromText(c.code) != null ? 'code' : 'name'}`; }
+      else lookups.push(c);
+    });
+    await pool(lookups, CONFIG.semesterConcurrency, async c => {
+      const sem = await semesterOfCourse(lp, c.id).catch(() => null);
+      c.semesterName = sem ? (sem.name || sem.code || '') : '';
+      if (!sem) return;
+      if (isMasterOu({ Name: sem.name, Code: sem.code })) { c.isMaster = true; c.placedBy = 'its Master Semester'; return; }
+      const t = termFromText(sem.name) ?? termFromText(sem.code);
+      if (t != null) { c.termOverride = t; c.placedBy = `its semester "${sem.name || sem.code}"`; }
+    });
+    log('placed by code/name/semester:', unfit.filter(c => c.termOverride != null || c.isMaster).map(c => `${c.name} → ${c.placedBy}`));
+  }
+  const termOf = c => c.termOverride ?? classifyCourse(c.start, c.end);
+
+  // Course offering ids under a Master Semester org unit — one or two calls in
+  // total, if the user may browse org structure. Returns null when not allowed.
+  async function childrenOfSemesters(lp, semesterIds) {
+    const ids = new Set();
+    for (const sid of semesterIds) {
+      let bookmark = null, guard = 0;
+      do {
+        const r = await tryFetch(`/d2l/api/lp/${lp}/orgstructure/${sid}/children/paged/?ouTypeId=${CONFIG.courseOfferingTypeId}`
+                                 + (bookmark ? `&bookmark=${encodeURIComponent(bookmark)}` : ''));
+        if (!r.ok || !r.json) return null;
+        (r.json.Items || []).forEach(o => ids.add(String(o.Identifier ?? o.Id)));
+        bookmark = r.json.PagingInfo?.HasMoreItems ? r.json.PagingInfo.Bookmark : null;
+      } while (bookmark && guard++ < 100);
+    }
+    return ids;
+  }
+
+  /* Fast part — runs before the first paint. Marks c.isMaster where it can and
+     returns the courses that still need a slow per-course lookup (usually none).
+     `known` = { ouId: isMaster } carried over from the cache.                   */
+  async function markMasterCoursesFast(lp, courses, known = {}) {
+    const active = courses.filter(c => c.isActive);
+    active.forEach(c => { if (c.id in known) c.isMaster = known[c.id]; });
+    if (!active.length) return { pending: [], masterIds: new Set() };
+
+    const semesters = await fetchSemesterEnrollments(lp);
+    const masterIds = new Set((semesters || []).filter(isMasterOu).map(s => String(s.Id)));
+    log('semester enrollments:', semesters ? semesters.length : 'n/a', '| master semester ids:', [...masterIds]);
+
+    if (semesters && semesters.length && !masterIds.size) {        // user has no Master Semester courses
+      active.forEach(c => { c.isMaster = false; });
+      return { pending: [], masterIds };
+    }
+    if (masterIds.size) {
+      const kids = await childrenOfSemesters(lp, [...masterIds]);
+      if (kids) {
+        active.forEach(c => { c.isMaster = kids.has(c.id); });
+        return { pending: [], masterIds };
+      }
+    }
+    return { pending: active.filter(c => !(c.id in known)), masterIds };
+  }
+
+  // Slow part — one lookup per course; runs after the first paint.
+  async function markMasterCoursesSlow(lp, pending, masterIds, onProgress) {
+    let done = 0;
+    await pool(pending, CONFIG.semesterConcurrency, async c => {
+      const sem = await semesterOfCourse(lp, c.id).catch(() => null);
+      c.isMaster = !!sem && (masterIds.has(sem.id) || isMasterOu({ Name: sem.name, Code: sem.code }));
+      if (onProgress) onProgress(++done, pending.length);
+    });
+    log('master semester courses:', pending.filter(c => c.isMaster).map(c => c.name));
+  }
+
+  /* ============================== STATE ============================== */
+  const state = {
+    cur: currentTermIndex(),
+    cats: { past: [], last: [], this: [], next: [], master: [] },
+    stats: {},            // ouId -> stats object | { loading:true }
+    active: 'this',
+    demo: false,
+    roles: null,          // Set of role keys shown (null = not set up yet)
+    statuses: null,       // Set of 'open' | 'notstarted' | 'ended' shown
+    filterTouched: {},    // { role: true } once the user changes a filter (kept across refreshes)
+  };
+
+  /* ============================ COURSE STATUS ============================
+     Every course is Open, Not Started or Ended, from its own start/end dates:
+       Not Started → start date is in the future
+       Ended       → end date is in the past
+       Open        → otherwise (in session, or no dates set)                  */
+  const STATUS_ORDER = ['open', 'notstarted', 'ended'];
+  const STATUS_LABEL = { open: 'Open', notstarted: 'Not Started', ended: 'Ended' };
+  function courseStatus(c, now = Date.now()) {
+    if (c.start && c.start.getTime() > now) return 'notstarted';
+    if (c.end && c.end.getTime() < now) return 'ended';
+    return 'open';
+  }
+  // Non-students get their tool counts scanned only while the course is in session
+  const needsTools = c => c.isOpen && (c.isStudent || courseStatus(c) === 'open');
+
+  /* ============================ FILTERS ============================
+     Role Filter   — Classlist roles the user holds (default: Student + Faculty)
+     Course Filter — Open / Not Started / Ended (default: all three)          */
+  const roleOf = c => (c.role || '').trim() || 'No role';
+  const roleKey = r => r.toLowerCase();
+  const roleAllowed = c => !state.roles || state.roles.has(roleKey(roleOf(c)));
+  const statusAllowed = c => !state.statuses || state.statuses.has(courseStatus(c));
+  // A tab's courses after both filters
+  const shownIn = key => state.cats[key].filter(c => roleAllowed(c) && statusAllowed(c));
+
+  // Every role the user has across all active courses, with course counts
+  function allRoles() {
+    const m = new Map();
+    Object.values(state.cats).flat().forEach(c => {
+      const r = roleOf(c), k = roleKey(r);
+      const e = m.get(k) || { name: r, count: 0 };
+      e.count++; m.set(k, e);
+    });
+    return [...m.entries()].map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }
+  // Open / Not Started / Ended with counts (among courses the Role Filter shows)
+  function allStatuses() {
+    const counts = { open: 0, notstarted: 0, ended: 0 };
+    Object.values(state.cats).flat().filter(roleAllowed).forEach(c => { counts[courseStatus(c)]++; });
+    return STATUS_ORDER.map(k => ({ key: k, name: STATUS_LABEL[k], count: counts[k] }));
+  }
+
+  function defaultRoleSet(roles) {
+    const wanted = new Set(CONFIG.defaultRoles.map(roleKey));
+    const set = new Set(roles.filter(r => wanted.has(r.key)).map(r => r.key));
+    // Someone with none of the default roles (e.g. admin-only) sees everything
+    return set.size ? set : new Set(roles.map(r => r.key));
+  }
+
+  const FILTERS = {
+    role: {
+      options: allRoles,
+      get: () => state.roles, set: s => { state.roles = s; },
+      defaults: opts => defaultRoleSet(opts),
+      sr: (on, total) => `Role Filter, ${on} of ${total} ${total === 1 ? 'role' : 'roles'} shown`,
+    },
+    status: {
+      options: allStatuses,
+      get: () => state.statuses, set: s => { state.statuses = s; },
+      defaults: opts => new Set(opts.map(o => o.key)),
+      sr: (on, total) => `Course Filter, ${on} of ${total} course types shown`,
+    },
+  };
+
+  // (Re)build both menus after courses load. A user's own choices are kept.
+  function syncFilters() {
+    for (const [name, f] of Object.entries(FILTERS)) {
+      const opts = f.options();
+      if (!f.get() || !state.filterTouched[name]) f.set(f.defaults(opts));
+      else f.set(new Set([...f.get()].filter(k => opts.some(o => o.key === k))));
+    }
+    renderFilterMenus();
+  }
+
+  function renderFilterMenus() {
+    for (const [name, f] of Object.entries(FILTERS)) {
+      const root = document.querySelector(`.mc-filter[data-filter="${name}"]`);
+      const opts = f.options(), sel = f.get() || new Set();
+      root.querySelector('.mc-filter-btn').disabled = opts.length === 0;
+      // Keep keyboard focus on the same checkbox when the list is rebuilt
+      const focusedVal = document.activeElement?.closest?.(`.mc-filter[data-filter="${name}"] .mc-filter-list input`)?.value;
+      const list = root.querySelector('.mc-filter-list');
+      list.innerHTML = opts.map((o, i) => `
+        <label class="mc-filter-opt" for="${name}-opt-${i}">
+          <input type="checkbox" id="${name}-opt-${i}" value="${escHtml(o.key)}" ${sel.has(o.key) ? 'checked' : ''}>
+          <span class="mc-filter-name">${escHtml(o.name)}</span>
+          <span class="mc-filter-count" aria-hidden="true">${o.count.toLocaleString('en-US')}</span>
+          <span class="sr-only">, ${plural(o.count, 'course')}</span>
+        </label>`).join('');
+      if (focusedVal != null) [...list.querySelectorAll('input')].find(i => i.value === focusedVal)?.focus({ preventScroll: true });
+      const on = opts.filter(o => sel.has(o.key)).length;
+      root.querySelector('.mc-filter-badge').textContent = on < opts.length ? String(on) : '';
+      root.querySelector('.mc-filter-sr').textContent = f.sr(on, opts.length);
+    }
+  }
+
+  function applyFilters(changed) {
+    if (changed) state.filterTouched[changed] = true;
+    renderFilterMenus();
+    renderTabs();
+    activateTab(state.active, false);
+    // Load tool counts for any cards that just appeared
+    if (state.le && !state.demo) loadToolStats(_runId, state.le, state.userId, true, true).then(() => setStatus(stamp()));
+    else if (state.demo) demoFillStats();
+    const live = document.getElementById('srLive');
+    const n = visibleTabs().reduce((t, d) => t + shownIn(d.key).length, 0);
+    live.textContent = '';
+    setTimeout(() => { live.textContent = `Filter updated. ${plural(n, 'course')} shown.`; }, 60);
+  }
+
+  (function wireFilters() {
+    const menus = [...document.querySelectorAll('.mc-filter')];
+    const openMenu = (root, show) => {
+      const btn = root.querySelector('.mc-filter-btn'), panel = root.querySelector('.mc-filter-panel');
+      panel.hidden = !show;
+      btn.setAttribute('aria-expanded', String(show));
+      if (show) panel.querySelector('input')?.focus();
+      fitFrameToContent();
+    };
+    const closeAll = except => menus.forEach(m => { if (m !== except && !m.querySelector('.mc-filter-panel').hidden) openMenu(m, false); });
+
+    menus.forEach(root => {
+      const name = root.dataset.filter, f = FILTERS[name];
+      const btn = root.querySelector('.mc-filter-btn'), panel = root.querySelector('.mc-filter-panel');
+      root.querySelector('.mc-filter-icon').innerHTML = ICONS.filter;
+      btn.addEventListener('click', () => { closeAll(root); openMenu(root, panel.hidden); });
+      panel.addEventListener('change', e => {
+        const cb = e.target.closest('input[type="checkbox"]'); if (!cb) return;
+        const s = new Set(f.get()); if (cb.checked) s.add(cb.value); else s.delete(cb.value);
+        f.set(s); applyFilters(name);
+      });
+      root.querySelector('[data-act="all"]').addEventListener('click', () => {
+        f.set(new Set(f.options().map(o => o.key))); applyFilters(name);
+      });
+      root.querySelector('[data-act="reset"]').addEventListener('click', () => {
+        f.set(f.defaults(f.options())); applyFilters(name); state.filterTouched[name] = false;
+      });
+      root.addEventListener('focusout', e => {
+        if (!panel.hidden && e.relatedTarget && !root.contains(e.relatedTarget)) openMenu(root, false);
+      });
+    });
+    // Escape closes the open menu and returns focus; clicking elsewhere closes
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape') return;
+      const open = menus.find(m => !m.querySelector('.mc-filter-panel').hidden);
+      if (open) { e.preventDefault(); openMenu(open, false); open.querySelector('.mc-filter-btn').focus(); }
+    });
+    document.addEventListener('click', e => { if (!e.target.closest('.mc-filter')) closeAll(null); });
+  })();
+
+  let _runId = 0;         // guards against overlapping refreshes
+
+  const TAB_DEFS = [
+    { key: 'past', name: () => 'Past Semesters',          desc: 'semesters before last semester' },
+    { key: 'last', name: () => termLabel(state.cur - 1),  desc: 'last semester' },
+    { key: 'this', name: () => termLabel(state.cur),      desc: 'this semester' },
+    { key: 'next', name: () => termLabel(state.cur + 1),  desc: 'next semester' },
+    { key: 'master', name: () => 'Master Semester',       desc: 'master semester', hideWhenEmpty: true },
+  ];
+  const visibleTabs = () => TAB_DEFS.filter(t => !t.hideWhenEmpty || shownIn(t.key).length);
+  // Tabs whose cards show course tools (homepage · tool counts · gradebook)
+  const isToolsTab = key => key === 'this' || key === 'master';
+
+  /* ============================ FORMATTING ============================ */
+  function escHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function fmtDate(d) {
+    if (!d) return 'Not set';
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function fmtLastAccess(s) {
+    if (!s) return 'Never';
+    const date = new Date(s);
+    if (isNaN(date)) return 'Never';
+    const now = new Date();
+    const today   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const thatDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diff = Math.round((today - thatDay) / 86400000);
+    const time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (diff === 0) return `Today at ${time}`;
+    if (diff === 1) return `Yesterday at ${time}`;
+    return `${fmtDate(date)} at ${time}`;
+  }
+
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;
+
+  /* ============================ URLS ============================ */
+  const urls = {
+    home:        ou => `${ORIGIN}/d2l/home/${ou}`,
+    content:     ou => `${ORIGIN}/d2l/le/content/${ou}/Home`,
+    discussions: ou => `${ORIGIN}/d2l/le/${ou}/discussions/List`,
+    dropboxStu:  ou => `${ORIGIN}/d2l/lms/dropbox/user/folders_list.d2l?ou=${ou}`,
+    dropboxStaff:ou => `${ORIGIN}/d2l/lms/dropbox/admin/folders_manage.d2l?ou=${ou}`,
+    quizStu:     ou => `${ORIGIN}/d2l/lms/quizzing/user/quizzes_list.d2l?ou=${ou}`,
+    quizStaff:   ou => `${ORIGIN}/d2l/lms/quizzing/admin/quizzes_manage.d2l?ou=${ou}`,
+    gradesStu:   ou => `${ORIGIN}/d2l/lms/grades/my_grades/main.d2l?ou=${ou}`,
+    gradesStaff: ou => `${ORIGIN}/d2l/lms/grades/admin/enter/user_list_view.d2l?ou=${ou}`,
+  };
+
+  /* ============================ RENDER: TABS ============================ */
+  // "Past Semesters" → line 1 "Past", line 2 "Semesters" (count is line 3)
+  function tabNameLines(name) {
+    const [first, ...rest] = String(name).trim().split(/\s+/);
+    return `<span class="mc-tab-line">${escHtml(first)}</span> <span class="mc-tab-line">${escHtml(rest.join(' ')) || '&nbsp;'}</span>`;
+  }
+
+  function renderTabs() {
+    const list = document.getElementById('mcTablist');
+    const defs = visibleTabs();
+    if (!defs.some(t => t.key === state.active)) state.active = 'this';
+    list.style.setProperty('--tabs', defs.length);
+    list.innerHTML = defs.map(t => {
+      const n   = shownIn(t.key).length;
+      const sel = t.key === state.active;
+      return `<button type="button" class="mc-tab" role="tab" id="tab-${t.key}" data-key="${t.key}"
+                aria-controls="mcPanel" aria-selected="${sel}" tabindex="${sel ? 0 : -1}">
+                <span class="mc-tab-name">${tabNameLines(t.name())}${t.key === 'past' || t.key === 'master' ? '' : `<span class="sr-only">, ${t.desc}</span>`}</span>
+                <span class="mc-tab-count">${n.toLocaleString('en-US')}<span class="sr-only"> ${n === 1 ? 'course' : 'courses'}</span></span>
+              </button>`;
+    }).join('');
+
+    const tabs = Array.from(list.querySelectorAll('[role="tab"]'));
+    tabs.forEach((tab, i) => {
+      tab.addEventListener('click', () => activateTab(tab.dataset.key, true));
+      tab.addEventListener('keydown', e => {
+        let ni = null;
+        if (e.key === 'ArrowRight') ni = (i + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft') ni = (i - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') ni = 0;
+        else if (e.key === 'End')  ni = tabs.length - 1;
+        if (ni !== null) { e.preventDefault(); activateTab(tabs[ni].dataset.key, true); }
+      });
+    });
+  }
+
+  function activateTab(key, focus) {
+    state.active = key;
+    document.querySelectorAll('#mcTablist [role="tab"]').forEach(tab => {
+      const on = tab.dataset.key === key;
+      tab.setAttribute('aria-selected', on);
+      tab.tabIndex = on ? 0 : -1;
+      if (on && focus) tab.focus({ preventScroll: true });
+    });
+    document.getElementById('mcPanel').setAttribute('aria-labelledby', 'tab-' + key);
+    renderPanel();
+  }
+
+  /* ============================ RENDER: PANEL ============================ */
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
+  const accessTime = c => { const t = c.lastAccessed ? Date.parse(c.lastAccessed) : NaN; return isNaN(t) ? -Infinity : t; };
+  // Most recently accessed first; never-accessed courses last, alphabetically
+  const byRecent = (a, b) => (accessTime(b) - accessTime(a)) || byName(a, b);
+
+  /* Order inside each group:
+       1. courses the user has opened — most recent first (same time → A–Z)
+       2. courses never opened — by start date, earliest first (same date → A–Z) */
+  const startTime = c => (c.start ? c.start.getTime() : Infinity);
+  function sortGroup(list) {
+    const seen  = list.filter(c => accessTime(c) > -Infinity).sort(byRecent);
+    const never = list.filter(c => accessTime(c) === -Infinity)
+      .sort((a, b) => (startTime(a) - startTime(b)) || byName(a, b));
+    return [...seen, ...never];
+  }
+
+  // The courses a tab actually shows: its N most recently accessed
+  function visibleCourses(key) {
+    return shownIn(key).sort(byRecent).slice(0, CONFIG.maxCoursesPerTab);
+  }
+
+  function viewAllHtml(key) {
+    const total = shownIn(key).length;
+    if (total <= CONFIG.maxCoursesPerTab) return '';
+    return `
+      <div class="mc-viewall">
+        <p class="mc-viewall-note" id="viewall-note">Showing your ${CONFIG.maxCoursesPerTab} most recently accessed of ${total} courses.</p>
+        <a class="mc-link mc-viewall-link" href="${ORIGIN}/d2l/home" role="button"
+           aria-describedby="viewall-note" aria-haspopup="dialog" data-viewall="1">
+          ${ICONS.list}<span>${escHtml(CONFIG.viewAllLabel)}</span>
+        </a>
+      </div>`;
+  }
+
+  function renderPanel() {
+    const panel = document.getElementById('mcPanel');
+    const key   = state.active;
+    const list  = shownIn(key);
+    const def   = TAB_DEFS.find(t => t.key === key);
+
+    if (!list.length) {
+      const what = key === 'past' ? 'past semesters' : def.name();
+      const hidden = state.cats[key].length;
+      panel.innerHTML = hidden
+        ? `<div class="mc-empty">${plural(hidden, 'course')} for ${escHtml(what)} ${hidden === 1 ? 'is' : 'are'} hidden by your filters. Use <strong>Role Filter</strong> or <strong>Course Filter</strong> above to show them.</div>`
+        : `<div class="mc-empty">You have no courses for ${escHtml(what)}.</div>`;
+      renderDebug();
+      fitFrameToContent();
+      return;
+    }
+
+    // Open → Not Started → Ended, each under its own label
+    const byStatus = { open: [], notstarted: [], ended: [] };
+    visibleCourses(key).forEach(c => byStatus[courseStatus(c)].push(c));
+    panel.innerHTML = STATUS_ORDER.filter(s => byStatus[s].length).map(s => {
+      const list = byStatus[s];
+      let body;
+      if (key === 'past') {
+        // Past Semesters: terms inside each group, most recent term first
+        const terms = {};
+        list.forEach(c => { (terms[c.term] = terms[c.term] || []).push(c); });
+        body = Object.keys(terms).map(Number).sort((a, b) => b - a).map(idx => `
+          <section class="mc-term-group" aria-labelledby="term-${s}-${idx}">
+            <h3 class="mc-term-heading" id="term-${s}-${idx}">${escHtml(termLabel(idx))}</h3>
+            <div class="mc-grid">${sortGroup(terms[idx]).map(c => cardHtml(c, key, 4)).join('')}</div>
+          </section>`).join('');
+      } else {
+        body = `<div class="mc-grid">${sortGroup(list).map(c => cardHtml(c, key, 3)).join('')}</div>`;
+      }
+      return `
+        <section class="mc-status-group" aria-labelledby="grp-${s}">
+          <h2 class="mc-status-heading" id="grp-${s}"><span class="mc-dot dot-${s}" aria-hidden="true"></span>${STATUS_LABEL[s]}
+            <span class="mc-status-count">${list.length.toLocaleString('en-US')}<span class="sr-only"> ${list.length === 1 ? 'course' : 'courses'}</span></span></h2>
+          ${body}
+        </section>`;
+    }).join('') + viewAllHtml(key);
+    const va = panel.querySelector('[data-viewall]');
+    if (va) {
+      va.addEventListener('click', e => { e.preventDefault(); openAllCourses(va); });
+      va.addEventListener('keydown', e => { if (e.key === ' ') { e.preventDefault(); openAllCourses(va); } });  // role=button: Space activates
+    }
+    renderDebug();
+    fitFrameToContent();
+  }
+
+  /* One course card. What it shows depends on role and tab:
+
+     STUDENT (Student / Incomplete)
+       This Semester, open   → name · last accessed · homepage · tools (not completed) · gradebook
+       This Semester, closed → name · last accessed · start date · end date
+       Last / Past Semesters → name · last accessed · end date
+       Next Semester         → name · start date
+       (A homepage link is added to any other card the student can still open.)
+
+     NON-STUDENT (always reachable; badge = Open / Not Started / Ended by dates)
+       This / Master, Open        → name · last accessed · homepage · tools (not assessed) · gradebook
+       This / Master, Not Started → name · last accessed · homepage · start date · gradebook (no tool scan)
+       This / Master, Ended       → name · last accessed · homepage · end date · gradebook (no tool scan)
+       Other tabs                 → name · last accessed · homepage · start or end date            */
+  function cardHtml(c, key, level) {
+    const open  = c.isOpen;
+    const status = courseStatus(c);
+    const parts = [];
+    const meta  = (icon, label, value) =>
+      `<div class="mc-meta">${ico(icon)}<span>${label}: <strong>${escHtml(value)}</strong></span></div>`;
+    const homeLink  = `<a class="mc-link" href="${urls.home(c.id)}" target="${LINK_TARGET}"${REL}>${ico('home')}<span>Course Homepage${NEW_TAB_SR}</span></a>`;
+    const gradeLink = `<a class="mc-link" href="${c.isStudent ? urls.gradesStu(c.id) : urls.gradesStaff(c.id)}" target="${LINK_TARGET}"${REL}>${ico('grades')}<span>Gradebook${NEW_TAB_SR}</span></a>`;
+    const lastAcc   = meta('time', 'Last accessed', fmtLastAccess(c.lastAccessed));
+
+    if (c.isStudent) {
+      if (isToolsTab(key) && open) {
+        parts.push(lastAcc, homeLink, `<div class="mc-tools" data-ou="${c.id}">${toolsHtml(c)}</div>`, gradeLink);
+      } else if (isToolsTab(key)) {
+        parts.push(lastAcc, meta('calendar', 'Starts', fmtDate(c.start)), meta('calendar', 'Ends', fmtDate(c.end)));
+      } else if (key === 'next') {
+        parts.push(meta('calendar', 'Starts', fmtDate(c.start)));
+        if (open) parts.push(homeLink);
+      } else {
+        parts.push(lastAcc, meta('calendar', 'Ended', fmtDate(c.end)));
+        if (open) parts.push(homeLink);
+      }
+    } else {
+      const dateLine = status === 'notstarted' ? meta('calendar', 'Starts', fmtDate(c.start))
+                     : status === 'ended'      ? meta('calendar', 'Ended', fmtDate(c.end))
+                     : key === 'next'          ? meta('calendar', 'Starts', fmtDate(c.start))
+                     :                           meta('calendar', 'Ends', fmtDate(c.end));
+      if (isToolsTab(key) && status === 'open') {
+        parts.push(lastAcc, homeLink, `<div class="mc-tools" data-ou="${c.id}">${toolsHtml(c)}</div>`, gradeLink);
+      } else if (isToolsTab(key)) {
+        parts.push(lastAcc, homeLink, dateLine, gradeLink);           // no tool scan
+      } else {
+        parts.push(lastAcc, homeLink, dateLine);
+      }
+    }
+
+    // Students: Open / Closed (access). Everyone else: Open / Not Started / Ended (dates).
+    const badgeText = c.isStudent ? (open ? 'Open' : 'Closed') : STATUS_LABEL[status];
+    const statusChip = c.isStudent
+      ? (open ? `<span class="mc-chip chip-open">Open</span>`
+              : `<span class="mc-chip chip-closed">${ICONS.lock}Closed</span>`)
+      : `<span class="mc-chip chip-${status}">${badgeText}</span>`;
+    const roleChip = c.isStudent ? '' : `<span class="mc-chip chip-role">${escHtml(c.role || 'Staff')}</span>`;
+    const cardCls = c.isStudent ? (open ? 'is-open' : 'is-closed') : `is-open is-${status}`;
+
+    return `
+      <article class="mc-card ${cardCls}" aria-labelledby="cn-${c.id}">
+        <div class="mc-card-top">
+          <div class="mc-chips" aria-hidden="true">${statusChip}${roleChip}</div>
+          <div class="mc-name" role="heading" aria-level="${level}" id="cn-${c.id}">
+            ${escHtml(c.name)}<span class="sr-only">, ${badgeText.toLowerCase()}${c.isStudent ? '' : ', ' + escHtml(c.role || 'Staff') + ' role'}</span>
+          </div>
+        </div>
+        ${parts.join('')}
+      </article>`;
+  }
+
+  /* pill = [inner HTML, css class]. Visible text stays in the accessible name
+     (WCAG 2.5.3 Label in Name); sr-only words complete the sentence, so the
+     link reads e.g. "Dropbox, 2 items to complete".                        */
+  const SR = t => `<span class="sr-only">${t}</span>`;
+  const pillCount = (n, verb) => [`${SR(', ')}${n}${SR(` ${n === 1 ? 'item' : 'items'} to ${verb}`)}`, n > 0 ? 'pill-todo' : 'pill-done'];
+  const pillDone  = ()  => [`${SR(', ')}Done<span aria-hidden="true"> ✓</span>${SR(', all items complete')}`, 'pill-done'];
+  const pillNA    = ()  => [`<span aria-hidden="true">—</span>${SR(', count not available')}`, 'pill-info'];
+  const pillInfo  = txt => [`${SR(', ')}${escHtml(txt)}`, 'pill-info'];
+  function toolRow(icon, label, href, pill) {
+    const [inner, cls] = pill;
+    const p = `<span class="mc-pill ${cls}">${inner}</span>`;
+    return `<a class="mc-tool" href="${href}" target="${LINK_TARGET}"${REL}>${ico(icon)}<span class="mc-tool-name">${escHtml(label)}</span>${p}${NEW_TAB_SR}</a>`;
+  }
+
+  function toolsHtml(c) {
+    const s = state.stats[c.id];
+    const heading = `<p class="mc-tools-label">${c.isStudent ? 'Items To Complete' : 'Items To Assess'}</p>`;
+    if (!s || s.loading) {
+      return heading + '<div class="mc-skel-row"></div><div class="mc-skel-row"></div><div class="mc-skel-row"></div><span class="sr-only">Loading course tools…</span>';
+    }
+    if (s.error) return heading + `<p class="mc-tools-note">Tool details aren't available right now.</p>`;
+
+    const rows = [];
+    if (c.isStudent) {
+      const todo = n => n == null ? pillNA() : n > 0 ? pillCount(n, 'complete') : pillDone();
+      if (s.content.topics > 0) {
+        const pill = s.content.tracked ? todo(s.content.notDone) : pillInfo(plural(s.content.topics, 'topic'));
+        rows.push(toolRow('content', 'Content', urls.content(c.id), pill));
+      }
+      if (s.Discussion.found) rows.push(toolRow('discussion', 'Discussions', urls.discussions(c.id), todo(s.Discussion.notDone)));
+      if (s.Dropbox.found)    rows.push(toolRow('dropbox',    'Dropbox',     urls.dropboxStu(c.id),  todo(s.Dropbox.notDone)));
+      if (s.Quiz.found)       rows.push(toolRow('quiz',       'Assessments', urls.quizStu(c.id),     todo(s.Quiz.notDone)));
+    } else {
+      const cnt = n => n == null ? pillNA() : pillCount(n, 'assess');
+      const show = (used, n) => used || (n != null && n > 0) || !s.tocLoaded;
+      if (s.contentTopics > 0 || !s.tocLoaded) {
+        rows.push(toolRow('content', 'Content', urls.content(c.id),
+          s.tocLoaded ? pillInfo(plural(s.contentTopics, 'topic')) : pillNA()));
+      }
+      if (show(s.used.Quiz, s.ungradedQuizzes))
+        rows.push(toolRow('quiz', 'Ungraded Quizzes', urls.quizStaff(c.id), cnt(s.ungradedQuizzes)));
+      if (show(s.used.Discussion, s.unreadDiscussions))
+        rows.push(toolRow('discussion', 'Unread Discussions', urls.discussions(c.id), cnt(s.unreadDiscussions)));
+      if (show(s.used.Dropbox, s.newSubmissions))
+        rows.push(toolRow('dropbox', 'New Dropbox Submissions', urls.dropboxStaff(c.id), cnt(s.newSubmissions)));
+    }
+
+    if (!rows.length) return heading + `<p class="mc-tools-note">No content has been published yet.</p>`;
+    return heading + rows.join('');
+  }
+
+  // Refresh just the tools block of a card that's on screen
+  function updateToolsInDom(ou) {
+    const box = document.querySelector(`.mc-tools[data-ou="${ou}"]`);
+    if (!box) return;
+    const c = [...state.cats.this, ...state.cats.master].find(x => x.id === ou);
+    if (c) { box.innerHTML = toolsHtml(c); fitFrameToContent(); }
+  }
+
+  /* ======================= VIEW ALL COURSES =======================
+     The widget is an iframe on the org homepage, so everything below works on
+     the PARENT page (same origin) — popups opened inside the tall widget frame
+     land off-screen.
+       1. D2L's My Courses widget is on the page → click its View All Courses.
+       2. Otherwise load D2L's My Courses component out of sight (CONFIG.myCourses)
+          and click ITS View All Courses → D2L's real All Courses popup.
+       3. If that isn't possible, open a built-in All Courses window on the
+          parent page (searchable, keyboard and screen-reader friendly).    */
+  function hostWindows() {
+    const wins = [];
+    for (const w of [window.top, window.parent, window]) {
+      try { if (w && w.document && !wins.includes(w)) wins.push(w); } catch { /* cross-origin */ }
+    }
+    return wins;
+  }
+  const topWin = () => hostWindows()[0] || window;
+
+  // querySelector that also searches open shadow roots (Daylight components)
+  function deepFind(root, test, limit = 8000) {
+    const stack = [root]; let seen = 0;
+    while (stack.length && seen < limit) {
+      const node = stack.pop(); seen++;
+      if (node.nodeType === 1 && test(node)) return node;
+      if (node.shadowRoot) stack.push(node.shadowRoot);
+      const kids = node.children || [];
+      for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+    }
+    return null;
+  }
+  function deepFindAll(root, test, limit = 8000) {
+    const out = [], stack = [root]; let seen = 0;
+    while (stack.length && seen < limit) {
+      const node = stack.pop(); seen++;
+      if (node.nodeType === 1 && test(node)) out.push(node);
+      if (node.shadowRoot) stack.push(node.shadowRoot);
+      const kids = node.children || [];
+      for (let i = kids.length - 1; i >= 0; i--) stack.push(kids[i]);
+    }
+    return out;
+  }
+
+  const isViewAllControl = el =>
+    !el.closest?.('[data-viewall]') &&                        // never our own link
+    ((el.id === 'viewAllCourses' && /^(d2l-link|a|button)$/.test(el.localName)) ||
+     (/^(a|button|d2l-link|d2l-button-subtle|d2l-button)$/.test(el.localName) &&
+      /^\s*view all courses/i.test(el.getAttribute('text') || el.textContent || '')));
+  const isAllCoursesOverlay = el => /^d2l-all-courses(-v\d+)?$/.test(el.localName);
+
+  async function waitFor(fn, ms) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { const v = fn(); if (v) return v; await sleep(150); }
+    return null;
+  }
+
+  /* ---------- shared helpers for D2L's window ---------- */
+  // D2L dialogs reflect an "opened" attribute; native <dialog> uses .open
+  const isOpenEl = el => (el.localName === 'dialog' && el.open) || el.hasAttribute('opened');
+
+  // Is a real, readable window from `root` actually painted on screen in `win`?
+  function windowVisible(root, win) {
+    const vw = win.innerWidth, vh = win.innerHeight;
+    for (const o of deepFindAll(root, isOpenEl)) {
+      const hit = deepFind(o, el => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 240 || r.height < 160) return false;
+        const visW = Math.min(r.right, vw) - Math.max(r.left, 0);
+        const visH = Math.min(r.bottom, vh) - Math.max(r.top, 0);
+        if (visW < r.width * 0.5 || visH < Math.min(r.height, vh) * 0.5) return false;
+        const cs = win.getComputedStyle(el);
+        return cs.visibility === 'visible' && cs.display !== 'none' && parseFloat(cs.opacity) > 0.05;
+      }, 4000);
+      if (hit) return true;
+    }
+    return false;
+  }
+
+  // Close any D2L window that opened from `root` (used when it opened invisibly)
+  function closeWindows(root) {
+    deepFindAll(root, isOpenEl).forEach(el => {
+      try {
+        if (el.localName === 'dialog' && typeof el.close === 'function') el.close();
+        else { el.opened = false; el.removeAttribute('opened'); }
+      } catch { /* ignore */ }
+    });
+  }
+
+  // Is this element (inside shadow DOM) actually laid out and visible?
+  function isShown(el, win) {
+    for (let n = el; n && n.nodeType === 1; n = n.parentNode?.host || n.parentNode || n.host) {
+      const cs = win.getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || cs.contentVisibility === 'hidden') return false;
+      if (n.localName && /^d2l-my-courses/.test(n.localName)) {
+        const r = n.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) return false;      // collapsed / hidden widget
+      }
+      if (n.parentNode && n.parentNode.nodeType === 11 && !n.parentNode.host) break;
+    }
+    return true;
+  }
+
+  // 1) D2L's My Courses widget is on the page AND visible → use its own link.
+  //    A hidden copy is ignored: its window would open invisibly and lock the page.
+  async function tryExistingWidget(w) {
+    const doc = w.document;
+    const mc = deepFind(doc, el => /^d2l-my-courses(-v\d+)?$/.test(el.localName));
+    if (!mc) return false;
+    if (!isShown(mc, w)) { trail('D2L My Courses widget is on the page but hidden — not using it'); return false; }
+    const btn = deepFind(mc, isViewAllControl);
+    const overlay = deepFind(mc, isAllCoursesOverlay);
+    if (btn) btn.click();
+    else if (overlay && typeof overlay.open === 'function') overlay.open();
+    else return false;
+    if (await waitFor(() => windowVisible(mc, w), 2500)) return true;
+    trail('D2L widget window opened invisibly — closing it');
+    closeWindows(mc);
+    return false;
+  }
+
+  function loadModule(doc, src) {
+    return new Promise(res => {
+      if ([...doc.scripts].some(s => s.src === src)) return res(true);
+      const s = doc.createElement('script');
+      s.type = 'module'; s.src = src;
+      s.onload = () => res(true); s.onerror = () => res(false);
+      doc.head.appendChild(s);
+    });
+  }
+
+  // https://s.brightspace.com/lib/bsi/<release>/... — whatever release this page runs
+  function bsiBase(w) {
+    const urls = [...w.document.scripts].map(s => s.src)
+      .concat(w.performance?.getEntriesByType?.('resource').map(r => r.name) || []);
+    for (const u of urls) { const m = /^(https?:\/\/[^/]+\/lib\/bsi\/[^/]+)\//.exec(u || ''); if (m) return m[1]; }
+    return null;
+  }
+  function myCoursesScriptUrls(w) {
+    const cfg = CONFIG.myCourses || {}, base = bsiBase(w), urls = [];
+    if (base && cfg.bsiFile) urls.push(`${base}/${cfg.bsiFile}`);
+    (cfg.scripts || []).forEach(u => { if (!urls.includes(u)) urls.push(u); });
+    return urls;
+  }
+
+  /* 2) D2L's My Courses component in an ISOLATED full-screen frame.
+     It never touches the homepage itself (so it can't disturb D2L's navbar or
+     menus), and D2L's All Courses window has the whole screen to draw in. The
+     frame is transparent, shares the user's sign-in (same origin), opens course
+     links in the main window, and is removed when the window closes.        */
+  const ISO_ID = 'mcw-allcourses-frame';
+
+  function removeIsolatedFrame(doc, returnFocus) {
+    const f = doc.getElementById(ISO_ID);
+    if (f) f.remove();
+    clearInterval(_closeWatch);
+    if (returnFocus && _dlgTrigger && _dlgTrigger.isConnected) _dlgTrigger.focus();
+  }
+
+  let _closeWatch = 0;
+  async function tryIsolatedWidget(w) {
+    const cfg = CONFIG.myCourses || {};
+    if (!cfg.tag) return false;
+    const doc = w.document, wait = cfg.timeoutMs || 15000;
+    removeIsolatedFrame(doc, false);
+
+    // Copy <html> attributes (language, timezone, CDN, intl settings) so D2L's
+    // component formats dates and text exactly as on the homepage.
+    const htmlAttrs = [...doc.documentElement.attributes]
+      .filter(a => !/^(style|class)$/i.test(a.name))
+      .map(a => `${a.name}="${escHtml(a.value)}"`).join(' ');
+    const bsiJs = [...doc.scripts].find(s => /\/lib\/bsi\/[^/]+\/bsi\.js/.test(s.src));
+    const bsiTag = bsiJs ? `<script ${bsiJs.type === 'module' ? 'type="module" ' : ''}src="${escHtml(bsiJs.src)}"><\/script>` : '';
+
+    const frame = doc.createElement('iframe');
+    frame.id = ISO_ID;
+    frame.title = 'All Courses';
+    frame.setAttribute('allowtransparency', 'true');
+    frame.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0;margin:0;padding:0;' +
+                          'background:transparent;z-index:2147483000;color-scheme:normal;';
+    frame.srcdoc = `<!DOCTYPE html><html ${htmlAttrs}><head><meta charset="utf-8">
+      <base href="${escHtml(w.location.origin)}/" target="_top">
+      <style>
+        html,body{margin:0;padding:0;background:transparent;}
+        #mcwLoading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+          background:rgba(15,30,45,.45);font:600 15px/1.4 Lato,'Segoe UI',Arial,sans-serif;color:#fff;}
+        #mcwLoading span{background:#006EB3;padding:12px 20px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.25);}
+      </style>${bsiTag}</head>
+      <body class="d2l-typography"><div id="mcwLoading" role="status"><span>Loading All Courses… (Esc to cancel)</span></div></body></html>`;
+
+    const loaded = new Promise(res => frame.addEventListener('load', res, { once: true }));
+    doc.body.appendChild(frame);
+    await loaded;
+    const fw = frame.contentWindow, fd = frame.contentDocument;
+    let cancelled = false;
+    const onKey = e => { if (e.key === 'Escape' && fd.getElementById('mcwLoading')) { cancelled = true; removeIsolatedFrame(doc, true); } };
+    fd.addEventListener('keydown', onKey);
+    doc.addEventListener('keydown', onKey);
+    const cleanupKeys = () => doc.removeEventListener('keydown', onKey);
+    frame.focus();
+
+    try {
+      // Load D2L's component inside the frame (current BSI release first)
+      for (const src of myCoursesScriptUrls(w)) {
+        if (cancelled) return true;
+        const ok = await loadModule(fd, src);
+        trail(`script ${ok ? 'loaded' : 'FAILED'}: ${src}`);
+        if (ok) { await Promise.race([fw.customElements.whenDefined(cfg.tag), sleep(wait)]); }
+        if (fw.customElements.get(cfg.tag)) break;
+      }
+      if (cancelled) return true;
+      if (!fw.customElements.get(cfg.tag)) { warn('My Courses component did not load'); removeIsolatedFrame(doc, false); return false; }
+
+      const host = fd.createElement(cfg.tag);
+      const rootOu = await rootOrgUnitId();
+      Object.entries(cfg.attributes || {}).forEach(([k, v]) => {
+        const s = String(v);
+        if (s.includes('{widgetId}') && !cfg.widgetId) return;          // no widget id configured — skip
+        if (s.includes('{rootOrgUnitId}') && !rootOu) return;
+        host.setAttribute(k, s.replace('{userId}', state.userId || '')
+                              .replace('{widgetId}', cfg.widgetId || '')
+                              .replace('{rootOrgUnitId}', rootOu || ''));
+      });
+      // Course tiles sit off-screen to the left. D2L's All Courses window is a
+      // fixed, full-screen dialog, so it still opens in view.
+      const OFFSCREEN = 'position:absolute;top:0;left:-300vw;width:100vw;height:100vh;overflow:hidden;';
+      host.style.cssText = OFFSCREEN;
+      fd.body.appendChild(host);
+      trail('D2L component created');
+
+      const btn = await waitFor(() => cancelled || deepFind(host, isViewAllControl), wait);
+      if (cancelled) return true;
+      const overlay = deepFind(host, isAllCoursesOverlay);
+      trail(`View All control ${btn ? 'found' : 'not found'}, All Courses element ${overlay ? 'found' : 'not found'}`);
+      if (!btn && !overlay) { removeIsolatedFrame(doc, false); return false; }
+
+      const isOpen = () => deepFind(host, isOpenEl);
+
+      // Lift anything that would trap a fixed dialog inside a small box
+      const unclip = start => {
+        for (let n = start; n && n !== fd.documentElement; n = n.parentNode || n.host) {
+          if (n.nodeType !== 1 || n === host) continue;
+          ['contain', 'transform', 'filter', 'perspective', 'backdrop-filter'].forEach(prop =>
+            n.style.setProperty(prop, 'none', 'important'));
+          n.style.setProperty('content-visibility', 'visible', 'important');
+        }
+      };
+
+      // Something from D2L is actually painted on screen? The frame only holds
+      // our loading note and D2L's component (tiles parked off-screen), so a hit
+      // on the component at any of these points means D2L's window/backdrop shows.
+      const d2lOnScreen = () => [[.5, .5], [.5, .3], [.3, .5], [.7, .5], [.5, .7]].some(([fx, fy]) => {
+        const x = fw.innerWidth * fx, y = fw.innerHeight * fy;
+        // Deepest element drawn at this point (through shadow roots)
+        let el = fd.elementFromPoint(x, y);
+        while (el && el.shadowRoot) {
+          const inner = el.shadowRoot.elementFromPoint(x, y);
+          if (!inner || inner === el) break;
+          el = inner;
+        }
+        // Must belong to D2L's component and not be see-through
+        let opacity = 1, inHost = false;
+        for (let n = el; n; n = n.parentNode || n.host) {
+          if (n.nodeType !== 1) continue;
+          opacity *= parseFloat(fw.getComputedStyle(n).opacity) || 0;
+          if (n === host) { inHost = true; break; }
+        }
+        return inHost && opacity > 0.05;
+      });
+      const dialogVisible = () => windowVisible(host, fw) || d2lOnScreen();
+
+      if (btn && btn !== true) btn.click();
+      let opened = await waitFor(isOpen, 3000);
+      if (!opened && overlay && typeof overlay.open === 'function') { overlay.open(); opened = await waitFor(isOpen, 3000); }
+      if (!opened) { trail('D2L window did not open'); removeIsolatedFrame(doc, false); return false; }
+      trail('D2L window reports open');
+
+      // Never leave an invisible window blocking the page: verify it's on screen.
+      deepFindAll(host, isOpenEl).forEach(unclip);
+      let shown = await waitFor(dialogVisible, 1500);
+      if (!shown) {
+        trail('not visible off-screen — retrying on-screen');
+        host.style.cssText = 'position:fixed;inset:0;overflow:hidden;';
+        // keep the tiles hidden but let the open window(s) show
+        host.style.setProperty('visibility', 'hidden');
+        deepFindAll(host, isOpenEl).forEach(o => { o.style.setProperty('visibility', 'visible', 'important'); unclip(o); });
+        const ov = deepFind(host, isAllCoursesOverlay); if (ov) ov.style.setProperty('visibility', 'visible', 'important');
+        shown = await waitFor(dialogVisible, 1500);
+      }
+      if (!shown) {
+        trail('D2L window is not visible — using the built-in All Courses window instead');
+        closeWindows(host);
+        removeIsolatedFrame(doc, false);
+        return false;
+      }
+      trail('D2L window is visible');
+
+      fd.getElementById('mcwLoading')?.remove();
+      fw.focus();
+      // Remove the frame once D2L's window has really closed. D2L can briefly
+      // drop its "open" flag while it loads courses, so it must look closed
+      // (flag gone AND nothing of D2L's on screen) for ~1.2 seconds in a row.
+      clearInterval(_closeWatch);
+      let closedTicks = 0;
+      _closeWatch = setInterval(() => {
+        let looksOpen = false;
+        try { looksOpen = frame.isConnected && (!!isOpen() || d2lOnScreen()); } catch { /* frame gone */ }
+        closedTicks = looksOpen ? 0 : closedTicks + 1;
+        if (closedTicks >= 4 || !frame.isConnected) { trail('D2L window closed'); removeIsolatedFrame(doc, true); }
+      }, 300);
+      return true;
+    } finally {
+      cleanupKeys();
+    }
+  }
+
+  function tryLegacyDialog(w) {
+    const DM = w.D2L && w.D2L.DialogManager;
+    if (!DM || typeof DM.OpenUrl !== 'function') return false;
+    DM.OpenUrl('/d2l/lp/ouHome/defaultCourseSelectorPopup.d2l', 'CourseSelectorDialog',
+               { title: 'All Courses', width: 800, height: 600, isModal: true });
+    return true;
+  }
+
+  let _opening = false;
+  async function openAllCourses(trigger) {
+    if (_opening) return;
+    if (state.demo) return openFallbackDialog(trigger);
+    _opening = true;
+    _dlgTrigger = trigger || null;
+    trigger?.setAttribute('aria-busy', 'true');
+    try {
+      const w = topWin();
+      trail(`clicked (widget ${VERSION})`);
+      try { if (await tryExistingWidget(w)) { trail('opened via D2L My Courses widget on the page'); return; } } catch (e) { trail('existing widget error: ' + e.message); }
+      try { if (await tryIsolatedWidget(w)) return; } catch (e) { trail('D2L component error: ' + e.message); try { removeIsolatedFrame(w.document, false); } catch {} }
+      if (CONFIG.useLegacyDialog) {
+        try { if (tryLegacyDialog(w)) { log('All Courses via D2L.DialogManager'); return; } } catch (e) { warn(e); }
+      }
+      trail('opening built-in All Courses window');
+      openFallbackDialog(trigger);
+    } finally {
+      _opening = false;
+      trigger?.removeAttribute('aria-busy');
+    }
+  }
+
+  /* ---------- 3) built-in All Courses window, rendered on the PARENT page ---------- */
+  const DLG_CSS = `
+    #mcwAllDlg { width: min(760px, calc(100vw - 24px)); max-height: calc(100vh - 48px);
+      margin: auto; padding: 0; border: none; border-radius: 12px; box-shadow: 0 18px 48px rgba(0,0,0,.3);
+      color: #1a2940; font-family: 'DM Sans', Lato, 'Segoe UI', Arial, sans-serif; background: #fff; }
+    #mcwAllDlg[open] { display: flex; flex-direction: column; overflow: hidden; }
+    #mcwAllDlg::backdrop { background: rgba(15,30,45,.55); }
+    #mcwAllDlg * { box-sizing: border-box; }
+    #mcwAllDlg .mcw-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: #006EB3; color: #fff; padding: 10px 12px 10px 18px; }
+    #mcwAllDlg h2 { margin: 0; font-family: 'Playfair Display', Georgia, serif; font-size: 19px; font-weight: 700; color: #fff; }
+    #mcwAllDlg .mcw-close { min-width: 44px; min-height: 44px; border: none; border-radius: 8px; background: none;
+      color: #fff; font-size: 20px; line-height: 1; cursor: pointer; }
+    #mcwAllDlg .mcw-close:hover { background: rgba(255,255,255,.14); }
+    #mcwAllDlg .mcw-close:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+    #mcwAllDlg .mcw-search { padding: 12px 18px 8px; border-bottom: 1px solid #dde3ec; }
+    #mcwAllDlg label { display: block; font-size: 13px; font-weight: 600; margin: 0 0 4px; color: #1a2940; }
+    #mcwAllDlg input { width: 100%; min-height: 40px; padding: 8px 10px; font: inherit; font-size: 14px;
+      border: 1px solid #7a8a99; border-radius: 8px; color: #1a2940; background: #fff; }
+    #mcwAllDlg input:focus-visible { outline: 3px solid #0b2b45; outline-offset: 1px; }
+    #mcwAllDlg .mcw-count { font-size: 12px; color: #4f6575; margin: 6px 0 0; }
+    #mcwAllDlg ul { list-style: none; margin: 0; padding: 6px 8px 12px; overflow-y: auto; flex: 1; }
+    #mcwAllDlg li { margin: 0; }
+    #mcwAllDlg .mcw-item { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px;
+      color: #006EB3; text-decoration: none; min-height: 44px; }
+    #mcwAllDlg .mcw-item:hover { background: #f2f6fa; }
+    #mcwAllDlg .mcw-item:focus-visible { outline: 3px solid #0b2b45; outline-offset: -3px; }
+    #mcwAllDlg .mcw-name { font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+    #mcwAllDlg .mcw-meta { font-size: 12px; color: #4f6575; }
+    #mcwAllDlg .mcw-item.is-closed { color: #45525e; cursor: default; }
+    #mcwAllDlg .mcw-item.is-closed .mcw-name { text-decoration: none; }
+    #mcwAllDlg .mcw-empty { padding: 16px 10px; font-size: 13px; color: #4f6575; }
+    #mcwAllDlg .sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }`;
+
+  let _dlgTrigger = null;
+
+  // Build (once) the dialog in whichever document can show it full-screen
+  function getDialog() {
+    let doc = document;
+    try { const t = topWin().document; if (t) doc = t; } catch { /* use own document */ }
+    let dlg = doc.getElementById('mcwAllDlg');
+    if (dlg) return dlg;
+
+    if (!doc.getElementById('mcwAllDlgStyle')) {
+      const st = doc.createElement('style'); st.id = 'mcwAllDlgStyle'; st.textContent = DLG_CSS;
+      doc.head.appendChild(st);
+    }
+    dlg = doc.createElement('dialog');
+    dlg.id = 'mcwAllDlg';
+    dlg.setAttribute('aria-labelledby', 'mcwAllTitle');
+    dlg.innerHTML = `
+      <div class="mcw-head">
+        <h2 id="mcwAllTitle">All Courses</h2>
+        <button type="button" class="mcw-close" aria-label="Close All Courses">✕</button>
+      </div>
+      <div class="mcw-search">
+        <label for="mcwAllSearch">Search courses</label>
+        <input type="search" id="mcwAllSearch" autocomplete="off" placeholder="Course name or code">
+        <p class="mcw-count" id="mcwAllCount" aria-live="polite"></p>
+      </div>
+      <ul id="mcwAllList"></ul>`;
+    doc.body.appendChild(dlg);
+
+    const search = dlg.querySelector('#mcwAllSearch');
+    dlg.querySelector('.mcw-close').addEventListener('click', () => dlg.close());
+    search.addEventListener('input', () => renderAllList(dlg, search.value));
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });             // backdrop click
+    // Escape always closes (a search box with text would otherwise swallow the first press)
+    dlg.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); dlg.close(); } });
+    dlg.addEventListener('close', () => {
+      if (_dlgTrigger && _dlgTrigger.isConnected) _dlgTrigger.focus();                       // return focus
+    });
+    dlg.querySelector('#mcwAllList').addEventListener('click', e => {
+      const a = e.target.closest('a[aria-disabled="true"]'); if (a) e.preventDefault();      // closed courses
+    });
+    return dlg;
+  }
+
+  function openFallbackDialog(trigger) {
+    const dlg = getDialog();
+    _dlgTrigger = trigger || null;
+    const search = dlg.querySelector('#mcwAllSearch');
+    search.value = '';
+    renderAllList(dlg, '');
+    if (typeof dlg.showModal === 'function') { if (!dlg.open) dlg.showModal(); } else dlg.setAttribute('open', '');
+    search.focus();
+  }
+
+  function renderAllList(dlg, q) {
+    const term = q.trim().toLowerCase();
+    const all = Object.entries(state.cats).flatMap(([k, list]) => list.map(c => ({ c, k })));
+    const label = ({ c, k }) => k === 'master' ? 'Master Semester' : (c.term != null ? termLabel(c.term) : '');
+    const rows = all
+      .filter(({ c }) => !term || c.name.toLowerCase().includes(term) || (c.code || '').toLowerCase().includes(term))
+      .sort((a, b) => byRecent(a.c, b.c));
+    const shown = rows.slice(0, 500);                       // keep huge admin lists responsive; search narrows it
+    dlg.querySelector('#mcwAllCount').textContent =
+      `${plural(rows.length, 'course')}${term ? ' found' : ''}${rows.length > shown.length ? ` — showing the ${shown.length} most recent; search to narrow` : ''}`;
+    dlg.querySelector('#mcwAllList').innerHTML = shown.length
+      ? shown.map(r => `<li>
+          <a class="mcw-item${r.c.isOpen ? '' : ' is-closed'}" href="${urls.home(r.c.id)}" target="_top"
+             ${r.c.isOpen ? '' : 'aria-disabled="true"'}>
+            <span class="mcw-name">${escHtml(r.c.name)}</span>
+            <span class="mcw-meta">${escHtml(label(r))}${r.c.isOpen ? '' : ' · Closed'}${r.c.isStudent ? '' : ' · ' + escHtml(r.c.role || 'Staff')}</span>
+          </a></li>`).join('')
+      : '<li class="mcw-empty">No courses match your search.</li>';
+  }
+
+  /* ============================ LOAD ============================ */
+  function setLoading(msg) {
+    const el = document.getElementById('loadingMsg');
+    if (el) el.textContent = msg;
+  }
+
+  function showState(which) {
+    ['stateLoading', 'stateError', 'stateContent'].forEach(id =>
+      document.getElementById(id).classList.toggle('hidden', id !== which));
+    fitFrameToContent();
+  }
+
+  function categorize(courses) {
+    state.allCourses = courses;                         // everything Brightspace returned (debug report)
+    state.cur  = currentTermIndex();
+    state.cats = { past: [], last: [], this: [], next: [], master: [] };
+    let skipped = 0;
+    courses.forEach(c => {
+      if (!c.isActive) return;                          // never show inactive offerings
+      if (c.isMaster) { c.term = null; state.cats.master.push(c); return; }
+      c.term = termOf(c);
+      const cat = categoryFor(c.term, state.cur);
+      if (cat) state.cats[cat].push(c); else skipped++;
+    });
+    log('current term', termLabel(state.cur), '| skipped (no term window / too far ahead):', skipped);
+    syncFilters();
+  }
+
+  // Status line in the blue ribbon under the header (progress after first paint)
+  function setStatus(text) {
+    document.getElementById('lastUpdated').textContent = text;
+  }
+  const stamp = () => 'Updated ' + new Date().toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+  let _saveTimer = 0;
+  function saveCacheSoon(userId) {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(() => {
+      const all = Object.values(state.cats).flat();
+      const stats = {};
+      for (const [k, v] of Object.entries(state.stats)) if (v && !v.loading && !v.error) stats[k] = v;
+      cacheWrite({ userId, savedAt: Date.now(), courses: serializeCourses(all), stats });
+    }, 400);
+  }
+
+  async function loadToolStats(runId, le, userId, reuseSaved = false, onlyMissing = false) {
+    // Only cards that are actually displayed (top N per tab) — admins can have hundreds
+    let current = [...visibleCourses('this'), ...visibleCourses('master')].filter(needsTools);
+    // Saved counts still within CONFIG.cacheMinutes are reused — no API calls for those cards
+    if (onlyMissing) current = current.filter(c => !state.stats[c.id]);
+    else if (reuseSaved) current = current.filter(c => !state.stats[c.id] || state.stats[c.id].loading || state.stats[c.id].error);
+    if (!current.length) return;
+    // Cards with saved counts keep showing them while fresh numbers load
+    current.forEach(c => { if (!state.stats[c.id]) state.stats[c.id] = { loading: true }; });
+
+    const staffIds = current.filter(c => !c.isStudent).map(c => c.id);
+    const updatesP = fetchUpdatesBatch(le, staffIds).catch(() => ({}));
+
+    let done = 0;
+    if (current.length) setStatus(`Loading course tools… 0 of ${current.length}`);
+    await pool(current, CONFIG.courseConcurrency, async c => {
+      if (runId !== _runId) return;
+      let s;
+      try {
+        s = c.isStudent ? await studentStats(le, c.id, userId)
+                        : await staffStats(le, c.id, (await updatesP)[c.id]);
+      } catch (e) { warn('stats failed', c.id, e); s = { error: true }; }
+      if (runId !== _runId) return;
+      if (!(s.error && state.stats[c.id] && !state.stats[c.id].loading)) state.stats[c.id] = s;  // keep saved counts on error
+      updateToolsInDom(c.id);
+      setStatus(`Loading course tools… ${++done} of ${current.length}`);
+      saveCacheSoon(userId);
+    });
+  }
+
+  function showError(err) {
+    console.error('[My Courses]', err);
+    document.getElementById('errorMsg').textContent =
+      'Your courses couldn\'t be loaded right now. Please try again in a moment.';
+    document.getElementById('errorDetail').textContent =
+      'Details: ' + ((err && err.message) || String(err));
+    showState('stateError');
+  }
+
+  /* force = true (Refresh button) skips the saved copy and reloads everything. */
+  async function initWidget(force = false) {
+    const runId = ++_runId;
+    const btn = document.getElementById('refreshBtn');
+    btn.classList.add('spinning');
+    state.stats = {};
+    if (force) cacheWrite({ courses: null, stats: null, savedAt: 0 });
+
+    try {
+      if (!IS_LIVE) { showState('stateLoading'); setLoading('Loading your courses…'); await runDemo(runId); return; }
+
+      const cache   = cacheRead();
+      const fresh   = !force && !DEBUG && cache?.courses && (Date.now() - (cache.savedAt || 0) < CONFIG.cacheMinutes * 60000);
+      let shownFromCache = false;
+
+      if (!fresh) { showState('stateLoading'); setLoading('Connecting to Brightspace…'); }
+
+      const { lp, le } = await discoverVersions();
+      state.le = le;
+      log('versions', lp, le);
+
+      const userP   = whoAmI(lp);
+      const enrollP = fetchMyEnrollments(lp, n => { if (!shownFromCache) setLoading(`Loading your courses… ${n} found`); });
+
+      // 1) Instant paint from the saved copy — only if it belongs to this user
+      const userId = await userP;
+      state.userId = userId;
+      if (fresh && userId && cache.userId === userId) {
+        state.stats = cache.stats || {};
+        categorize(hydrateCourses(cache.courses));
+        renderAll();
+        setStatus('Checking for changes…');
+        shownFromCache = true;
+      } else if (fresh) {
+        showState('stateLoading');
+      }
+
+      // 2) Live enrollments
+      const items = await enrollP;
+      if (runId !== _runId) return;
+      const courses = items.map(toCourse);
+      if (!shownFromCache) setLoading(`Sorting ${plural(courses.length, 'course')} into semesters…`);
+
+      const known = {};
+      if (cache?.courses && cache.userId === userId) cache.courses.forEach(c => { if (typeof c.isMaster === 'boolean') known[c.id] = c.isMaster; });
+      const { pending, masterIds } = await markMasterCoursesFast(lp, courses, known);
+      if (runId !== _runId) return;
+      await placeUnfitCourses(lp, courses);
+      if (runId !== _runId) return;
+
+      categorize(courses);
+      renderAll();
+      saveCacheSoon(userId);
+      if (DEBUG) {
+        console.info(`[My Courses] DEBUG — ${items.length} enrollments returned for user ${userId}`);
+        console.table(debugRows().map(({ c, x }) => ({ result: x.shown ? 'Shown' : 'Hidden', course: c.name, code: c.code, ou: c.id,
+          role: roleOf(c), active: c.isActive, canAccess: c.canAccess, start: c.start && c.start.toISOString(),
+          end: c.end && c.end.toISOString(), lastAccessed: c.lastAccessed, tab: x.tab, reason: x.reason })));
+      }
+
+      // 3) Slow real-term lookups (only when the fast path couldn't decide)
+      if (pending.length) {
+        await markMasterCoursesSlow(lp, pending, masterIds, (d, t) => setStatus(`Checking course terms… ${d} of ${t}`));
+        if (runId !== _runId) return;
+        if (pending.some(c => c.isMaster)) { categorize(courses); renderAll(); }
+        saveCacheSoon(userId);
+      }
+
+      // 4) Tool counts for This Semester / Master Semester cards
+      await loadToolStats(runId, le, userId, shownFromCache);
+      if (runId === _runId) setStatus(stamp());
+    } catch (err) {
+      if (runId !== _runId) return;
+      showError(err);
+    } finally {
+      if (runId === _runId) btn.classList.remove('spinning');
+    }
+  }
+
+  function renderAll() {
+    setStatus(stamp());
+    document.getElementById('demoNote').classList.toggle('hidden', !state.demo);
+
+    // Keep keyboard focus on the same tab across a re-render
+    const focusedTab = document.activeElement?.closest?.('#mcTablist [role="tab"]')?.dataset.key;
+    renderTabs();
+    showState('stateContent');
+    activateTab(state.active, !!focusedTab);
+
+    const n = state.cats.this.length;
+    const live = document.getElementById('srLive');
+    live.textContent = '';
+    setTimeout(() => { live.textContent = `${plural(n, 'course')} this semester, ${termLabel(state.cur)}.`; }, 60);
+  }
+
+  /* ============================ DEBUG REPORT ============================ */
+  function explainCourse(c) {
+    const tabName = key => (TAB_DEFS.find(t => t.key === key) || {}).name?.() || key;
+    if (!c.isActive) return { shown: false, tab: '', why: 'inactive', reason: 'Course offering is INACTIVE in Brightspace (IsActive = false). Inactive courses are never shown.' };
+    let tab;
+    if (c.isMaster) tab = 'master';
+    else {
+      const t = termOf(c);
+      if (t == null) return { shown: false, tab: '', why: 'noterm', reason: whyNoTerm(c) };
+      tab = categoryFor(t, state.cur);
+      if (!tab) return { shown: false, tab: termLabel(t), why: 'ahead',
+        reason: `${termLabel(t)} is more than one semester after the current semester (${termLabel(state.cur)}). Only Next Semester (${termLabel(state.cur + 1)}) is shown.` };
+    }
+    const where = tabName(tab);
+    if (!roleAllowed(c)) return { shown: false, tab: where, why: 'role',
+      reason: `Role "${roleOf(c)}" is not ticked in Role Filter (defaults: ${CONFIG.defaultRoles.join(', ')}).` };
+    if (!statusAllowed(c)) return { shown: false, tab: where, why: 'status',
+      reason: `"${STATUS_LABEL[courseStatus(c)]}" is not ticked in Course Filter.` };
+    if (!visibleCourses(tab).includes(c)) return { shown: false, tab: where, why: 'limit',
+      reason: `Not among the ${CONFIG.maxCoursesPerTab} most recently accessed courses on the ${where} tab — reachable through View All Courses.` };
+    return { shown: true, tab: where, why: 'shown',
+      reason: `Shown on the ${where} tab, ${STATUS_LABEL[courseStatus(c)]} group${c.placedBy ? ` (dates don't fit a semester — placed by ${c.placedBy})` : ''}${c.isStudent && !c.isOpen ? ' (badge says Closed — Brightspace CanAccess = false)' : ''}.` };
+  }
+
+  const fmtD = d => d ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+
+  function debugRows() {
+    return (state.allCourses || []).map(c => ({ c, x: explainCourse(c) }))
+      .sort((a, b) => (a.x.shown - b.x.shown) || byName(a.c, b.c));      // hidden first
+  }
+
+  function renderDebug() {
+    if (!DEBUG) return;
+    let box = document.getElementById('mcDebug');
+    if (!box) {
+      box = document.createElement('section');
+      box.id = 'mcDebug'; box.className = 'mc-debug';
+      box.setAttribute('aria-labelledby', 'mcDebugTitle');
+      box.innerHTML = `
+        <h2 id="mcDebugTitle">Debug: why a course is or isn't shown</h2>
+        <p class="mc-debug-sum" id="mcDebugSum"></p>
+        <div class="mc-debug-tools">
+          <label for="mcDebugSearch">Find course</label>
+          <input type="search" id="mcDebugSearch" placeholder="Name, code or OU id" autocomplete="off">
+          <label class="mc-debug-chk"><input type="checkbox" id="mcDebugHiddenOnly"> Hidden only</label>
+          <button type="button" class="mc-filter-act" id="mcDebugCopy">Copy report</button>
+          <span class="sr-only" id="mcDebugLive" aria-live="polite"></span>
+        </div>
+        <div class="mc-debug-scroll" tabindex="0" role="region" aria-label="Debug course table (scrolls sideways)">
+          <table class="mc-debug-table">
+            <caption class="sr-only">Every course enrollment Brightspace returned, with the reason it is shown or hidden</caption>
+            <thead><tr><th scope="col">Result</th><th scope="col">Course</th><th scope="col">Role</th><th scope="col">Active / Access</th>
+              <th scope="col">Start</th><th scope="col">End</th><th scope="col">Last accessed</th><th scope="col">Tab / Term</th><th scope="col">Reason</th></tr></thead>
+            <tbody id="mcDebugBody"></tbody>
+          </table>
+        </div>
+        <p class="mc-debug-note" id="mcDebugNote"></p>`;
+      document.querySelector('.widget').appendChild(box);
+      const rerender = () => renderDebug();
+      box.querySelector('#mcDebugSearch').addEventListener('input', rerender);
+      box.querySelector('#mcDebugHiddenOnly').addEventListener('change', rerender);
+      box.querySelector('#mcDebugCopy').addEventListener('click', copyDebugReport);
+    }
+    const rows = debugRows();
+    const counts = rows.reduce((m, r) => (m[r.x.why] = (m[r.x.why] || 0) + 1, m), {});
+    const label = { shown: 'shown', inactive: 'inactive', noterm: 'dates fit no semester', ahead: 'too far ahead',
+                    role: 'hidden by Role Filter', status: 'hidden by Course Filter', limit: 'beyond the 26 limit' };
+    document.getElementById('mcDebugSum').innerHTML =
+      `Widget ${VERSION} · user id ${escHtml(state.userId || '—')} · today ${escHtml(fmtD(new Date()))} · current semester <strong>${escHtml(termLabel(state.cur))}</strong>` +
+      `<br>Brightspace returned <strong>${rows.length}</strong> course enrollment${rows.length === 1 ? '' : 's'} (including inactive): ` +
+      Object.keys(label).filter(k => counts[k]).map(k => `${counts[k]} ${label[k]}`).join(' · ');
+
+    const q = (document.getElementById('mcDebugSearch').value || '').trim().toLowerCase();
+    const hiddenOnly = document.getElementById('mcDebugHiddenOnly').checked;
+    const match = rows.filter(r => (!hiddenOnly || !r.x.shown) &&
+      (!q || r.c.name.toLowerCase().includes(q) || (r.c.code || '').toLowerCase().includes(q) || r.c.id === q));
+    const MAX = 400, list = match.slice(0, MAX);
+    document.getElementById('mcDebugBody').innerHTML = list.map(({ c, x }) => `
+      <tr class="${x.shown ? 'is-shown' : 'is-hidden'}">
+        <td><span class="mc-debug-badge">${x.shown ? 'Shown' : 'Hidden'}</span></td>
+        <td><strong>${escHtml(c.name)}</strong><br><span class="mc-debug-sub">${escHtml(c.code || '—')} · OU ${escHtml(c.id)}${c.isMaster ? ' · Master Semester' : ''}</span></td>
+        <td>${escHtml(roleOf(c))}</td>
+        <td>${c.isActive ? 'Active' : '<strong>Inactive</strong>'} / ${c.canAccess ? 'Can access' : '<strong>No access</strong>'}</td>
+        <td>${escHtml(fmtD(c.start))}</td>
+        <td>${escHtml(fmtD(c.end))}</td>
+        <td>${escHtml(c.lastAccessed ? fmtD(new Date(c.lastAccessed)) : 'Never')}</td>
+        <td>${escHtml(x.tab || '—')}</td>
+        <td>${escHtml(x.reason)}</td>
+      </tr>`).join('') || '<tr><td colspan="9">No matching courses.</td></tr>';
+    document.getElementById('mcDebugNote').textContent =
+      (match.length > MAX ? `Showing ${MAX} of ${match.length} matches — search to narrow. ` : '') +
+      'A course missing from this table entirely is not returned by Brightspace for this user — check the enrollment itself (Classlist / org unit type).';
+    fitFrameToContent();
+  }
+
+  function debugReportText() {
+    const head = ['Result', 'Course', 'Code', 'OU', 'Role', 'Active', 'CanAccess', 'Start', 'End', 'LastAccessed', 'Tab/Term', 'Reason'];
+    const lines = debugRows().map(({ c, x }) => [x.shown ? 'Shown' : 'Hidden', c.name, c.code, c.id, roleOf(c), c.isActive, c.canAccess,
+      c.start ? c.start.toISOString() : '', c.end ? c.end.toISOString() : '', c.lastAccessed || '', x.tab, x.reason]
+      .map(v => String(v ?? '').replace(/[\t\n]/g, ' ')).join('\t'));
+    return `My Courses widget ${VERSION} debug — user ${state.userId || '?'} — current semester ${termLabel(state.cur)} — ${new Date().toString()}\n` +
+           head.join('\t') + '\n' + lines.join('\n');
+  }
+
+  async function copyDebugReport() {
+    const text = debugReportText(), live = document.getElementById('mcDebugLive');
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch { /* clipboard blocked in frame */ }
+    if (!ok) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+      document.body.appendChild(ta); ta.select();
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      ta.remove();
+    }
+    live.textContent = ok ? 'Report copied — paste it into an email or chat.' : 'Copy was blocked — the report is also in the browser console.';
+    console.log(text);
+  }
+
+  /* ============================ DEMO ============================
+     Shown only when the file is previewed outside Brightspace.            */
+  async function runDemo(runId) {
+    state.demo = true;
+    const cur = currentTermIndex();
+    // Build dates that sit inside a term's window
+    const termDates = (idx, startOffsetDays = 7) => {
+      const season = SEASONS[((idx % 3) + 3) % 3], y = Math.floor(idx / 3);
+      const ranges = { Spring: [localDate(y, 1, 12), localDate(y, 5, 8)],
+                       Summer: [localDate(y, 5, 18), localDate(y, 8, 6)],
+                       Fall:   [localDate(y, 8, 24), localDate(y, 12, 14)] }[season];
+      const s = new Date(ranges[0]); s.setDate(s.getDate() + startOffsetDays - 7);
+      return { start: s, end: ranges[1] };
+    };
+    const ago = days => new Date(Date.now() - days * 86400000).toISOString();
+    let id = 1000;
+    const mk = (idx, name, o = {}) => {
+      const d = termDates(idx, o.offset || 7);
+      return { id: String(id++), name, code: '', start: d.start, end: d.end, isActive: o.active !== false,
+               role: o.role || 'Student', isStudent: !o.role || CONFIG.studentRoles.includes(o.role.toLowerCase()),
+               canAccess: o.open !== false, isOpen: o.role ? true : o.open !== false,
+               lastAccessed: o.last === null ? null : ago(o.last ?? 1) };
+    };
+
+    const courses = [
+      mk(cur, 'ENG-101-012 English Composition I', { last: 0 }),
+      mk(cur, 'CPT-170-001 Microcomputer Applications', { last: 1 }),
+      mk(cur, 'MAT-110-004 College Algebra', { last: 3 }),
+      mk(cur, 'PSY-201-002 General Psychology', { open: false, offset: 60, last: null }),
+      mk(cur, 'IST-220-001 Data Communications', { role: 'Faculty', last: 0 }),
+      mk(cur, 'CPT-264-001 Systems Analysis (Design Shell)', { role: 'Instructor', last: 4 }),
+      mk(cur, 'Faculty Resource Center', { role: 'Administrator', last: 6 }),
+      // Faculty sections this term that already ended / haven't started yet
+      Object.assign(mk(cur, 'ENG-101-801 English Comp I (First 8 Weeks)', { role: 'Faculty', last: 3 }),
+        { end: new Date(Date.now() - 4 * 86400000) }),
+      Object.assign(mk(cur, 'MAT-101-802 Beginning Algebra (Second 8 Weeks)', { role: 'Faculty', last: null }),
+        { start: new Date(Date.now() + 6 * 86400000) }),
+      Object.assign(mk(cur, 'CPT-170-803 Micro Apps (Late Start)', { role: 'Faculty', last: null }),
+        { start: new Date(Date.now() + 2 * 86400000) }),
+      mk(cur, 'BUS-101-004 Intro to Business', { role: 'Faculty', last: null }),
+      mk(cur - 1, 'BIO-101-020 Biological Science I', { open: false, last: 70 }),
+      mk(cur - 1, 'SPC-205-001 Public Speaking', { open: false, last: 75 }),
+      mk(cur - 2, 'ENG-100-005 Introduction to Composition', { open: false, last: 180 }),
+      mk(cur - 2, 'COL-103-010 College Skills', { open: false, last: 190 }),
+      mk(cur - 3, 'HIS-201-001 American History', { open: false, last: 300 }),
+      mk(cur - 3, 'CPT-101-002 Intro to Computers', { role: 'Faculty', last: 250 }),
+      mk(cur + 1, 'ENG-102-014 English Composition II', { open: false, last: null }),
+      mk(cur + 1, 'IST-220-002 Data Communications', { role: 'Faculty', last: 5 }),
+      mk(cur, 'ARCHIVE Inactive Sandbox', { active: false }),
+      Object.assign(mk(cur - 6, 'Student Orientation', { last: 2 }), { isMaster: true }),
+      // Many past sections, like an admin or long-time instructor would have
+      ...Array.from({ length: 30 }, (_, i) =>
+        mk(cur - 2 - (i % 4), `CPT-${101 + i}-${String(i + 1).padStart(3, '0')} Sample Section`, { role: 'Instructor', last: 120 + i * 9 })),
+    ];
+    categorize(courses);
+    await sleep(500);
+    if (runId !== _runId) return;
+    renderAll();
+
+    await demoFillStats(runId);
+  }
+
+  async function demoFillStats(runId = _runId) {
+    const sample = [
+      { content: { topics: 24, tracked: true, notDone: 5 }, Discussion: { found: 4, notDone: 1 }, Dropbox: { found: 6, notDone: 2 }, Quiz: { found: 3, notDone: 0 } },
+      { content: { topics: 18, tracked: true, notDone: 0 }, Discussion: { found: 0, notDone: 0 }, Dropbox: { found: 5, notDone: 1 }, Quiz: { found: 8, notDone: 3 } },
+      { content: { topics: 12, tracked: false, notDone: null }, Discussion: { found: 2, notDone: 2 }, Dropbox: { found: 0, notDone: 0 }, Quiz: { found: 4, notDone: 1 } },
+    ];
+    const staff = { tocLoaded: true, contentTopics: 31, used: { Quiz: true, Discussion: true, Dropbox: true },
+                    ungradedQuizzes: 3, unreadDiscussions: 12, newSubmissions: 0 };
+    const open = [...visibleCourses('this'), ...visibleCourses('master')].filter(c => needsTools(c) && !state.stats[c.id]);
+    open.forEach(c => { state.stats[c.id] = { loading: true }; });
+    let si = 0;
+    for (const c of open) {
+      await sleep(350);
+      if (runId !== _runId) return;
+      state.stats[c.id] = c.isStudent ? sample[si++ % sample.length] : staff;
+      updateToolsInDom(c.id);
+    }
+  }
+
+  /* ============================ AUTO-HEIGHT ============================
+     The D2L widget iframe grows/shrinks to fit (same as the grade widgets). */
+  function fitFrameToContent() {
+    const widget = document.querySelector('.widget');
+    if (!widget) return;
+    const bodyStyle = getComputedStyle(document.body);
+    const height = Math.ceil(widget.offsetTop + widget.offsetHeight + parseFloat(bodyStyle.paddingBottom || 0) + 8);
+    let frame = null;
+    try { frame = window.frameElement; } catch { /* cross-origin parent */ }
+    if (frame) {
+      // Only touch the frame when something actually changed (no layout churn
+      // on the homepage while D2L's own menus are opening).
+      if (frame.getAttribute('height') !== String(height)) {
+        frame.style.setProperty('height', height + 'px', 'important');
+        frame.setAttribute('height', height);
+      }
+      if (frame.getAttribute('scrolling') !== 'no') frame.setAttribute('scrolling', 'no');
+      if (frame.style.overflow !== 'hidden') frame.style.overflow = 'hidden';
+      if (!frame.title) frame.title = 'My Courses';         // WCAG 4.1.2 — frames need a name
+      document.documentElement.style.overflow = 'hidden';
+    } else if (window.parent !== window) {
+      // Cross-origin host only: ask it to resize (never sent on the D2L homepage)
+      try { window.parent.postMessage({ type: 'd2l-widget-height', height }, '*'); } catch {}
+    }
+  }
+
+  (function initAutoHeight() {
+    let raf = 0;
+    const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fitFrameToContent); };
+    const widget = document.querySelector('.widget');
+    if (window.ResizeObserver && widget) new ResizeObserver(schedule).observe(widget);
+    window.addEventListener('load', schedule);
+    window.addEventListener('resize', schedule);
+    if (document.fonts?.ready) document.fonts.ready.then(schedule);
+    schedule();
+  })();
+
+  initWidget();
+</script>
+</body>
+</html>

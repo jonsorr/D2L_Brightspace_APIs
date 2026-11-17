@@ -1,0 +1,2037 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Instructor Grade Widget
+  Shows instructors their whole class at a glance, grouped into five performance groups.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Class Grade Overview — Instructor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #f0f4f8;
+    --card:    #ffffff;
+    --header:  #006EB3;          /* primary blue */
+    --accent:  #f5a81c;          /* accent amber — ADA-safe on blue */
+    --text:    #1a2940;
+    --muted:   #607d8b;
+    --border:  #dde3ec;
+    --radius:  14px;
+
+    /* Category palette */
+    --cat-not-passing:  #c62828;
+    --cat-at-risk:      #e65100;
+    --cat-passing:      #006EB3;
+    --cat-doing-well:   #2e7d32;
+    --cat-excellent:    #1a237e;
+
+    /* SU course category palette */
+    --cat-unsuccessful: #b71c1c;
+    --cat-atrisk-su:    #e65100;
+    --cat-successful:   #1b5e20;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px;
+    /* no min-height: the page must be able to shrink so the iframe can
+       follow the content height (see fitFrameToContent) */
+  }
+
+  /* ── WIDGET ── */
+  .widget {
+    width: 100%;
+    max-width: 820px;
+    background: var(--card);
+    border-radius: var(--radius);
+    overflow: clip;    /* clips to border-radius without creating a scroll container,
+                          so position:sticky works correctly in descendant elements */
+    box-shadow: 0 4px 28px rgba(0, 0, 0, 0.11);
+    animation: fadeUp 0.4s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── HEADER ── */
+  .widget-header {
+    background: var(--header);
+    color: #fff;
+    padding: 18px 22px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .header-left { display: flex; flex-direction: column; gap: 3px; }
+
+  .header-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.2;
+  }
+
+  .header-subtitle {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .view-link {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: underline;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+  .view-link:hover { opacity: 0.82; }
+
+  .refresh-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 7px;
+    transition: color 0.2s, background 0.2s;
+  }
+  .refresh-btn:hover        { color: #fff; background: rgba(255,255,255,0.12); }
+  .refresh-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Spin only the icon span, not the label */
+  .refresh-btn.spinning .btn-icon { animation: spin 0.7s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Last-updated ribbon */
+  .last-updated {
+    background: #0059a0;
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.7);
+    padding: 5px 22px;
+    text-align: right;
+    min-height: 22px;
+  }
+
+  /* ── SUMMARY BAR ── */
+  .summary-bar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .summary-item {
+    flex: 1;
+    padding: 11px 6px 10px;
+    text-align: center;
+    border-right: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+    -webkit-user-select: none; user-select: none;
+  }
+  .summary-item:last-child  { border-right: none; }
+  .summary-item:hover       { background: #f4f7fb; }
+
+  .summary-count {
+    font-family: 'DM Mono', monospace;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1.1;
+  }
+  .summary-label {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 2px;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
+  .summary-item.cat-not-passing .summary-count { color: var(--cat-not-passing); }
+  .summary-item.cat-at-risk     .summary-count { color: var(--cat-at-risk);     }
+  .summary-item.cat-passing     .summary-count { color: var(--cat-passing);     }
+  .summary-item.cat-doing-well  .summary-count { color: var(--cat-doing-well);  }
+  .summary-item.cat-excellent   .summary-count { color: var(--cat-excellent);   }
+
+  /* ── LOADING STATE ── */
+  .state-loading {
+    padding: 52px 20px;
+    text-align: center;
+  }
+
+  .spinner {
+    width: 34px; height: 34px;
+    border: 3px solid #dde8f4;
+    border-top-color: var(--header);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 14px;
+  }
+
+  .loading-msg { font-size: 13px; color: var(--muted); }
+  .loading-sub { font-size: 11px; color: #aab; margin-top: 5px; }
+
+  /* ── ERROR STATE ── */
+  .state-error {
+    padding: 44px 22px;
+    text-align: center;
+  }
+  .error-icon { font-size: 30px; margin-bottom: 10px; }
+  .state-error p { font-size: 13px; color: var(--muted); line-height: 1.5; max-width: 480px; margin: 0 auto; }
+
+  .retry-btn {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 8px 20px;
+    background: var(--header);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  .retry-btn:hover { opacity: 0.88; }
+
+  /* ── CATEGORIES AREA ── */
+  .categories {
+    padding: 16px 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* ── CATEGORY PANEL ── */
+  .category-panel {
+    border-radius: 10px;
+    overflow: clip;   /* same as widget: clip not hidden, so sticky thead works */
+    border: 1px solid var(--border);
+  }
+
+  .category-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 11px 16px;
+    cursor: pointer;
+    -webkit-user-select: none; user-select: none;
+    color: #fff;
+    gap: 10px;
+    transition: filter 0.15s;
+  }
+  .category-header:hover       { filter: brightness(0.93); }
+  .category-header:focus-visible { outline: 2px solid rgba(255,255,255,0.6); outline-offset: -3px; }
+
+  .category-panel.cat-not-passing .category-header { background: var(--cat-not-passing); }
+  .category-panel.cat-at-risk     .category-header { background: var(--cat-at-risk);     }
+  .category-panel.cat-passing     .category-header { background: var(--cat-passing);     }
+  .category-panel.cat-doing-well  .category-header { background: var(--cat-doing-well);  }
+  .category-panel.cat-excellent   .category-header { background: var(--cat-excellent);   }
+
+  /* SU course category headers */
+  .category-panel.cat-unsuccessful .category-header { background: var(--cat-unsuccessful); }
+  .category-panel.cat-atrisk-su    .category-header { background: var(--cat-atrisk-su);    }
+  .category-panel.cat-successful   .category-header { background: var(--cat-successful);   }
+
+  /* SU summary bar count colors */
+  .summary-item.cat-unsuccessful .summary-count { color: var(--cat-unsuccessful); }
+  .summary-item.cat-atrisk-su    .summary-count { color: var(--cat-atrisk-su);    }
+  .summary-item.cat-successful   .summary-count { color: var(--cat-successful);   }
+
+  /* SU grade value colors in table */
+  .cat-unsuccessful .grade-current { color: var(--cat-unsuccessful); }
+  .cat-atrisk-su    .grade-current { color: var(--cat-atrisk-su);    }
+  .cat-successful   .grade-current { color: var(--cat-successful);   }
+
+  /* ── SoHC redirect message ── */
+  .sohc-message {
+    padding: 36px 28px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.75;
+    background: #f8fafd;
+    border-top: 1px solid var(--border);
+  }
+  .sohc-message a {
+    color: var(--header);
+    font-weight: 700;
+    text-decoration: underline;
+    transition: opacity 0.2s;
+  }
+  .sohc-message a:hover { opacity: 0.78; }
+
+  .cat-title-row {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+  }
+
+  .cat-emoji  { font-size: 15px; line-height: 1; }
+  .cat-title  { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+  .cat-range  { font-size: 11px; opacity: 0.8; font-weight: 400; }
+
+  .cat-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .cat-count-badge {
+    background: rgba(255, 255, 255, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.30);
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .cat-toggle {
+    font-size: 11px;
+    opacity: 0.75;
+    transition: transform 0.22s ease;
+  }
+  .category-panel.open .cat-toggle { transform: rotate(180deg); }
+
+  /* ── COLLAPSIBLE BODY ──
+     Using display:none/block instead of max-height animation.
+     max-height transition required overflow:hidden which blocked
+     position:sticky on the table headers inside each panel.     */
+  .category-body                       { display: none;  }
+  .category-panel.open .category-body  { display: block; }
+
+  /* Empty state inside a category */
+  .cat-empty {
+    padding: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    background: #fafbfc;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── STUDENT TABLE ── */
+  .student-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    table-layout: fixed;   /* identical column widths across every category panel */
+  }
+
+  /* Column widths — same across ALL tables so columns line up as you scroll */
+  .student-table col.col-name  { width: auto;  }
+  .student-table col.col-grade { width: 115px; }
+
+  /* Sticky column header — stays visible as you scroll through a category's rows */
+  .student-table thead tr {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #edf2f7;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.07);
+  }
+
+  .student-table th {
+    padding: 7px 14px;
+    text-align: left;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    white-space: nowrap;
+    background: #edf2f7;  /* must be set on th as well for sticky to be opaque */
+  }
+  .student-table th:not(:first-child) { text-align: right; }
+
+  .student-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #eef2f7;
+    color: var(--text);
+    vertical-align: middle;
+  }
+  .student-table td:not(:first-child) {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .student-table tr:last-child td { border-bottom: none; }
+  .student-table tbody tr:hover   { background: #f7fafd; }
+
+  .student-name { font-weight: 500; }
+
+  /* Clickable student name → View Progress */
+  .student-link {
+    color: var(--header);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    font-weight: 500;
+    transition: opacity 0.15s;
+  }
+  .student-link:hover { opacity: 0.72; }
+
+  /* Grade value colors */
+  .grade-current { font-weight: 700; }
+  .cat-not-passing .grade-current { color: var(--cat-not-passing); }
+  .cat-at-risk     .grade-current { color: var(--cat-at-risk);     }
+  .cat-passing     .grade-current { color: var(--cat-passing);     }
+  .cat-doing-well  .grade-current { color: var(--cat-doing-well);  }
+  .cat-excellent   .grade-current { color: var(--cat-excellent);   }
+
+  .grade-min      { color: #c62828; }
+  .grade-max      { color: #2e7d32; }
+  .grade-na       { color: #bbb; font-size: 11px; }
+
+  /* ── EMAIL BUTTONS ── */
+  /* "Email Student" — appears inside the student name cell */
+  .email-btn {
+    display: inline-block;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-family: inherit;
+    font-weight: 600;
+    color: var(--header);
+    background: rgba(0, 110, 179, 0.08);
+    border: 1px solid rgba(0, 110, 179, 0.22);
+    border-radius: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .email-btn:hover {
+    background: rgba(0, 110, 179, 0.16);
+    border-color: rgba(0, 110, 179, 0.4);
+    color: var(--header);
+    text-decoration: none;
+  }
+
+  /* "Email All Students" — inside the coloured category header */
+  .email-all-btn {
+    display: inline-block;
+    padding: 3px 9px;
+    font-size: 10px;
+    font-family: inherit;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.92);
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    border-radius: 5px;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .email-all-btn:hover {
+    background: rgba(255, 255, 255, 0.26);
+    border-color: rgba(255, 255, 255, 0.52);
+    color: #fff;
+    text-decoration: none;
+  }
+
+  /* Name cell flex-layout so name + button sit side by side */
+  .student-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .student-name-cell .student-link {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  /* ── WIDGET FOOTER ── */
+  .widget-footer {
+    border-top: 1px solid var(--border);
+    padding: 10px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: #f8fafd;
+  }
+
+  .footer-note {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  /* Reuse view-link for footer */
+  .footer-grades-link {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--header);
+    text-decoration: underline;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .footer-grades-link:hover { opacity: 0.8; }
+
+  .hidden { display: none !important; }
+
+  /* ── LOCK BUTTON (re-hides data after revealing) ── */
+  .lock-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.8);
+    border-radius: 7px;
+    transition: color 0.2s, background 0.2s;
+  }
+  .lock-btn:hover        { color: #fff; background: rgba(255,255,255,0.12); }
+  .lock-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Shared icon + label styles used by both header buttons */
+  .btn-icon  { font-size: 16px; line-height: 1; }
+  .btn-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    opacity: 0.85;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* ── PRIVACY SHIELD ── */
+  .state-privacy {
+    padding: 56px 22px 52px;
+    text-align: center;
+    background: #f8fafd;
+    cursor: pointer;
+    border-top: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+  .state-privacy:hover { background: #f0f4fb; }
+
+  .privacy-icon  { font-size: 44px; line-height: 1; margin-bottom: 14px; }
+  .privacy-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .privacy-sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 22px;
+    line-height: 1.5;
+  }
+  .privacy-reveal-btn {
+    padding: 10px 28px;
+    background: var(--header);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    box-shadow: 0 2px 8px rgba(0,110,179,0.25);
+  }
+  .privacy-reveal-btn:hover { opacity: 0.88; }
+</style>
+</head>
+<body>
+
+<div class="widget">
+
+  <!-- ── HEADER ── -->
+  <div class="widget-header">
+    <div class="header-left">
+      <span class="header-title">🎓 Class Grade Overview</span>
+      <span class="header-subtitle">Final Calculated Grades — All Enrolled Students</span>
+    </div>
+    <div class="header-right">
+      <button class="lock-btn hidden" id="lockBtn" title="Lock grade data" aria-label="Lock grade data" onclick="lockData()">
+        <span class="btn-icon">🔒</span>
+        <span class="btn-label">Hide Data</span>
+      </button>
+      <button class="refresh-btn" id="refreshBtn" title="Refresh grades" aria-label="Refresh grades" onclick="initWidget()">
+        <span class="btn-icon">↻</span>
+        <span class="btn-label">Refresh Data</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="last-updated" id="lastUpdated" aria-live="polite"></div>
+
+  <!-- ── LOADING ── -->
+  <div class="state-loading" id="stateLoading">
+    <div class="spinner"></div>
+    <p class="loading-msg" id="loadingMsg">Loading class grades…</p>
+    <p class="loading-sub" id="loadingSub"></p>
+  </div>
+
+  <!-- ── ERROR ── -->
+  <div class="state-error hidden" id="stateError">
+    <div class="error-icon">⚠️</div>
+    <p id="errorMsg">Could not load class grade data.</p>
+    <button class="retry-btn" onclick="retryFetch()">Retry</button>
+  </div>
+
+  <!-- ── PRIVACY SHIELD — shown after data loads; must click to reveal ── -->
+  <div class="state-privacy hidden" id="statePrivacy" onclick="revealData()">
+    <div class="privacy-icon">🔒</div>
+    <div class="privacy-title">Grade Data Ready</div>
+    <p class="privacy-sub">Student grade information is loaded.<br>Click here or the button below to reveal.</p>
+    <button class="privacy-reveal-btn" onclick="revealData(); event.stopPropagation()">Reveal Grade Data</button>
+  </div>
+
+  <!-- ── CONTENT ── -->
+  <div id="stateContent" class="hidden">
+
+    <!-- Summary bar — click any cell to jump to that category -->
+    <div class="summary-bar" id="summaryBarNormal" role="navigation" aria-label="Grade category quick-jump">
+      <div class="summary-item cat-not-passing" onclick="scrollToCategory('cat-not-passing')" role="button" tabindex="0" aria-label="Not Passing — click to jump">
+        <div class="summary-count" id="cnt-not-passing">0</div>
+        <div class="summary-label">Not Passing<br>≤ 59%</div>
+      </div>
+      <div class="summary-item cat-at-risk" onclick="scrollToCategory('cat-at-risk')" role="button" tabindex="0" aria-label="At Risk — click to jump">
+        <div class="summary-count" id="cnt-at-risk">0</div>
+        <div class="summary-label">At Risk<br>60 – 69%</div>
+      </div>
+      <div class="summary-item cat-passing" onclick="scrollToCategory('cat-passing')" role="button" tabindex="0" aria-label="Passing — click to jump">
+        <div class="summary-count" id="cnt-passing">0</div>
+        <div class="summary-label">Passing<br>70 – 79%</div>
+      </div>
+      <div class="summary-item cat-doing-well" onclick="scrollToCategory('cat-doing-well')" role="button" tabindex="0" aria-label="Doing Well — click to jump">
+        <div class="summary-count" id="cnt-doing-well">0</div>
+        <div class="summary-label">Doing Well<br>80 – 89%</div>
+      </div>
+      <div class="summary-item cat-excellent" onclick="scrollToCategory('cat-excellent')" role="button" tabindex="0" aria-label="Doing Extremely Well — click to jump">
+        <div class="summary-count" id="cnt-excellent">0</div>
+        <div class="summary-label">Excellent<br>≥ 90%</div>
+      </div>
+    </div>
+
+    <!-- Category panels -->
+    <div class="categories" id="categoriesNormal" aria-label="Students grouped by grade category">
+
+      <!-- Not Passing -->
+      <div class="category-panel cat-not-passing" id="cat-not-passing">
+        <div class="category-header" onclick="toggleCategory('cat-not-passing')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-not-passing')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">🚨</span>
+            <span class="cat-title">Not Passing</span>
+            <span class="cat-range">(≤ 59%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-not-passing"></span>
+            <span class="cat-count-badge" id="badge-not-passing">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-not-passing"></div>
+      </div>
+
+      <!-- At Risk -->
+      <div class="category-panel cat-at-risk" id="cat-at-risk">
+        <div class="category-header" onclick="toggleCategory('cat-at-risk')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-at-risk')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">⚠️</span>
+            <span class="cat-title">At Risk</span>
+            <span class="cat-range">(60 – 69%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-at-risk"></span>
+            <span class="cat-count-badge" id="badge-at-risk">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-at-risk"></div>
+      </div>
+
+      <!-- Passing -->
+      <div class="category-panel cat-passing" id="cat-passing">
+        <div class="category-header" onclick="toggleCategory('cat-passing')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-passing')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">📘</span>
+            <span class="cat-title">Passing</span>
+            <span class="cat-range">(70 – 79%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-passing"></span>
+            <span class="cat-count-badge" id="badge-passing">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-passing"></div>
+      </div>
+
+      <!-- Doing Well -->
+      <div class="category-panel cat-doing-well" id="cat-doing-well">
+        <div class="category-header" onclick="toggleCategory('cat-doing-well')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-doing-well')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">🌟</span>
+            <span class="cat-title">Doing Well</span>
+            <span class="cat-range">(80 – 89%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-doing-well"></span>
+            <span class="cat-count-badge" id="badge-doing-well">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-doing-well"></div>
+      </div>
+
+      <!-- Doing Extremely Well -->
+      <div class="category-panel cat-excellent" id="cat-excellent">
+        <div class="category-header" onclick="toggleCategory('cat-excellent')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-excellent')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">🏆</span>
+            <span class="cat-title">Doing Extremely Well</span>
+            <span class="cat-range">(≥ 90%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-excellent"></span>
+            <span class="cat-count-badge" id="badge-excellent">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-excellent"></div>
+      </div>
+
+    </div><!-- /categoriesNormal -->
+
+    <!-- ══ SU COURSE VIEW (SITE.passFailCourses) ══ hidden unless isSpecialSU -->
+
+    <!-- SU summary bar (3 columns) -->
+    <div class="summary-bar hidden" id="summaryBarSU" role="navigation" aria-label="SU grade category quick-jump">
+      <div class="summary-item cat-unsuccessful" onclick="scrollToCategory('cat-unsuccessful')" role="button" tabindex="0" aria-label="Unsuccessful — click to jump">
+        <div class="summary-count" id="cnt-unsuccessful">0</div>
+        <div class="summary-label">Unsuccessful<br>&lt; 70%</div>
+      </div>
+      <div class="summary-item cat-atrisk-su" onclick="scrollToCategory('cat-atrisk-su')" role="button" tabindex="0" aria-label="At Risk — click to jump">
+        <div class="summary-count" id="cnt-atrisk-su">0</div>
+        <div class="summary-label">At Risk<br>70 – 74%</div>
+      </div>
+      <div class="summary-item cat-successful" onclick="scrollToCategory('cat-successful')" role="button" tabindex="0" aria-label="Successful — click to jump">
+        <div class="summary-count" id="cnt-successful">0</div>
+        <div class="summary-label">Successful<br>≥ 75%</div>
+      </div>
+    </div>
+
+    <!-- SU category panels -->
+    <div class="categories hidden" id="categoriesSU" aria-label="Students grouped by SU grade category">
+
+      <!-- Unsuccessful -->
+      <div class="category-panel cat-unsuccessful" id="cat-unsuccessful">
+        <div class="category-header" onclick="toggleCategory('cat-unsuccessful')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-unsuccessful')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">🚨</span>
+            <span class="cat-title">Unsuccessful</span>
+            <span class="cat-range">(&lt; 70%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-unsuccessful"></span>
+            <span class="cat-count-badge" id="badge-unsuccessful">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-unsuccessful"></div>
+      </div>
+
+      <!-- At Risk (SU) -->
+      <div class="category-panel cat-atrisk-su" id="cat-atrisk-su">
+        <div class="category-header" onclick="toggleCategory('cat-atrisk-su')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-atrisk-su')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">⚠️</span>
+            <span class="cat-title">At Risk</span>
+            <span class="cat-range">(70 – 74%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-atrisk-su"></span>
+            <span class="cat-count-badge" id="badge-atrisk-su">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-atrisk-su"></div>
+      </div>
+
+      <!-- Successful -->
+      <div class="category-panel cat-successful" id="cat-successful">
+        <div class="category-header" onclick="toggleCategory('cat-successful')"
+             role="button" tabindex="0" aria-expanded="false"
+             onkeydown="if(event.key==='Enter'||event.key===' ')toggleCategory('cat-successful')">
+          <div class="cat-title-row">
+            <span class="cat-emoji" aria-hidden="true">✅</span>
+            <span class="cat-title">Successful</span>
+            <span class="cat-range">(≥ 75%)</span>
+          </div>
+          <div class="cat-header-right">
+            <span id="emailall-successful"></span>
+            <span class="cat-count-badge" id="badge-successful">0 students</span>
+            <span class="cat-toggle" aria-hidden="true">▼</span>
+          </div>
+        </div>
+        <div class="category-body" id="body-successful"></div>
+      </div>
+
+    </div><!-- /categoriesSU -->
+
+    <!-- ══ SoHC COURSE VIEW ══ hidden unless isSpecialSoHC -->
+    <div class="sohc-message hidden" id="stateSoHC" aria-live="polite"></div>
+
+    <!-- Footer -->
+    <div class="widget-footer">
+      <span class="footer-note">
+        Min / Max are grade range estimates based on remaining ungraded assignments.<br>
+        Exempt items are excluded. Students sorted by grade within each category.
+      </span>
+      <a class="footer-grades-link" id="gradesLink2" href="#" target="_top">View All Grades ›</a>
+    </div>
+
+  </div><!-- /stateContent -->
+
+</div><!-- /widget -->
+
+<script>
+  // Set to false to silence the per-category breakdown in the console
+  const DEBUG_GRADES = false;
+
+  const BASE_URL = window.location.origin;   // your Brightspace site; nothing to change
+
+  /* ─────────────────────────────────────────────────────
+     INSTITUTION SETTINGS — optional, edit to match your school.
+     Course codes are compared with dashes, underscores and spaces removed,
+     so 'ENG010' matches ENG-010-001.
+  ───────────────────────────────────────────────────── */
+  const SITE = {
+    // Student support resource named in the at-risk email templates.
+    supportName: 'the Academic Success Center',
+    supportUrl:  '',            // e.g. 'https://www.yourschool.edu/tutoring' (optional)
+    passFailCourses: [],        // graded Successful/Unsuccessful, e.g. ['ENG010', 'ENG011']
+    gradebookOnlyPrefixes: []   // show only a Gradebook link, e.g. ['NUR', 'RAD']
+  };
+  const SUPPORT_TEXT = SITE.supportName + (SITE.supportUrl ? ` (${SITE.supportUrl})` : '');
+
+
+  const IS_LIVE = (() => {
+    try {
+      // Live whenever the page is served from a web server (your Brightspace
+      // site). Opened straight from disk (file://) or localhost = demo preview.
+      return /^https?:$/.test(window.location.protocol) &&
+             !/^(localhost|127\.0\.0\.1|)$/.test(window.location.hostname);
+    } catch { return false; }
+  })();
+
+  /* ─────────────────────────────────────────────────────
+     Demo data — shown when previewed outside of D2L
+     Uses `current` (not `grade`) to match live data shape.
+  ───────────────────────────────────────────────────── */
+  const DEMO_STUDENTS = [
+    // Not Passing (≤59)
+    { userId: '101', name: 'Marcus Webb',      email: 'mwebb@demo.edu',      current: 32.5, min: 22.0, max: 58.0 },
+    { userId: '102', name: 'Tanya Morris',     email: 'tmorris@demo.edu',    current: 47.8, min: 40.0, max: 59.0 },
+    // At Risk (60–69)
+    { userId: '103', name: 'Derek Nguyen',     email: 'dnguyen@demo.edu',    current: 62.1, min: 55.3, max: 74.2 },
+    { userId: '104', name: 'Priya Patel',      email: 'ppatel@demo.edu',     current: 67.9, min: 60.0, max: 79.5 },
+    { userId: '105', name: 'Sam Okafor',       email: 'sokafor@demo.edu',    current: 65.4, min: 58.0, max: 77.0 },
+    // Passing (70–79)
+    { userId: '106', name: 'Jordan Lee',       email: 'jlee@demo.edu',       current: 73.2, min: 68.5, max: 82.0 },
+    { userId: '107', name: 'Cameron Blake',    email: 'cblake@demo.edu',     current: 76.0, min: 71.0, max: 85.0 },
+    { userId: '108', name: 'Avery Collins',    email: 'acollins@demo.edu',   current: 78.5, min: 73.2, max: 88.0 },
+    // Doing Well (80–89)
+    { userId: '109', name: 'Riley Thompson',   email: 'rthompson@demo.edu',  current: 82.4, min: 78.0, max: 91.0 },
+    { userId: '110', name: 'Morgan Davis',     email: 'mdavis@demo.edu',     current: 86.7, min: 82.1, max: 93.5 },
+    { userId: '111', name: 'Taylor Reed',      email: 'treed@demo.edu',      current: 88.9, min: 85.0, max: 95.0 },
+    // Doing Extremely Well (≥90)
+    { userId: '112', name: 'Alex Chen',        email: 'achen@demo.edu',      current: 91.5, min: 88.0, max: 97.0 },
+    { userId: '113', name: 'Jordan Kim',       email: 'jkim@demo.edu',       current: 94.2, min: 91.0, max: 98.5 },
+    { userId: '114', name: 'Sophia Ramirez',   email: 'sramirez@demo.edu',   current: 97.8, min: 95.0, max: 100.0 },
+    { userId: '115', name: 'Ethan Brooks',     email: 'ebrooks@demo.edu',    current: 99.1, min: 97.0, max: 100.0 },
+  ];
+
+  /* ─────────────────────────────────────────────────────
+     Category definitions
+  ───────────────────────────────────────────────────── */
+  const CATEGORIES = [
+    { key: 'not-passing', label: 'Not Passing',          min: 0,   maxVal: 59.99    },
+    { key: 'at-risk',     label: 'At Risk',              min: 60,  maxVal: 69.99    },
+    { key: 'passing',     label: 'Passing',              min: 70,  maxVal: 79.99    },
+    { key: 'doing-well',  label: 'Doing Well',           min: 80,  maxVal: 89.99    },
+    { key: 'excellent',   label: 'Doing Extremely Well', min: 90,  maxVal: Infinity },
+  ];
+
+  /* SU course categories (SITE.passFailCourses) */
+  const SU_CATEGORIES = [
+    { key: 'unsuccessful', label: 'Unsuccessful', min: 0,   maxVal: 69.99    },
+    { key: 'atrisk-su',    label: 'At Risk',       min: 70,  maxVal: 74.99    },
+    { key: 'successful',   label: 'Successful',    min: 75,  maxVal: Infinity },
+  ];
+
+  /* Detect course type from the course offering code.
+     Mirrors the student widget logic exactly. */
+  function detectCourseType(courseCode) {
+    // Normalise separators: ENG-010-001-F25 → ENG010001F25
+    const n = (courseCode || '').toUpperCase().replace(/[-_\s]/g, '');
+
+    const normP = p => String(p).toUpperCase().replace(/[-_\s]/g, '');
+    // Successful/Unsuccessful courses (SITE.passFailCourses)
+    const isSpecialSU = SITE.passFailCourses.some(p => n.includes(normP(p)));
+
+    // Gradebook-only prefixes (SITE.gradebookOnlyPrefixes) — no grade data shown, redirect only
+    const isSpecialSoHC = !isSpecialSU && SITE.gradebookOnlyPrefixes.some(p => n.startsWith(normP(p)));
+
+    return { isSpecialSU, isSpecialSoHC };
+  }
+
+  /* Map a percentage to the correct category key for the active category list */
+  function activeCatKey(pct, cats) {
+    for (const cat of cats) {
+      if (pct >= cat.min && pct <= cat.maxVal) return cat.key;
+    }
+    return cats[0].key;   // fallback to lowest category
+  }
+
+  /* Keep the original helper for backward-compat references */
+  function categoryKey(pct) { return activeCatKey(pct, CATEGORIES); }
+
+  function categoryKey(pct) {
+    for (const cat of CATEGORIES) {
+      if (pct >= cat.min && pct <= cat.maxVal) return cat.key;
+    }
+    return 'not-passing';
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Email templates — one per category.
+     subject() and body() accept the course offering code.
+     body() is plain text (mailto: does not support HTML).
+  ───────────────────────────────────────────────────── */
+  const EMAIL_TEMPLATES = {
+    /* ── Standard course templates ─────────────────────── */
+    'not-passing': {
+      subject: c => `Your grade needs attention ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `You are currently not passing our course. Please contact me so we can discuss your progress and options.\n\n` +
+        `Warm regards,`,
+    },
+    'at-risk': {
+      subject: c => `Class Progress ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `I am reaching out because you are currently at risk of not passing our course. I want you to be successful and am here to help. Please reach out so we can develop a plan to help you move forward. You may also wish to contact ${SUPPORT_TEXT} to connect with resources designed to support you.\n\n` +
+        `Warm regards,`,
+    },
+    'passing': {
+      subject: c => `Check In ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `I am reaching out to check in with you. It looks like you are currently passing our class. Continue to stay on top of your remaining assignments and reach out if there is anything I can do to help you.\n\n` +
+        `Warm regards,`,
+    },
+    'doing-well': {
+      subject: c => `Kudos ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `Great job! You are doing really well in our class. Continue to work hard and contact me if you need any help.\n\n` +
+        `Warm regards,`,
+    },
+    'excellent': {
+      subject: c => `Kudos ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `Great job! You are doing really well in our class. Continue to work hard and contact me if you need any help.\n\n` +
+        `Warm regards,`,
+    },
+    /* ── SU course templates (SITE.passFailCourses) ────────── */
+    'unsuccessful': {
+      subject: c => `Your grade needs attention ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `You are currently not passing our course. Please contact me so we can discuss your progress and options.\n\n` +
+        `Warm regards,`,
+    },
+    'atrisk-su': {
+      subject: c => `Class Progress ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `I am reaching out because you are currently at risk of not passing our course. I want you to be successful and am here to help. Please reach out so we can develop a plan to help you move forward. You may also wish to contact ${SUPPORT_TEXT} to connect with resources designed to support you.\n\n` +
+        `Warm regards,`,
+    },
+    'successful': {
+      subject: c => `Kudos ${c}`,
+      body:    c =>
+        `Dear Student,\n\n` +
+        `Great job! You are doing well in our class. Continue to work hard and contact me if you need any help.\n\n` +
+        `Warm regards,`,
+    },
+  };
+
+  /* Build a mailto: URI for a single student */
+  function buildMailto(toEmail, subject, body) {
+    const e = encodeURIComponent;
+    return `mailto:${e(toEmail)}?subject=${e(subject)}&body=${e(body)}`;
+  }
+
+  /* Build a mailto: URI using BCC for a whole category.
+     Note: some email clients impose URL-length limits for very large classes. */
+  function buildMailtoAll(bccEmails, subject, body) {
+    const e = encodeURIComponent;
+    return `mailto:?bcc=${e(bccEmails.join(', '))}&subject=${e(subject)}&body=${e(body)}`;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Rate-limit state — updated from every D2L response
+  ───────────────────────────────────────────────────── */
+  const _rl = {
+    remaining: Infinity,  // credits left this window (X-Rate-Limit-Remaining)
+    resetAt:   0,         // epoch-ms when the window resets (X-Rate-Limit-Reset)
+  };
+
+  /* Simple sleep helper used by backoff and throttle */
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  /* Proactively pause when credits are dangerously low (≤ 3 remaining).
+     Waits until the rate-limit window resets, then resumes. */
+  async function throttleIfNeeded() {
+    if (_rl.remaining > 3) return;
+    const now  = Date.now();
+    const wait = _rl.resetAt > now
+      ? (_rl.resetAt - now + 300)   // wait until reset + 300 ms buffer
+      : 5000;                        // no reset header available — wait 5 s
+    console.info(`[D2L Widget] Rate limit low (${_rl.remaining} remaining). Pausing ${wait} ms.`);
+    setLoadingMsg(document.getElementById('loadingMsg')?.textContent || 'Loading…',
+                  `Rate limit low — pausing ${Math.round(wait / 1000)} s before continuing…`);
+    await sleep(wait);
+    _rl.remaining = Infinity;  // will be updated by the next response header
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Core fetch with:
+       • Header tracking  (X-Rate-Limit-Remaining / Reset)
+       • Proactive throttle before each request
+       • 429 detection + Retry-After / exponential backoff
+       • Network-error retry with exponential backoff
+     maxRetries = 4  →  delays: 1 s, 2 s, 4 s, 8 s (cap 30 s)
+  ───────────────────────────────────────────────────── */
+  async function tryFetch(url, maxRetries = 4) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+
+      // Pause proactively if credits are almost gone
+      await throttleIfNeeded();
+
+      let res;
+      try {
+        res = await fetch(url, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        });
+      } catch {
+        // Network / CORS error — retry with backoff
+        if (attempt < maxRetries) {
+          await sleep(Math.min(1000 * Math.pow(2, attempt), 30000));
+          continue;
+        }
+        return { ok: false, status: 0, json: null };
+      }
+
+      // ── Update rate-limit tracking from every response ──────────────
+      const remHdr   = res.headers.get('X-Rate-Limit-Remaining');
+      const resetHdr = res.headers.get('X-Rate-Limit-Reset');
+      if (remHdr   !== null) _rl.remaining = parseInt(remHdr,   10);
+      if (resetHdr !== null) _rl.resetAt   = parseInt(resetHdr, 10) * 1000; // s → ms
+
+      // ── 429 Too Many Requests — wait then retry ──────────────────────
+      if (res.status === 429) {
+        if (attempt >= maxRetries) return { ok: false, status: 429, json: null };
+
+        const retryAfterHdr = res.headers.get('Retry-After');
+        const wait = retryAfterHdr
+          ? Math.max(parseInt(retryAfterHdr, 10) * 1000, 1000)
+          : Math.min(1000 * Math.pow(2, attempt + 1), 30000); // 2 s, 4 s, 8 s, 16 s …
+
+        console.warn(`[D2L Widget] 429 Too Many Requests. Retrying in ${wait} ms (attempt ${attempt + 1}/${maxRetries}).`);
+        setLoadingMsg(document.getElementById('loadingMsg')?.textContent || 'Loading…',
+                      `Rate limited — retrying in ${Math.round(wait / 1000)} s…`);
+        await sleep(wait);
+        _rl.remaining = Infinity;  // reset tracking; next response updates it
+        continue;
+      }
+
+      const json = res.ok ? await res.json().catch(() => null) : null;
+      return { ok: res.ok, status: res.status, json };
+    }
+
+    return { ok: false, status: 0, json: null };
+  }
+
+  /* Paginate through D2L bookmark-based results.
+     A small inter-page delay (150 ms) prevents burst traffic when an
+     endpoint has many pages (e.g. large rosters). */
+  async function fetchAllPages(basePath, pageSize = 200) {
+    const results = [];
+    let bookmark  = null;
+    let firstPage = true;
+
+    do {
+      if (!firstPage) await sleep(150);   // brief pause between pages
+      firstPage = false;
+
+      const sep = basePath.includes('?') ? '&' : '?';
+      const url = `${BASE_URL}${basePath}${sep}pageSize=${pageSize}`
+                + (bookmark ? `&bookmark=${encodeURIComponent(bookmark)}` : '');
+      const r   = await tryFetch(url);
+      if (!r.ok || !r.json) break;
+
+      const items = r.json.Items || r.json.Objects || r.json || [];
+      results.push(...(Array.isArray(items) ? items : []));
+
+      const paging = r.json.PagingInfo || {};
+      bookmark = paging.HasMoreItems ? paging.Bookmark : null;
+    } while (bookmark);
+
+    return results;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     API version discovery
+  ───────────────────────────────────────────────────── */
+  async function discoverVersions() {
+    const r = await tryFetch(`${BASE_URL}/d2l/api/versions/`);
+    if (!r.ok || !Array.isArray(r.json)) return { lp: '1.28', le: '1.53' };
+    const find = id => {
+      const e = r.json.find(v => v.ProductCode === id);
+      return e ? (e.LatestVersion || (e.SupportedVersions || []).slice(-1)[0] || null) : null;
+    };
+    return { lp: find('lp') || '1.28', le: find('le') || '1.53' };
+  }
+
+  /* ─────────────────────────────────────────────────────
+     OrgUnit resolver — reads OU from the parent browser
+     URL; the current user is only used for authentication
+     (credentials: 'include' on every fetch above).
+  ───────────────────────────────────────────────────── */
+  function ouFromHref(href) {
+    if (!href) return null;
+    const patterns = [
+      /\/d2l\/(?:lp\/\d+\/)?home\/(\d+)/,
+      /\/d2l\/lp\/customwidgets\/(\d+)\//,
+      /[?&]ou=(\d+)/,
+      /#.*ou=(\d+)/,
+    ];
+    for (const re of patterns) {
+      const m = href.match(re);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  function resolveOuId() {
+    try { const ou = ouFromHref(window.parent.location.href); if (ou) return ou; } catch {}
+    try { const ou = ouFromHref(window.parent.location.pathname + window.parent.location.search); if (ou) return ou; } catch {}
+    try {
+      const el = window.frameElement;
+      if (el) {
+        const srcOu = ouFromHref(el.src || el.getAttribute('src') || '');
+        if (srcOu) return srcOu;
+        const dataOu = el.dataset.ou || el.getAttribute('data-orgunitid') || el.getAttribute('data-ou');
+        if (dataOu && /^\d+$/.test(dataOu)) return dataOu;
+      }
+    } catch {}
+    return ouFromHref(window.location.href) || ouFromHref(document.referrer);
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Fetch class roster → Map<userId, { name, email }>
+     Captures ExternalEmail for the email buttons.
+     Skips non-student roles.
+  ───────────────────────────────────────────────────── */
+  async function fetchClassRoster(lp, ouId) {
+    const items = await fetchAllPages(`/d2l/api/lp/${lp}/enrollments/orgUnits/${ouId}/users/`);
+    const map   = {};
+    items.forEach(item => {
+      const u        = item.User || item;
+      const id       = String(u.Identifier || u.UserId || u.Id || '');
+      if (!id) return;
+
+      // Skip instructors, admins, etc. — only keep students/learners
+      const roleName = (item.Role && item.Role.Name) ? item.Role.Name.toLowerCase() : '';
+      if (roleName && !roleName.includes('student') && !roleName.includes('learner')) return;
+
+      const name  = u.DisplayName
+                 || `${u.FirstName || ''}${u.LastName ? ' ' + u.LastName : ''}`.trim()
+                 || `User ${id}`;
+      const email = u.ExternalEmail || u.EmailAddress || '';
+      map[id] = { name, email };
+    });
+    return map;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Fetch the course offering code (e.g. "BUS-101-001").
+     Used to populate email subject lines.
+  ───────────────────────────────────────────────────── */
+  async function fetchCourseCode(lp, ouId) {
+    const r = await tryFetch(`${BASE_URL}/d2l/api/lp/${lp}/courses/${ouId}`);
+    if (!r.ok || !r.json) return '';
+    return r.json.Code || r.json.Identifier || '';
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Grade config — fetched ONCE and cached.
+     Downloads all grade items, categories, and setup
+     for the course so we can compute grades ourselves.
+  ───────────────────────────────────────────────────── */
+  let _gradeConfig = null;
+
+  async function fetchGradeConfig(le, ouId) {
+    if (_gradeConfig) return _gradeConfig;
+
+    const [objRes, catRes, setupRes] = await Promise.all([
+      tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/?pageSize=200`),
+      tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/categories/?pageSize=200`),
+      tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/setup/`),
+    ]);
+
+    // D2L may return GradingSystem as a string ("Points", "Weighted", "Formula",
+    // "PassFail") OR as a numeric enum (0=Points, 1=Weighted, 2=Formula, 3=PassFail).
+    // Normalise to a string so all downstream checks use === 'Weighted'.
+    let gradingSystem = 'Points';
+    if (setupRes.ok && setupRes.json != null) {
+      const gs = setupRes.json.GradingSystem;
+      if (gs != null) {
+        gradingSystem = (typeof gs === 'number')
+          ? (['Points', 'Weighted', 'Formula', 'PassFail'][gs] || 'Points')
+          : String(gs);
+      }
+    }
+
+    _gradeConfig = {
+      allObjects:  objRes.ok ? (objRes.json.Objects || objRes.json || []) : [],
+      categories:  catRes.ok ? (catRes.json.Objects || catRes.json || []) : [],
+      gradingSystem,
+    };
+    _gradeConfig.finalCalcObj =
+      _gradeConfig.allObjects.find(o => o.GradeType === 'FinalCalculated') || null;
+
+    return _gradeConfig;
+  }
+
+  /* ─────────────────────────────────────────────────────
+     clamp1dp — round to 1 decimal place within [lo, hi].
+     Pass Infinity for hi to allow values above 100 when
+     the FinalCalculated grade object has CanExceedMaxPoints.
+  ───────────────────────────────────────────────────── */
+  function clamp1dp(v, lo, hi) {
+    const bounded = isFinite(hi) ? Math.min(hi, v) : v;
+    return parseFloat(Math.max(lo, bounded).toFixed(1));
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Exclude-flag overrides (weighted courses).
+     Some items — e.g. LTI / External Learning Tool items — come back from
+     the API with ExcludeFromFinalGradeCalculation: true even though D2L
+     still counts them. For each category with flagged items we compare
+     against D2L's own category row in /grades/values/ (GradeObjectType 9)
+     and, if counting the flagged items reproduces D2L's category %, return
+     their ids so they are counted. Genuinely excluded items stay excluded.
+  ───────────────────────────────────────────────────── */
+  function itemWeightFn(items, catWeight) {
+    // Item .Weight is category-relative (its share OF THE CATEGORY, summing
+    // to 100 for a fully-populated category). Convert to a course-level share:
+    //   itemCourseWeight = (item.Weight / 100) × category.Weight
+    // (The old visible-sum heuristic broke when items were hidden, because the
+    //  visible weights then sum to < 100 and looked "already course-level".)
+    return o => ((parseFloat(o.Weight) || 0) / 100) * catWeight;
+  }
+
+  function scorePct(o, v) {
+    const den = v.PointsDenominator > 0 ? v.PointsDenominator : o.MaxPoints;
+    return den > 0 ? v.PointsNumerator / den : 0;
+  }
+
+  function gradedValue(scoreMap, o) {
+    const v = scoreMap[String(o.Id)];
+    return (v && v.PointsNumerator != null && !v.IsExempt) ? v : null;
+  }
+
+  function excludeOverrides(allObjects, scoreMap, catMeta) {
+    const ids = new Set();
+    const numeric = allObjects.filter(o => o.GradeType === 'Numeric' && o.MaxPoints > 0);
+
+    for (const [catId, meta] of Object.entries(catMeta)) {
+      const items   = numeric.filter(o => String(o.CategoryId) === catId);
+      const flagged = items.filter(o => o.ExcludeFromFinalGradeCalculation);
+      if (!flagged.length) continue;
+
+      const w       = itemWeightFn(items, meta.weight);
+      const graded  = items.filter(o => !o.IsBonus && gradedValue(scoreMap, o));
+      const notExcl = graded.filter(o => !o.ExcludeFromFinalGradeCalculation);
+      const catPct  = list => {
+        const tw = list.reduce((t, o) => t + w(o), 0);
+        return tw > 0 ? list.reduce((t, o) => t + scorePct(o, gradedValue(scoreMap, o)) * w(o), 0) / tw * 100 : null;
+      };
+
+      const row    = scoreMap[catId];
+      const target = (row && row.PointsDenominator > 0) ? row.PointsNumerator / row.PointsDenominator * 100 : null;
+      const pAll   = catPct(graded), pNot = catPct(notExcl);
+
+      if (target != null && pAll != null &&
+          (pNot == null || Math.abs(pAll - target) < Math.abs(pNot - target))) {
+        flagged.forEach(o => ids.add(o.Id));
+      }
+    }
+    return ids;
+  }
+
+  /* Weighted min/max is computed inline in fetchStudentGradeData() with the
+     POINTS-based per-category method, validated to match D2L's Class Progress
+     exactly (student Torres: 61.84 / 15.97 / 90.97). The earlier item-.Weight
+     helper was retired — D2L weights categories by item POINTS, not .Weight. */
+
+  /* ─────────────────────────────────────────────────────
+     Compute current / min / max grade for one student.
+
+     Uses GET /grades/values/{userId}/ — always accessible
+     to instructors; never requires grades to be released.
+
+     POINTS system
+       current  = earned on COMPLETED items ÷ max pts of those items × 100
+                  (bonus items add to earned, never to denominator)
+       min      = same earned ÷ max of ALL items × 100
+                  (treats every ungraded item as 0)
+       max      = (earned + full credit on ungraded) ÷ max of ALL items × 100
+
+     WEIGHTED system
+       current  = Σ (category_score × category_weight) for categories
+                  that have at least one GRADED regular item.
+                  category_score = earned_graded ÷ max_graded
+                  Bonus items in a category add to earned, NOT to max.
+                  Result is the raw weighted sum — NOT normalised to 100 —
+                  so it reflects the graded weight, not always 100%.
+       min      = Σ (minScore × weight) for ALL categories, where
+                  minScore = earned_graded ÷ (max_graded + max_ungraded)
+                  (all remaining items assumed to score 0)
+       max      = Σ (maxScore × weight) for ALL categories, where
+                  maxScore = (earned_graded + full_on_ungraded) ÷
+                             (max_graded + max_ungraded)
+       Standalone bonus weighted items contribute to all three grades
+       proportionally but are NOT counted in the totalW denominator.
+
+     Checks honoured throughout:
+       ExcludeFromFinalGradeCalculation  (grade items)
+       ExcludeFromFinalGrade             (categories)
+       IsExempt                          (per-student value)
+       IsBonus                           (numerator only, never denominator)
+       CanExceedMaxPoints / CanExceedMax  (per-item / per-category caps)
+       NumberOfLowestToDrop / NumberOfHighestToDrop
+       FinalCalculated.CanExceedMaxPoints (global cap)
+
+     Returns { current, min, max } or null on failure.
+  ───────────────────────────────────────────────────── */
+  async function fetchStudentGradeData(le, ouId, userId, config) {
+    const valRes = await tryFetch(
+      `${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/values/${userId}/?pageSize=200`
+    );
+    if (!valRes.ok || !valRes.json) return null;
+
+    const { allObjects, categories, gradingSystem, finalCalcObj } = config;
+    const isWeighted     = gradingSystem === 'Weighted';
+    const finalCanExceed = finalCalcObj?.CanExceedMaxPoints === true;
+    const CAP            = finalCanExceed ? Infinity : 100;
+
+    // Build lookup: grade object id → student value record
+    const rawVals = valRes.json.Objects || valRes.json || [];
+    const scoreMap = {};
+    rawVals.forEach(v => {
+      if (v.GradeObjectIdentifier != null) scoreMap[String(v.GradeObjectIdentifier)] = v;
+    });
+
+    // Category metadata — skip categories excluded from final grade
+    const catMeta = {};
+    categories.forEach(cat => {
+      if (cat.Weight != null && !cat.ExcludeFromFinalGrade) {  // excluded categories check
+        catMeta[String(cat.Id)] = {
+          weight:      parseFloat(cat.Weight),
+          canExceed:   cat.CanExceedMax === true,               // per-category exceed cap
+          dropLowest:  cat.NumberOfLowestToDrop  || 0,          // drop-lowest rule
+          dropHighest: cat.NumberOfHighestToDrop || 0,          // drop-highest rule
+        };
+      }
+    });
+
+    // Items flagged Exclude that D2L actually counts (weighted courses only)
+    const overrides = isWeighted ? excludeOverrides(allObjects, scoreMap, catMeta) : new Set();
+
+    // Only numeric items that count toward the final grade
+    const allItems = allObjects.filter(o =>
+      o.GradeType === 'Numeric' &&
+      o.MaxPoints > 0 &&
+      (!o.ExcludeFromFinalGradeCalculation || overrides.has(o.Id))   // excluded items check
+    );
+    if (!allItems.length) return null;
+
+    /* ═══════════════════════════════════════════
+       POINTS-BASED GRADING SYSTEM
+       ═══════════════════════════════════════════ */
+    if (!isWeighted) {
+      let gradedRegMax = 0; // max pts of GRADED regular items → current denominator
+      let totalRegMax  = 0; // max pts of ALL regular items    → min/max denominator
+      let curNum       = 0; // earned on graded items (regular + bonus)
+      let maxNum       = 0; // best-case earned (graded + full on ungraded)
+
+      allItems.forEach(o => {
+        const val    = scoreMap[String(o.Id)];
+        if (val?.IsExempt) return;             // exempt check
+
+        const graded = val && val.PointsNumerator != null;
+        const pts    = graded ? val.PointsNumerator : 0;
+
+        if (o.IsBonus) {
+          // Bonus: numerator only — never affects any denominator.
+          // Ungraded bonus = 0 for current/min, full for max.
+          if (graded) curNum += pts;
+          maxNum += graded ? pts : o.MaxPoints;
+        } else {
+          totalRegMax += o.MaxPoints;          // counts in min/max denominator always
+          if (graded) {
+            gradedRegMax += o.MaxPoints;       // counts in current denominator
+            curNum       += pts;
+          }
+          maxNum += graded ? pts : o.MaxPoints;
+        }
+      });
+
+      if (!totalRegMax) return null;
+
+      // current = earned on completed assignments ÷ max pts of those assignments
+      const cur = gradedRegMax > 0
+        ? clamp1dp(curNum / gradedRegMax * 100, 0, CAP)
+        : 0;
+
+      // min = same earned ÷ ALL possible points (worst case: 0 on everything remaining)
+      const mn = clamp1dp(curNum / totalRegMax * 100, 0, 100);
+
+      // max = full on ungraded ÷ ALL possible points
+      const mx = clamp1dp(maxNum / totalRegMax * 100, 0, CAP);
+
+      return { current: cur, min: mn, max: mx };
+    }
+
+    /* ═══════════════════════════════════════════
+       WEIGHTED GRADING SYSTEM
+       ═══════════════════════════════════════════ */
+
+    // Split items into categorised vs. standalone weighted
+    const rawCatItems = {}, uncatItems = [];
+    allItems.forEach(o => {
+      const val    = scoreMap[String(o.Id)];
+      if (val?.IsExempt) return;                                // exempt check
+      const catId  = (o.CategoryId && o.CategoryId !== 0) ? String(o.CategoryId) : null;
+      const inCat  = catId != null && catMeta[catId] != null;
+      const graded = val && val.PointsNumerator != null;
+      const pts    = graded ? val.PointsNumerator : 0;
+      if (inCat) {
+        if (!rawCatItems[catId]) rawCatItems[catId] = [];
+        rawCatItems[catId].push({ o, graded, pts });
+      } else {
+        uncatItems.push({ o, graded, pts });
+      }
+    });
+
+    // Build one bucket per category (or standalone item).
+    // Field names for min/max match the student widget exactly so the
+    // aggregation below can be a direct copy of that code.
+    const buckets = {};
+
+    Object.entries(rawCatItems).forEach(([catId, items]) => {
+      const meta      = catMeta[catId];
+      const regGraded = items.filter(x => !x.o.IsBonus &&  x.graded);
+      const regUngr   = items.filter(x => !x.o.IsBonus && !x.graded);
+      const bonuses   = items.filter(x =>  x.o.IsBonus);
+
+      // Drop lowest / highest — applied to GRADED regular items only
+      let kept = [...regGraded];
+      const drops = Math.min(meta.dropLowest + meta.dropHighest, regGraded.length);
+      if (drops > 0) {
+        const asc  = [...regGraded].sort((a, b) => a.pts - b.pts);
+        const desc = [...regGraded].sort((a, b) => b.pts - a.pts);
+        const drop = new Set();
+        asc.slice(0,  meta.dropLowest).forEach(x  => drop.add(x));
+        desc.slice(0, meta.dropHighest).forEach(x => drop.add(x));
+        kept = regGraded.filter(x => !drop.has(x));
+      }
+
+      // ── current: earned on GRADED items ÷ max of GRADED items ──────────
+      let curEarned = 0, curMax = 0;
+      kept.forEach(x => { curEarned += x.pts; curMax += x.o.MaxPoints; });
+
+      // ── min/max: student-widget field names ─────────────────────────────
+      // regularMax = max of (kept-graded + all-ungraded); same for min and max.
+      // earnedMin  = earned so far (0 for ungraded regular items).
+      // earnedMax  = earned so far + full credit on every ungraded regular item.
+      let regularMaxMin = 0, earnedMin = 0;
+      let regularMaxMax = 0, earnedMax = 0;
+
+      kept.forEach(x => {
+        regularMaxMin += x.o.MaxPoints;  earnedMin += x.pts;
+        regularMaxMax += x.o.MaxPoints;  earnedMax += x.pts;
+      });
+      regUngr.forEach(x => {
+        regularMaxMin += x.o.MaxPoints;  /* earnedMin += 0 (worst case) */
+        regularMaxMax += x.o.MaxPoints;  earnedMax += x.o.MaxPoints;   // full credit
+      });
+
+      // Bonus items in this category: add to numerators only, never denominators
+      bonuses.forEach(x => {
+        if (x.graded) { curEarned += x.pts; earnedMin += x.pts; }   // earned is locked in
+        earnedMax += x.graded ? x.pts : x.o.MaxPoints;               // best case
+      });
+
+      buckets[catId] = {
+        weight: meta.weight, canExceed: meta.canExceed,
+        isBonusOnly: false,
+        hasGrades:    curMax > 0,     // category only feeds current when graded items exist
+        curEarned, curMax,            // current grade fields
+        regularMaxMin, earnedMin,     // min scenario (student widget naming)
+        regularMaxMax, earnedMax,     // max scenario (student widget naming)
+      };
+    });
+
+    // Standalone weighted items not inside any category
+    uncatItems.forEach(({ o, graded, pts }) => {
+      const w = (o.Weight != null) ? parseFloat(o.Weight) : null;
+      if (!w || w <= 0) return;
+      const canExceed = o.CanExceedMaxPoints === true;   // per-item exceed cap
+
+      if (o.IsBonus) {
+        // Standalone bonus item — student widget isBonusOnly bucket structure
+        buckets['item_' + o.Id] = {
+          weight: w, canExceed, isBonusOnly: true,
+          hasGrades: graded, maxPossible: o.MaxPoints,
+          curPts:    graded ? pts : 0,
+          earnedMin: graded ? pts : 0,
+          earnedMax: graded ? pts : o.MaxPoints,
+        };
+      } else {
+        // Standalone regular item — same structure as a single-item category
+        buckets['item_' + o.Id] = {
+          weight: w, canExceed, isBonusOnly: false,
+          hasGrades:    graded,
+          curEarned: pts, curMax: graded ? o.MaxPoints : 0,
+          regularMaxMin: o.MaxPoints, earnedMin: pts,
+          regularMaxMax: o.MaxPoints, earnedMax: graded ? pts : o.MaxPoints,
+        };
+      }
+    });
+
+    if (!Object.keys(buckets).length) return null;
+
+    // ── Aggregate — student widget code for min/max ───────────────────────
+    // Current grade needs separate normalisation (new vs student widget).
+    let curWeightedSum = 0;   // Σ (score × weight) for graded non-bonus categories
+    let gradedW        = 0;   // Σ weight of graded non-bonus categories
+    let curBonusAdd    = 0;   // standalone bonus points added after normalisation
+    let minFinal       = 0;
+    let maxFinal       = 0;
+
+    Object.values(buckets).forEach(b => {
+      if (b.weight === 0) return;
+
+      if (b.isBonusOnly) {
+        // Uncategorised bonus — student widget logic exactly
+        if (!b.maxPossible) return;
+        const cMin = (b.earnedMin / b.maxPossible) * b.weight;
+        const cMax = (b.earnedMax / b.maxPossible) * b.weight;
+        // current: track separately for post-normalisation addition
+        if (b.hasGrades) {
+          const c = (b.curPts / b.maxPossible) * b.weight;
+          curBonusAdd += b.canExceed ? c : Math.min(c, b.weight);
+        }
+        minFinal += cMin;                                            // no cap on bonus min
+        maxFinal += b.canExceed ? cMax : Math.min(cMax, b.weight);
+        return;
+      }
+
+      // Current: only graded categories; normalised by gradedW after the loop
+      if (b.hasGrades && b.curMax > 0) {
+        const c = (b.curEarned / b.curMax) * b.weight;
+        curWeightedSum += b.canExceed ? c : Math.min(c, b.weight);
+        gradedW        += b.weight;
+      }
+
+      // Min scenario — student widget code exactly
+      if (b.regularMaxMin > 0) {
+        const cMin = (b.earnedMin / b.regularMaxMin) * b.weight;
+        minFinal  += b.canExceed ? cMin : Math.min(cMin, b.weight);
+      }
+
+      // Max scenario — student widget code exactly
+      if (b.regularMaxMax > 0) {
+        const cMax = (b.earnedMax / b.regularMaxMax) * b.weight;
+        maxFinal  += b.canExceed ? cMax : Math.min(cMax, b.weight);
+      }
+    });
+
+    // Current = weighted average of graded categories (normalised to %) + bonus
+    const catPct = gradedW > 0 ? curWeightedSum / gradedW * 100 : 0;
+    const cur    = clamp1dp(catPct + curBonusAdd, 0, CAP);
+
+    // Min/max — POINTS-based per-category method (the buckets above).
+    // Validated against D2L's Class Progress tool: student Torres computes
+    // current 61.84, min 15.97, max 90.97 — an exact match to both his
+    // Progress Summary and the At-Risk panel. D2L weights each category by
+    // the POINTS of its items (not by the item .Weight field), so this bucket
+    // rebuild — used for EVERY weighted course now, not only ones with drops —
+    // is what reproduces Class Progress. (The old item-.Weight method gave
+    // 4.9/97.3 for Torres on the same data and has been retired.)
+    const mn = Math.max(0, parseFloat(minFinal.toFixed(1)));
+    const mx = finalCanExceed
+      ? Math.max(0, parseFloat(maxFinal.toFixed(1)))
+      : Math.min(100, parseFloat(maxFinal.toFixed(1)));
+
+    return { current: cur, min: mn, max: mx };
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Main live data orchestrator.
+
+     Flow:
+       1. Discover API versions
+       2. Read OU from the browser URL (no user-grade call)
+       3. Fetch course code only
+       4. If SoHC course → return immediately (no roster,
+          no grade items, no per-student API calls needed —
+          the SoHC view only shows a gradebook redirect)
+       5. Otherwise: fetch roster + grade structure, then
+          compute current / min / max for every student
+  ───────────────────────────────────────────────────── */
+  async function fetchLiveData() {
+    setLoadingMsg('Connecting to D2L…');
+    const { lp, le } = await discoverVersions();
+
+    const ouId = resolveOuId();
+    if (!ouId) throw new Error('Cannot determine the course OU ID. Make sure you are viewing this widget on a course homepage inside D2L.');
+
+    setLoadingMsg('Checking course type…');
+    const courseCode = await fetchCourseCode(lp, ouId);
+
+    // ── SoHC early exit — skip ALL grade API calls ──────────────────────
+    const { isSpecialSoHC } = detectCourseType(courseCode);
+    if (isSpecialSoHC) {
+      // render() will show the gradebook-redirect message; no student data needed
+      return { ouId, courseCode, students: [] };
+    }
+
+    // ── Normal / SU courses — fetch roster and calculate grades ─────────
+    setLoadingMsg('Loading class roster…');
+    const roster  = await fetchClassRoster(lp, ouId);
+    const userIds = Object.keys(roster);
+    if (!userIds.length) throw new Error('No students found in the class roster for this course.');
+
+    setLoadingMsg('Loading grade items and categories…');
+    const config = await fetchGradeConfig(le, ouId);
+
+    // Build student list — roster returns { name, email } objects
+    const students = userIds.map(id => ({
+      userId:  id,
+      name:    roster[id].name,
+      email:   roster[id].email,
+      current: null,
+      min:     null,
+      max:     null,
+    }));
+
+    // Fetch grade values per student in batches of 6 with a 300 ms pause
+    // between batches — keeps burst traffic well under D2L's 60 req/min limit
+    const BATCH_SIZE        = 6;
+    const INTER_BATCH_DELAY = 300; // ms
+
+    for (let i = 0; i < students.length; i += BATCH_SIZE) {
+      if (i > 0) await sleep(INTER_BATCH_DELAY);   // pace between batches
+      const batch = students.slice(i, i + BATCH_SIZE);
+      setLoadingMsg(
+        `Loading student grades…`,
+        `${Math.min(i + BATCH_SIZE, students.length)} of ${students.length} students`
+      );
+      await Promise.all(batch.map(async s => {
+        try {
+          const data = await fetchStudentGradeData(le, ouId, s.userId, config);
+          if (data) { s.current = data.current; s.min = data.min; s.max = data.max; }
+        } catch { /* leave null — shown as — in table */ }
+      }));
+    }
+
+    // Only include students for whom we got at least a current grade
+    const graded = students.filter(s => s.current !== null);
+    if (!graded.length) throw new Error('No grade data found. Ensure at least one grade item has been created for this course.');
+
+    return { ouId, courseCode, students: graded };
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Render — branches on course type detected from code
+  ───────────────────────────────────────────────────── */
+  function render({ ouId, courseCode = '', students }) {
+
+    const { isSpecialSU, isSpecialSoHC } = detectCourseType(courseCode);
+    const gradebookUrl = `${BASE_URL}/d2l/lms/grades/admin/enter/user_list_view.d2l?ou=${ouId}`;
+
+    // Shared: timestamp + footer link always update
+    document.getElementById('lastUpdated').textContent =
+      'Updated ' + new Date().toLocaleString([], {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      });
+    const gl2 = document.getElementById('gradesLink2');
+    if (gl2) gl2.href = gradebookUrl;
+
+    // ══ SoHC COURSE — no grade data; show gradebook redirect only ══════════
+    if (isSpecialSoHC) {
+      document.getElementById('summaryBarNormal').classList.add('hidden');
+      document.getElementById('summaryBarSU').classList.add('hidden');
+      document.getElementById('categoriesNormal').classList.add('hidden');
+      document.getElementById('categoriesSU').classList.add('hidden');
+
+      const soHCEl = document.getElementById('stateSoHC');
+      soHCEl.innerHTML =
+        `Go to the <a href="${gradebookUrl}" target="_top">Gradebook</a> ` +
+        `tool to review the status of your students in this course.`;
+      soHCEl.classList.remove('hidden');
+
+      document.getElementById('stateLoading').classList.add('hidden');
+      document.getElementById('stateError').classList.add('hidden');
+      document.getElementById('statePrivacy').classList.add('hidden');
+      document.getElementById('stateContent').classList.remove('hidden');
+      document.getElementById('lockBtn').classList.remove('hidden');
+      return;
+    }
+
+    // ══ NORMAL and SU COURSES — select active category set ════════════════
+    document.getElementById('stateSoHC').classList.add('hidden');
+
+    const activeCats = isSpecialSU ? SU_CATEGORIES : CATEGORIES;
+
+    // Show the right summary bar and category panels; hide the other
+    document.getElementById('summaryBarNormal').classList.toggle('hidden',  isSpecialSU);
+    document.getElementById('summaryBarSU').classList.toggle('hidden',     !isSpecialSU);
+    document.getElementById('categoriesNormal').classList.toggle('hidden',  isSpecialSU);
+    document.getElementById('categoriesSU').classList.toggle('hidden',     !isSpecialSU);
+
+    // Group students into the active categories, sort lowest → highest
+    const grouped = {};
+    activeCats.forEach(c => { grouped[c.key] = []; });
+    students.forEach(s => grouped[activeCatKey(s.current, activeCats)].push(s));
+    activeCats.forEach(c => grouped[c.key].sort((a, b) => a.current - b.current));
+
+    // Update summary bar counts
+    activeCats.forEach(c => {
+      const count   = grouped[c.key].length;
+      const cntEl   = document.getElementById('cnt-'   + c.key);
+      const badgeEl = document.getElementById('badge-' + c.key);
+      if (cntEl)   cntEl.textContent   = count;
+      if (badgeEl) badgeEl.textContent = `${count} student${count !== 1 ? 's' : ''}`;
+    });
+
+    // Populate each category panel
+    activeCats.forEach(cat => {
+      const bodyEl     = document.getElementById('body-'     + cat.key);
+      const panel      = document.getElementById('cat-'      + cat.key);
+      const emailAllEl = document.getElementById('emailall-' + cat.key);
+      if (!bodyEl || !panel) return;
+
+      const list = grouped[cat.key];
+      const tpl  = EMAIL_TEMPLATES[cat.key];
+      const subj = tpl.subject(courseCode);
+      const body = tpl.body(courseCode);
+
+      // "Email All Students" button
+      if (emailAllEl) {
+        const bccList = list.filter(s => s.email).map(s => s.email);
+        if (bccList.length > 0) {
+          const href = buildMailtoAll(bccList, subj, body);
+          emailAllEl.innerHTML =
+            `<a class="email-all-btn" href="${escHtml(href)}"
+                onclick="event.stopPropagation()"
+                title="Send a BCC email to all ${bccList.length} student${bccList.length !== 1 ? 's' : ''} in this category">` +
+            `✉ Email All Students</a>`;
+        } else {
+          emailAllEl.innerHTML = '';
+        }
+      }
+
+      // Category body
+      if (!list.length) {
+        bodyEl.innerHTML = `<div class="cat-empty">No students in this grade range.</div>`;
+        panel.classList.remove('open');
+        panel.querySelector('.category-header').setAttribute('aria-expanded', 'false');
+      } else {
+        const rows = list.map(s => {
+          const emailHref = s.email ? escHtml(buildMailto(s.email, subj, body)) : '';
+          const emailBtn  = emailHref
+            ? `<a class="email-btn" href="${emailHref}" onclick="event.stopPropagation()" title="Email ${escHtml(s.name)}">✉ Email Student</a>`
+            : '';
+          return `
+          <tr>
+            <td>
+              <div class="student-name-cell">
+                <a class="student-link" href="${BASE_URL}/d2l/le/userprogress/${escHtml(s.userId)}/${escHtml(ouId)}/Summary" target="_top">${escHtml(s.name)}</a>
+                ${emailBtn}
+              </div>
+            </td>
+            <td class="grade-current">${parseFloat(s.current).toFixed(1)}%</td>
+            <td class="grade-min">${fmtGrade(s.min)}</td>
+            <td class="grade-max">${fmtGrade(s.max)}</td>
+          </tr>`;
+        }).join('');
+
+        bodyEl.innerHTML = `
+          <table class="student-table" aria-label="${escHtml(cat.label)} — ${list.length} student${list.length !== 1 ? 's' : ''}">
+            <colgroup>
+              <col class="col-name">
+              <col class="col-grade">
+              <col class="col-grade">
+              <col class="col-grade">
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">Student Name</th>
+                <th scope="col">Current Grade</th>
+                <th scope="col">Min Grade</th>
+                <th scope="col">Max Grade</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+
+        panel.classList.add('open');
+        panel.querySelector('.category-header').setAttribute('aria-expanded', 'true');
+      }
+    });
+
+    document.getElementById('stateLoading').classList.add('hidden');
+    document.getElementById('stateError').classList.add('hidden');
+    document.getElementById('statePrivacy').classList.add('hidden');
+    document.getElementById('stateContent').classList.remove('hidden');
+    document.getElementById('lockBtn').classList.remove('hidden');
+  }
+
+  /* ─────────────────────────────────────────────────────
+     UI helpers
+  ───────────────────────────────────────────────────── */
+  function setLoadingMsg(msg, sub) {
+    const msgEl = document.getElementById('loadingMsg');
+    const subEl = document.getElementById('loadingSub');
+    if (msgEl) msgEl.textContent = msg;
+    if (subEl) subEl.textContent = sub || '';
+  }
+
+  /* Reveal grade data.
+     - First call:  hides shield, shows loading, runs all API calls, then shows data.
+     - Subsequent calls (after locking): instantly re-shows already-rendered data.
+     No API calls are made until this function runs for the first time. */
+  async function revealData() {
+    if (_dataLoaded) {
+      // Data already rendered — just un-hide it, no fetch needed
+      document.getElementById('statePrivacy').classList.add('hidden');
+      document.getElementById('stateContent').classList.remove('hidden');
+      document.getElementById('lockBtn').classList.remove('hidden');
+      return;
+    }
+
+    // First reveal — run the fetch now
+    document.getElementById('statePrivacy').classList.add('hidden');
+    document.getElementById('stateError').classList.add('hidden');
+    document.getElementById('stateLoading').classList.remove('hidden');
+    document.getElementById('lockBtn').classList.add('hidden');
+    document.getElementById('refreshBtn').querySelector('.btn-icon').style.animation = 'spin 0.7s linear infinite';
+    setLoadingMsg('Loading class grades…');
+
+    try {
+      if (IS_LIVE) {
+        render(await fetchLiveData());
+      } else {
+        await new Promise(r => setTimeout(r, 700));
+        render({ ouId: '12345', courseCode: 'DEMO-101', students: DEMO_STUDENTS });
+      }
+      _dataLoaded = true;
+    } catch (err) {
+      document.getElementById('stateLoading').classList.add('hidden');
+      const msgEl = document.getElementById('errorMsg');
+      msgEl.textContent = `Could not load class grades: ${err.message || 'Unknown error'}.`;
+      document.getElementById('stateError').classList.remove('hidden');
+      console.error('[D2L Instructor Widget]', err);
+    } finally {
+      document.getElementById('refreshBtn').querySelector('.btn-icon').style.animation = '';
+    }
+  }
+
+  /* Re-lock — hides data without clearing it.
+     Next revealData() call will instantly re-show without re-fetching. */
+  function lockData() {
+    document.getElementById('stateContent').classList.add('hidden');
+    document.getElementById('statePrivacy').classList.remove('hidden');
+    document.getElementById('lockBtn').classList.add('hidden');
+  }
+
+  /* Retry after a fetch error — resets fetch state then re-runs the fetch. */
+  function retryFetch() {
+    _gradeConfig = null;
+    _dataLoaded  = false;
+    document.getElementById('stateError').classList.add('hidden');
+    revealData();
+  }
+
+  function toggleCategory(id) {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    panel.classList.toggle('open');
+    const header = panel.querySelector('.category-header');
+    if (header) header.setAttribute('aria-expanded', panel.classList.contains('open').toString());
+    fitFrameToContent();
+  }
+
+  function scrollToCategory(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!el.classList.contains('open')) toggleCategory(id);
+  }
+
+  function fmtGrade(val) {
+    if (val == null) return '<span class="grade-na">—</span>';
+    return parseFloat(val).toFixed(1) + '%';
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /* ─────────────────────────────────────────────────────
+     Init — runs on page load and when Refresh Data is clicked.
+     Does NOT make any API calls. Resets state and shows the
+     privacy shield so the user must click "Reveal Grade Data"
+     before any network requests are sent.
+  ───────────────────────────────────────────────────── */
+  let _dataLoaded = false;   // true once data has been fetched and rendered
+
+  function initWidget() {
+    _gradeConfig = null;
+    _dataLoaded  = false;
+
+    // Show only the privacy shield — no loading, no fetch
+    document.getElementById('stateLoading').classList.add('hidden');
+    document.getElementById('stateError').classList.add('hidden');
+    document.getElementById('stateContent').classList.add('hidden');
+    document.getElementById('lockBtn').classList.add('hidden');
+    document.getElementById('refreshBtn').querySelector('.btn-icon').style.animation = '';
+    document.getElementById('statePrivacy').classList.remove('hidden');
+    document.getElementById('lastUpdated').textContent = '';
+  }
+
+  initWidget();
+
+  /* ─────────────────────────────────────────────────────
+     Auto-height — the D2L iframe grows/shrinks to fit the widget.
+     A ResizeObserver on the widget fires on every change in height:
+     rendering, opening/closing a category, error/loading states, etc.
+  ───────────────────────────────────────────────────── */
+  function fitFrameToContent() {
+    const widget = document.querySelector('.widget');
+    if (!widget) return;
+    const bodyStyle = getComputedStyle(document.body);
+    const height = Math.ceil(
+      widget.offsetTop + widget.offsetHeight +
+      parseFloat(bodyStyle.paddingBottom || 0) + 8   // room for the box-shadow
+    );
+    try {
+      const frame = window.frameElement;
+      if (frame) {
+        frame.style.setProperty('height', height + 'px', 'important');
+        frame.setAttribute('height', height);
+        frame.setAttribute('scrolling', 'no');
+        frame.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';  // no inner scrollbar
+      }
+    } catch { /* cross-origin parent — fall through to postMessage */ }
+    try { window.parent.postMessage({ type: 'd2l-widget-height', height }, '*'); } catch {}
+  }
+
+  (function initAutoHeight() {
+    let raf = 0;
+    const schedule = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(fitFrameToContent); };
+    const widget = document.querySelector('.widget');
+    if (window.ResizeObserver && widget) new ResizeObserver(schedule).observe(widget);
+    window.addEventListener('load', schedule);
+    window.addEventListener('resize', schedule);           // width changes can reflow rows
+    if (document.fonts?.ready) document.fonts.ready.then(schedule);  // web fonts change heights
+    schedule();
+  })();
+</script>
+</body>
+</html>

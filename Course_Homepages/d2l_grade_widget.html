@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Student Grade Widget
+  Shows a student their current grade, category breakdown, and lowest/highest possible final grade.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en">
+<meta charset="UTF-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Current Grade</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #ffffff;          /* page background — white                          */
+    --card:    #006EB3;          /* widget background — primary blue                 */
+    --border:  rgba(255,255,255,0.35); /* white divider / border lines               */
+    --accent:  #f5a81c;          /* ADA-safe link on #006EB3 (contrast ratio ~6.7:1) */
+    --success: #00e676;          /* bright green                                     */
+    --warn:    #F5A81C;          /* amber                                            */
+    --danger:  #ff1744;          /* bright red                                       */
+    --text:    #ffffff;          /* primary text — white on blue                     */
+    --muted:   rgba(255,255,255,0.75); /* secondary text — soft white               */
+    --radius:  14px;
+  }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 20px;
+    min-height: 100vh;
+  }
+
+  /* ── WIDGET — grows with content, no fixed height ── */
+  .widget {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: none;
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,110,179,0.25);
+    animation: fadeUp 0.4s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── LOADING ── */
+  .state-loading {
+    padding: 36px 20px;
+    text-align: center;
+  }
+
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid rgba(255,255,255,0.25);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+
+  .state-loading p { font-size: 13px; color: var(--muted); }
+
+  /* ── NOT RELEASED ── */
+  .state-not-released {
+    padding: 28px 22px 24px;
+    text-align: center;
+  }
+
+  .not-released-icon  { font-size: 32px; margin-bottom: 10px; }
+
+  .not-released-title {
+    font-size: 15px; font-weight: 600;
+    color: var(--text); margin-bottom: 6px;
+  }
+
+  .not-released-body {
+    font-size: 12px; color: var(--muted);
+    margin-bottom: 16px; line-height: 1.5;
+  }
+
+  .not-released-steps {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    text-align: left;
+    margin-bottom: 16px;
+  }
+
+  .steps-label {
+    font-size: 11px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 8px;
+  }
+
+  .not-released-steps ol { padding-left: 18px; margin: 0; }
+  .not-released-steps li { font-size: 12px; color: var(--text); line-height: 1.6; }
+  .not-released-steps strong { color: var(--accent); font-weight: 600; }
+  .not-released-steps em     { color: var(--success); font-style: normal; font-weight: 500; }
+
+  /* ── ERROR ── */
+  .state-error {
+    padding: 36px 20px;
+    text-align: center;
+  }
+
+  .error-icon { font-size: 28px; margin-bottom: 8px; }
+  .state-error p { font-size: 13px; color: var(--muted); }
+
+  /* shared button */
+  .retry-btn {
+    display: inline-block;
+    margin-top: 14px;
+    padding: 7px 18px;
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.4);
+    color: #fff;
+    border-radius: 8px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .retry-btn:hover { background: rgba(255,255,255,0.25); }
+
+  /* ── GRADE SECTION ── */
+  .grade-section {
+    padding: 28px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+  }
+
+  .grade-letter {
+    font-family: 'Playfair Display', serif;
+    font-size: 64px;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1;
+  }
+
+  /* Smaller size for long words like Successful / Unsuccessful */
+  .grade-letter-long {
+    font-size: 32px;
+    letter-spacing: -0.01em;
+  }
+
+  .grade-pct {
+    font-family: 'DM Mono', monospace;
+    font-size: 28px;
+    color: #ffffff;
+    line-height: 1;
+  }
+
+  /* ── GRADE RANGE (min / max possible) ── */
+  .grade-range {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #0C436A;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    padding: 6px 14px;
+    margin-top: 2px;
+  }
+
+  .range-label {
+    font-size: 11px;
+    color: #ffffff;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .range-values {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+  }
+
+  .range-min  { font-weight: 600; }
+  .range-sep  { color: rgba(255,255,255,0.6); font-size: 11px; }
+  .range-max  { font-weight: 600; }
+
+  /* ── GRADE BADGE ── */
+  .grade-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    border: 1px solid;
+    margin-top: 2px;
+  }
+
+  /* On blue background — dark tinted bg + bright text, all WCAG AA ✅ */
+  .badge-passing { background: #e8f3ef; color: #003d26; border-color: #00562a; } /* 7.42:1 */
+  .badge-warning { background: #fff9f0; color: #5c3d00; border-color: #7a5200; } /* 4.95:1 */
+  .badge-failing { background: #fef2f2; color: #620f0f; border-color: #7a1414; } /* 6.44:1 */
+
+  /* ── FOOTER ── */
+  .grade-footer {
+    width: 100%;
+    border-top: 1px solid rgba(255,255,255,0.35);
+    margin-top: 6px;
+    padding-top: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* "Updated …" text — white */
+  .last-updated { font-size: 11px; color: #ffffff; }
+
+  .footer-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* "View in Grades" — #f5a81c yellow on #006EB3 blue — contrast 6.7:1 (WCAG AA+) */
+  .view-link {
+    font-size: 11px;
+    color: var(--accent);
+    text-decoration: underline;
+    font-weight: 600;
+    transition: opacity 0.2s;
+  }
+  .view-link:hover { opacity: 0.85; }
+
+  /* ── DISCLAIMER ROW ── */
+  .grade-disclaimer {
+    width: 100%;
+    border-top: 1px solid rgba(255,255,255,0.35);
+    margin-top: 8px;
+    padding-top: 8px;
+    font-size: 12px;          /* was 10px — raised to meet WCAG readable minimum */
+    color: #ffffff;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .grade-disclaimer a {
+    color: var(--accent);
+    text-decoration: underline;
+    font-weight: 600;
+    transition: opacity 0.2s;
+  }
+  .grade-disclaimer a:hover { opacity: 0.85; }
+
+  /* ── REFRESH BUTTON — minimum 44×44px touch target (WCAG 2.5.5) ── */
+  .refresh-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255,255,255,0.75);
+    font-size: 15px;
+    line-height: 1;
+    padding: 12px;            /* expands touch target to 44×44px */
+    margin: -12px;            /* negates padding so layout is unchanged */
+    border-radius: 50%;
+    transition: color 0.2s, background 0.2s;
+  }
+  .refresh-btn:hover    { color: #ffffff; background: rgba(255,255,255,0.1); }
+  .refresh-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .refresh-btn.spinning { animation: spin 0.7s linear infinite; }
+
+  /* ── RE-LOCK BUTTON — returns to privacy screen ── */
+  .relock-row {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px 20px 0;
+  }
+
+  .relock-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: rgba(255,255,255,0.90);
+    font-size: 11px;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    transition: color 0.2s, background 0.2s;
+  }
+  .relock-btn:hover       { color: #ffffff; background: rgba(255,255,255,0.1); }
+  .relock-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ── MOTIVATION / INTERVENTION MESSAGE ── */
+  .grade-motivation {
+    width: 100%;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.5;
+    text-align: left;
+    margin-top: 2px;
+  }
+
+  .motivation-passing {
+    background: rgba(232,243,239,0.75);
+    border: 1px solid #00562a;
+    color: #003d26;
+  }
+
+  .motivation-atrisk {
+    background: rgba(255,249,240,0.75);
+    border: 1px solid #7a5200;
+    color: #5c3d00;
+  }
+
+  .motivation-failing {
+    background: rgba(254,242,242,0.75);
+    border: 1px solid #7a1414;
+    color: #620f0f;
+  }
+
+  .motivation-cannotpass {
+    background: rgba(254,242,242,0.75);
+    border: 1px solid #7a1414;
+    color: #620f0f;
+  }
+
+  /* SoHC informational redirect — neutral, no grade status implied */
+  .motivation-info {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #ffffff;
+    text-align: center;
+    font-size: 13px;
+  }
+
+  /* Links inside any motivation box */
+  .grade-motivation a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: underline;
+  }
+  .grade-motivation a:hover { opacity: 0.85; }
+
+  .motivation-icon { margin-right: 5px; }
+
+  /* ── RANGE LABELS ── */
+  .range-sub {
+    font-size: 9px;
+    opacity: 0.7;
+    display: block;
+    text-align: center;
+    margin-top: 1px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── PRIVACY SCREEN ── */
+  .state-privacy {
+    background: #F5F9FF;
+    border-radius: var(--radius);
+    padding: 0;
+    width: 100%;
+  }
+
+  .privacy-btn {
+    width: 100%;
+    background: #F5F9FF;
+    border: none;
+    border-radius: var(--radius);
+    cursor: pointer;
+    padding: 36px 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    font-family: 'DM Sans', sans-serif;
+    transition: background 0.2s;
+    min-height: 140px;
+  }
+
+  .privacy-btn:hover  { background: #e8f0fb; }
+  .privacy-btn:active { background: #dde8f7; }
+
+  .privacy-icon {
+    font-size: 36px;
+    line-height: 1;
+    color: #006EB3;
+  }
+
+  .privacy-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: #006EB3;
+    line-height: 1.45;
+    text-align: center;
+    max-width: 260px;
+  }
+
+  .privacy-hint {
+    font-size: 11px;
+    color: #4a7fa8;
+    font-weight: 400;
+    margin-top: -6px;
+  }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="widget">
+
+  <!-- PRIVACY SCREEN — shown first, no API call until clicked -->
+  <div class="state-privacy" id="statePrivacy">
+    <button class="privacy-btn" onclick="revealGrade()" aria-label="Click to reveal your current grade">
+      <span class="privacy-icon">🔒</span>
+      <span class="privacy-text">Click on this button to reveal your current grade in this course.</span>
+      <span class="privacy-hint">Your grade is private — click to view</span>
+    </button>
+  </div>
+
+  <!-- LOADING -->
+  <div class="state-loading hidden" id="stateLoading">
+    <div class="spinner"></div>
+    <p>Fetching your grade…</p>
+  </div>
+
+  <!-- NOT RELEASED -->
+  <div class="state-not-released hidden" id="stateNotReleased">
+    <div class="not-released-icon">🔒</div>
+    <p class="not-released-title">Final Grade Not Released</p>
+    <p class="not-released-body">Your instructor hasn't released your Final Calculated Grade yet.</p>
+    <div class="not-released-steps">
+      <p class="steps-label">Ask your instructor to:</p>
+      <ol>
+        <li>Go to <strong>Grades &rarr; Settings</strong></li>
+        <li>Open <strong>Calculation Options Tab</strong></li>
+        <li>Set <strong>Release Final Calculated Grade</strong> and Check <strong>Automatically Release Final Grade</strong></li>
+		<li>Also Check <strong>Automatically Keep Final Grades Updated</strong></li>
+		<li>Click on <strong>Save</strong> and then <strong>Yes</strong></li>
+		<li>Go back to <strong>Grades &rarr; Final Calculated Grade Drop-Down Menu</strong></li>
+		<li>Click on <strong>Enter Grades</strong></li>
+		<li>Go to <strong>Final Grades &rarr; Drop-Down Menu</strong></li>
+		<li>Click on <strong>Release All</strong> and then <strong>Yes</strong></li>
+		<li>Click on <strong>Save and Close</strong> and then <strong>Yes</strong></li>
+      </ol>
+    </div>
+    <button class="retry-btn" onclick="initWidget()">Check Again</button>
+  </div>
+
+  <!-- ERROR -->
+  <div class="state-error hidden" id="stateError">
+    <div class="error-icon">⚠️</div>
+    <p id="errorMsg">Could not load grade data.</p>
+    <button class="retry-btn" onclick="initWidget()">Retry</button>
+  </div>
+
+  <!-- CONTENT -->
+  <div id="stateContent" class="hidden">
+
+    <!-- Re-lock row: lets student hide grade again (FERPA / shared computers) -->
+    <div class="relock-row">
+      <button class="relock-btn" onclick="relockGrade()" aria-label="Hide your grade">
+        🔒 Hide Grade
+      </button>
+    </div>
+
+    <!-- aria-live so screen readers announce the grade when it loads -->
+    <div class="grade-section" aria-live="polite" aria-atomic="true">
+
+      <div class="grade-letter" id="gradeLetter" aria-label="Letter grade"></div>
+      <div class="grade-pct"    id="gradePct"    aria-label="Numeric grade percentage"></div>
+
+      <!-- Badge: emoji are aria-hidden so screen readers use the aria-label instead -->
+      <span class="grade-badge" id="gradeBadge" role="status" aria-label="Grade status"></span>
+
+      <!-- Motivation / intervention message -->
+      <div class="grade-motivation hidden" id="gradeMotivation" role="alert"></div>
+
+      <div class="grade-range" id="gradeRange" style="display:none" aria-label="Possible final grade range">
+        <span class="range-label">Possible Final</span>
+        <span class="range-values">
+          <span class="range-min" id="gradeMin" aria-label="Minimum possible final grade">
+            —<span class="range-sub">Low</span>
+          </span>
+          <span class="range-sep" aria-hidden="true">–</span>
+          <span class="range-max" id="gradeMax" aria-label="Maximum possible final grade">
+            —<span class="range-sub">High</span>
+          </span>
+        </span>
+      </div>
+
+      <div class="grade-footer">
+        <span class="last-updated" id="lastUpdated" aria-label="Last updated time"></span>
+        <div class="footer-right">
+          <a class="view-link" id="gradesLink" href="#" target="_top">View in Grades ›</a>
+          <button class="refresh-btn" id="refreshBtn" title="Refresh grade" aria-label="Refresh grade" onclick="initWidget()">↻</button>
+        </div>
+      </div>
+
+      <div class="grade-disclaimer" id="gradeDisclaimer" style="display:none">
+        Possible Final score is an estimate. <a id="progressLink" href="#" target="_top">View the Class Progress tool</a> to see your actual Min and Max grade.
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const BASE_URL = window.location.origin;   // your Brightspace site; nothing to change
+
+  /* ─────────────────────────────────────────────────────
+     INSTITUTION SETTINGS — optional, edit to match your school.
+  ───────────────────────────────────────────────────── */
+  const SITE = {
+    // Student support link shown in the encouragement messages.
+    // Leave supportUrl blank to show plain text instead of a link.
+    supportName: 'Academic Success Center',
+    supportUrl:  '',            // e.g. 'https://www.yourschool.edu/tutoring'
+    // Course codes graded Successful / Unsuccessful instead of A–F.
+    // Codes are compared with dashes, underscores and spaces removed,
+    // so 'ENG010' matches ENG-010-001. Example: ['ENG010', 'ENG011']
+    passFailCourses: [],
+    // Course code PREFIXES that should never show a grade — the widget shows
+    // a link to the Gradebook instead. Example: ['NUR', 'RAD']
+    gradebookOnlyPrefixes: []
+  };
+  const SUPPORT_LINK = SITE.supportUrl
+    ? `the <a href="${SITE.supportUrl}" target="_blank" rel="noopener">${SITE.supportName}</a>`
+    : "your school's tutoring or academic support center";
+
+
+  // Master debug switch — set to true to surface all widget diagnostics
+  // in the browser console (useful when a student reports a wrong grade).
+  // Leave false in production for a silent console.
+  const DEBUG = false;
+
+  // Set to false to silence the per-category weighted breakdown specifically.
+  // Only logs when BOTH this and DEBUG are true.
+  const DEBUG_GRADES = false;
+
+  // Gated console helpers — no-ops unless DEBUG is true.
+  // (named logErr, not err, to avoid clashing with local Error variables)
+  const log    = (...a) => { if (DEBUG) console.log(...a); };
+  const warn   = (...a) => { if (DEBUG) console.warn(...a); };
+  const logErr = (...a) => { if (DEBUG) console.error(...a); };
+
+  /* ── Weighted min/max ─────────────────────────────────────────────
+     Computed inline in fetchMinMax() with the POINTS-based per-category
+     method — the same algorithm D2L's Class Progress uses, validated to
+     match it exactly. The earlier item-.Weight helper that lived here was
+     retired because D2L weights each category by its items' POINTS, not by
+     the item .Weight field; on identical data the old method gave 4.9/97.3
+     where D2L gives 15.97/90.97.                                         */
+
+  const IS_LIVE = (() => {
+    try {
+      // Live whenever the page is served from a web server (your Brightspace
+      // site). Opened straight from disk (file://) or localhost = demo preview.
+      return /^https?:$/.test(window.location.protocol) &&
+             !/^(localhost|127\.0\.0\.1|)$/.test(window.location.hostname);
+    } catch { return false; }
+  })();
+
+  // Demo data shown when previewed outside of D2L
+  const DEMO_DATA = { ouId: '12345', userId: '67890', courseCode: 'PSY-101', finalGrade: 87.4, minMax: { min: 62.3, max: 91.8 } };
+
+  /* ── Helpers ── */
+  function letterGrade(p) {
+    if (p >= 90) return 'A';
+    if (p >= 80) return 'B';
+    if (p >= 70) return 'C';
+    if (p >= 60) return 'D';
+    return 'F';
+  }
+  const badgeClass = p => p >= 70 ? 'badge-passing' : p >= 60 ? 'badge-warning' : 'badge-failing';
+  const badgeLabel = p => p >= 70 ? '✓ Passing'    : p >= 60 ? '⚠ At Risk'    : '✗ Not Passing';
+
+  /* ── Fetch helpers ── */
+
+  // Shared rate-limit state — updated from response headers on every call
+  const rateLimitState = {
+    remaining: Infinity,  // credits left this window (X-Rate-Limit-Remaining)
+  };
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /* tryFetch — rate-limit-aware wrapper around fetch()
+     - Reads X-Rate-Limit-Remaining after every response
+     - Proactively pauses when credits are running low (≤ 5)
+     - Automatically retries on 429 with exponential backoff,
+       respecting the Retry-After header when present
+     - Also retries on network errors with the same backoff schedule
+     - Backoff schedule: 1 s → 2 s → 4 s (3 attempts total)        */
+  async function tryFetch(url, maxRetries = 3) {
+
+    // Proactive throttle — pause before making a call when nearly out of credits
+    if (rateLimitState.remaining !== Infinity && rateLimitState.remaining <= 5) {
+      warn('[D2L Widget] Rate limit low (' + rateLimitState.remaining
+        + ' remaining) — pausing 1 s before next call');
+      await sleep(1000);
+    }
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await fetch(url, {
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        });
+
+        // Track remaining credits from every response header
+        const remaining = res.headers.get('X-Rate-Limit-Remaining');
+        if (remaining !== null) {
+          rateLimitState.remaining = parseInt(remaining, 10);
+          if (rateLimitState.remaining <= 10) {
+            warn('[D2L Widget] X-Rate-Limit-Remaining:', rateLimitState.remaining);
+          }
+        }
+
+        // ── 429 Too Many Requests ──────────────────────────────
+        if (res.status === 429) {
+          if (attempt >= maxRetries) {
+            logErr('[D2L Widget] 429 — exhausted ' + maxRetries + ' retries for:', url);
+            return { ok: false, status: 429, json: null };
+          }
+
+          // Respect Retry-After if the server sent it; otherwise use exponential backoff
+          const retryAfterHeader = res.headers.get('Retry-After');
+          const backoffMs = retryAfterHeader
+            ? Math.min(parseInt(retryAfterHeader, 10) * 1000, 32000)  // cap at 32 s
+            : Math.pow(2, attempt) * 1000;                            // 1 s, 2 s, 4 s
+
+          warn('[D2L Widget] 429 rate limited — retry '
+            + (attempt + 1) + '/' + maxRetries
+            + ' in ' + (backoffMs / 1000) + ' s');
+          await sleep(backoffMs);
+          continue;  // retry the loop
+        }
+
+        // ── Normal response (ok or a non-429 error) ────────────
+        const json = res.ok ? await res.json().catch(() => null) : null;
+        return { ok: res.ok, status: res.status, json };
+
+      } catch (networkError) {
+        // Network-level failure (offline, DNS, etc.)
+        if (attempt >= maxRetries) {
+          logErr('[D2L Widget] Network error after ' + maxRetries + ' retries:', networkError.message);
+          return { ok: false, status: 0, json: null };
+        }
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        warn('[D2L Widget] Network error — retry '
+          + (attempt + 1) + '/' + maxRetries
+          + ' in ' + (backoffMs / 1000) + ' s');
+        await sleep(backoffMs);
+      }
+    }
+
+    return { ok: false, status: 0, json: null };
+  }
+
+  /* d2lFetch — throws on non-ok responses (used for required calls) */
+  async function d2lFetch(path) {
+    const r = await tryFetch(BASE_URL + path);
+    if (!r.ok) {
+      if (r.status === 429) throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+      throw new Error(`HTTP ${r.status} — ${path}`);
+    }
+    return r.json;
+  }
+
+  /* ── Step 1: Discover API versions ── */
+  async function discoverVersions() {
+    const r = await tryFetch(`${BASE_URL}/d2l/api/versions/`);
+    if (!r.ok || !Array.isArray(r.json)) return { lp: '1.28', le: '1.53' };
+    const find = id => {
+      const e = r.json.find(v => v.ProductCode === id);
+      return e ? (e.LatestVersion || (e.SupportedVersions || []).slice(-1)[0] || null) : null;
+    };
+    return { lp: find('lp') || '1.28', le: find('le') || '1.53' };
+  }
+
+  /* ── Step 2: Resolve OrgUnitId from current page URL ── */
+  function ouFromHref(href) {
+    if (!href) return null;
+    const patterns = [
+      /\/d2l\/(?:lp\/\d+\/)?home\/(\d+)/,     // /d2l/home/93068
+      /\/d2l\/lp\/customwidgets\/(\d+)\//,      // /d2l/lp/customwidgets/93068/frame/...
+      /[?&]ou=(\d+)/,                           // ?ou=93068
+      /#.*ou=(\d+)/,                            // #ou=93068
+    ];
+    for (const re of patterns) {
+      const m = href.match(re);
+      if (m) return m[1];
+    }
+    return null;
+  }
+
+  function resolveOuId() {
+    const tried = [];
+
+    try {
+      const href = window.parent.location.href;
+      tried.push('parent.href: ' + href);
+      const ou = ouFromHref(href);
+      if (ou) return ou;
+    } catch { tried.push('parent.href: BLOCKED'); }
+
+    try {
+      const ou = ouFromHref(window.parent.location.pathname + window.parent.location.search);
+      if (ou) return ou;
+    } catch {}
+
+    try {
+      const el = window.frameElement;
+      if (el) {
+        const srcOu  = ouFromHref(el.src || el.getAttribute('src') || '');
+        if (srcOu) return srcOu;
+        const dataOu = el.dataset.ou || el.getAttribute('data-orgunitid') || el.getAttribute('data-ou');
+        if (dataOu && /^\d+$/.test(dataOu)) return dataOu;
+      }
+    } catch {}
+
+    const selfOu = ouFromHref(window.location.href);
+    if (selfOu) return selfOu;
+
+    const refOu = ouFromHref(document.referrer);
+    if (refOu) return refOu;
+
+    resolveOuId._debug = tried.join('\n');
+    return null;
+  }
+
+  /* ── Step 3: Fetch final grade ────────────────────────────────
+     IMPORTANT: DisplayedGrade is NOT a percentage — it is the raw
+     points/weight earned (e.g. "65.83" out of a denominator of 80).
+     Treating it as a percent understates the grade badly.
+
+     The correct percentage is numerator / denominator × 100:
+       Points system   → PointsNumerator   / PointsDenominator
+       Weighted system → WeightedNumerator / WeightedDenominator
+
+     The denominator reflects only the portion of the course that has
+     been graded so far, which is why a student with ungraded categories
+     still gets an accurate current grade (65.83 / 80 = 82.3%).
+  ────────────────────────────────────────────────────────────── */
+  async function fetchFinalGrade(le, ouId, userId) {
+    const r = await tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/final/values/${userId}`);
+
+    if (r.ok && r.json) {
+      const g = r.json;
+      log('[D2L Widget] final grade payload:', JSON.stringify(g));
+
+      // 1. Points system — numerator / denominator × 100
+      if (g.PointsNumerator != null && g.PointsDenominator > 0) {
+        return (g.PointsNumerator / g.PointsDenominator) * 100;
+      }
+
+      // 2. Weighted system — numerator / denominator × 100
+      if (g.WeightedNumerator != null && g.WeightedDenominator > 0) {
+        return (g.WeightedNumerator / g.WeightedDenominator) * 100;
+      }
+
+      // 3. DisplayedGrade already formatted as a percentage (e.g. "82.3 %")
+      if (typeof g.DisplayedGrade === 'string' && g.DisplayedGrade.includes('%')) {
+        const parsed = parseFloat(g.DisplayedGrade.replace(/[^0-9.\-]/g, ''));
+        if (!isNaN(parsed)) return parsed;
+      }
+
+      // 4. Last resort — bare DisplayedGrade. May be raw points rather than a
+      //    percent, so log a warning to make the ambiguity visible.
+      if (g.DisplayedGrade != null) {
+        const parsed = parseFloat(g.DisplayedGrade);
+        if (!isNaN(parsed)) {
+          warn('[D2L Widget] No numerator/denominator on final grade — '
+            + 'falling back to raw DisplayedGrade:', g.DisplayedGrade);
+          return parsed;
+        }
+      }
+    }
+
+    if (r.status === 404) {
+      const err = new Error('NOT_RELEASED');
+      err.notReleased = true;
+      throw err;
+    }
+
+    throw new Error(`Could not fetch grade (HTTP ${r.status || 'network error'}).`);
+  }
+
+  /* ── Step 4: Compute min / max possible final grade ──────────
+
+     SYSTEM DETECTION
+       /grades/setup/ → GradingSystem (STRING):
+         "Points"   = sum of raw points
+         "Weighted" = weighted sum by category/item weight
+         "Formula"  = custom formula (treated as Points fallback)
+
+     EXEMPTIONS
+       val.IsExempt === true  →  item is excluded from THIS student's
+       grade entirely. Treat as if it doesn't exist (skip it).
+
+     DROPPED ITEMS  (Weighted system, per category)
+       Categories have NumberOfLowestToDrop / NumberOfHighestToDrop.
+       D2L drops only from GRADED non-bonus items in the category.
+       Ungraded items are never dropped (not yet submitted).
+       For MIN scenario: drop the N highest-scored graded items
+         (dropping the best ones gives the student their worst outcome).
+       For MAX scenario: drop the N lowest-scored graded items
+         (dropping the worst ones gives the student their best outcome).
+       Dropped items contribute 0 pts and 0 MaxPts to the bucket.
+
+     BONUS ITEMS
+       Add earned points to the numerator but NEVER to the denominator.
+       CanExceedMax (category) / CanExceedMaxPoints (item) controls
+       whether the contribution can push past the bucket's weight.
+
+     POINTS SYSTEM
+       regularMaxPts = sum of MaxPoints of non-exempt, non-bonus items.
+       Final % = (earnedPts) / regularMaxPts × 100
+       Min: ungraded regular = 0, ungraded bonus = 0
+       Max: ungraded regular = MaxPoints, ungraded bonus = MaxPoints
+
+     WEIGHTED SYSTEM
+       Each category bucket:
+         regularMax = sum of MaxPoints of non-exempt, non-bonus items
+                      AFTER applying drops
+         earnedMin  = sum of earned pts in min scenario after drops
+         earnedMax  = sum of earned pts in max scenario after drops
+       Contribution = (earned / regularMax) × catWeight
+  ────────────────────────────────────────────────────────────── */
+  async function fetchMinMax(le, ouId, userId) {
+
+    const [objRes, valRes, catRes, setupRes] = await Promise.all([
+      tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/?pageSize=200`),
+      tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/values/${userId}/?pageSize=200`),
+      tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/categories/?pageSize=200`),
+      tryFetch(`${BASE_URL}/d2l/api/le/${le}/${ouId}/grades/setup/`),
+    ]);
+
+    if (!objRes.ok || !valRes.ok) return null;
+
+    // GradingSystem is a STRING: "Points", "Weighted", "Formula"
+    const gradingSystem = setupRes.ok ? (setupRes.json?.GradingSystem ?? 'Points') : 'Points';
+    const isWeighted    = (gradingSystem === 'Weighted');
+    log('[D2L Widget] GradingSystem:', gradingSystem);
+
+    const allObjects = objRes.json.Objects || objRes.json || [];
+    const allValues  = valRes.json.Objects || valRes.json  || [];
+    const categories = catRes.ok ? (catRes.json.Objects || catRes.json || []) : [];
+
+    // Score lookup: grade object Id (string) → student value block
+    const scoreMap = {};
+    allValues.forEach(v => {
+      if (v.GradeObjectIdentifier != null) {
+        scoreMap[String(v.GradeObjectIdentifier)] = v;
+      }
+    });
+
+    // Raw-data dump (DEBUG only) — everything the student API returns, so a
+    // mismatch with D2L's Progress Summary can be diagnosed from the console.
+    if (DEBUG) {
+      log('[D2L Widget] RAW categories:', JSON.stringify(
+        categories.map(c => ({ Id: c.Id, Name: c.Name, Weight: c.Weight,
+          CanExceedMax: c.CanExceedMax, ExcludeFromFinalGrade: c.ExcludeFromFinalGrade,
+          DropLow: c.NumberOfLowestToDrop, DropHigh: c.NumberOfHighestToDrop }))));
+      log('[D2L Widget] RAW items:', JSON.stringify(
+        allObjects.filter(o => o.GradeType === 'Numeric').map(o => {
+          const v = scoreMap[String(o.Id)];
+          return { Name: o.Name, Cat: o.CategoryId, Wt: o.Weight, Max: o.MaxPoints,
+            Bonus: o.IsBonus || undefined, Excl: o.ExcludeFromFinalGradeCalculation || undefined,
+            Num: v?.PointsNumerator ?? null, Den: v?.PointsDenominator ?? null,
+            Exempt: v?.IsExempt || undefined }; })));
+    }
+
+    // All numeric items not excluded from the final grade calculation
+    // Exemptions are handled per-item via val.IsExempt below
+    const allItems = allObjects.filter(o =>
+      o.GradeType === 'Numeric' &&
+      o.MaxPoints > 0 &&
+      !o.ExcludeFromFinalGradeCalculation
+    );
+
+    if (!allItems.length) return null;
+
+    // Detect whether ANY non-exempt item has been graded yet.
+    // D2L returns PointsNumerator: null for every item at the start of a course.
+    // We distinguish that from a true 0% (PointsNumerator: 0 = submitted, scored zero).
+    const anyGraded = allItems.some(o => {
+      const val = scoreMap[String(o.Id)];
+      return val && val.PointsNumerator != null && !val.IsExempt;
+    });
+    if (!anyGraded) return { noGradesYet: true };
+    // its CanExceedMaxPoints flag. This is the course-level setting that controls
+    // whether bonus items can push the student's final grade above 100%.
+    // If false → final grade is always capped at 100% regardless of bonus points.
+    // If true  → the max can exceed 100%.
+    const finalCalcObj   = allObjects.find(o => o.GradeType === 'FinalCalculated');
+    const finalCanExceed = finalCalcObj?.CanExceedMaxPoints === true;
+    log('[D2L Widget] FinalCalculated CanExceedMaxPoints:', finalCanExceed);
+
+    /* ── POINTS SYSTEM ────────────────────────────────────────── */
+    if (!isWeighted) {
+      let regularMaxPts = 0;
+      let minEarnedPts  = 0;
+      let maxEarnedPts  = 0;
+
+      allItems.forEach(o => {
+        const val     = scoreMap[String(o.Id)];
+        // Skip exempt items — they don't count for this student at all
+        if (val?.IsExempt) return;
+
+        const graded  = val && val.PointsNumerator != null;
+        const earned  = graded ? val.PointsNumerator : 0;
+
+        if (o.IsBonus) {
+          // Bonus: touches numerator only, never denominator
+          minEarnedPts += earned;
+          maxEarnedPts += graded ? earned : o.MaxPoints;
+        } else {
+          regularMaxPts += o.MaxPoints;
+          minEarnedPts  += earned;
+          maxEarnedPts  += graded ? earned : o.MaxPoints;
+        }
+      });
+
+      if (regularMaxPts === 0) return null;
+      const rawMin = parseFloat((minEarnedPts / regularMaxPts * 100).toFixed(1));
+      const rawMax = parseFloat((maxEarnedPts / regularMaxPts * 100).toFixed(1));
+      // Cap both ends when the final can't exceed 100% (bonus points could
+      // otherwise push the locked-in min above a capped max).
+      return {
+        min: finalCanExceed ? Math.max(0, rawMin) : Math.max(0, Math.min(100, rawMin)),
+        max: finalCanExceed ? Math.max(0, rawMax) : Math.min(100, rawMax),
+      };
+    }
+
+    /* ── WEIGHTED SYSTEM ──────────────────────────────────────── */
+
+    // Category metadata: id → { weight, canExceed, dropLowest, dropHighest }
+    // NOTE: field is CanExceedMax on categories, CanExceedMaxPoints on grade items
+    const catMeta = {};
+    categories.forEach(cat => {
+      if (cat.Weight != null && !cat.ExcludeFromFinalGrade) {
+        catMeta[String(cat.Id)] = {
+          weight      : parseFloat(cat.Weight),
+          canExceed   : cat.CanExceedMax === true,          // category field name
+          dropLowest  : cat.NumberOfLowestToDrop  || 0,
+          dropHighest : cat.NumberOfHighestToDrop || 0,
+        };
+      }
+    });
+
+    // Min/max use the POINTS-based per-category method below — the same
+    // algorithm D2L's Class Progress tool uses, and the same one the
+    // instructor widget uses. D2L weights each category by the POINTS of its
+    // items, NOT by the item .Weight field. (The older item-.Weight method was
+    // retired: on identical data it produced 4.9 / 97.3 where D2L — and the
+    // points method — give 15.97 / 90.97.)
+    //
+    // IMPORTANT student-view limitation: the student grade API returns only
+    // RELEASED grade items. Hidden-but-graded items are invisible here, so a
+    // locked-in hidden score can't be reflected — which is why this estimate
+    // can be wider than Class Progress. A category with NO visible items is
+    // treated as fully still-achievable (0 toward min, full weight toward max)
+    // so unreleased categories never wrongly cap the student's possible max.
+
+    // First pass: collect all items into per-category raw lists
+    // rawCatItems[catId] = [ { o, val, graded, earned } ]
+    const rawCatItems   = {};   // categorized items
+    const uncatItems    = [];   // uncategorized items (handle separately)
+
+    allItems.forEach(o => {
+      const val    = scoreMap[String(o.Id)];
+      if (val?.IsExempt) return;  // exempt → skip entirely
+
+      const catId     = (o.CategoryId && o.CategoryId !== 0) ? String(o.CategoryId) : null;
+      const inCat     = catId != null && catMeta[catId] != null;
+      const graded    = val && val.PointsNumerator != null;
+      const earned    = graded ? val.PointsNumerator : 0;
+
+      if (inCat) {
+        if (!rawCatItems[catId]) rawCatItems[catId] = [];
+        rawCatItems[catId].push({ o, graded, earned });
+      } else {
+        uncatItems.push({ o, graded, earned });
+      }
+    });
+
+    // Second pass: build buckets applying drop logic per category
+    // buckets[key] = { weight, canExceed, regularMax, earnedMin, earnedMax, maxPossible, isBonusOnly }
+    const buckets = {};
+
+    Object.entries(rawCatItems).forEach(([catId, itemList]) => {
+      const meta = catMeta[catId];
+
+      // Separate bonus vs regular, and graded vs ungraded within regular
+      const regularGraded   = itemList.filter(x => !x.o.IsBonus && x.graded);
+      const regularUngraded = itemList.filter(x => !x.o.IsBonus && !x.graded);
+      const bonusItems      = itemList.filter(x => x.o.IsBonus);
+
+      // ── Apply drops ──────────────────────────────────────────
+      // D2L only drops from graded non-bonus items.
+      // For MIN: drop the highest-scored graded items (worst outcome for student)
+      // For MAX: drop the lowest-scored graded items (best outcome for student)
+      // Also apply NumberOfHighestToDrop and NumberOfLowestToDrop from category settings.
+      // Both drop types apply; combined they can't drop more than total graded items.
+      const totalDrops = Math.min(
+        meta.dropLowest + meta.dropHighest,
+        regularGraded.length
+      );
+
+      // Sort graded items ascending by earned score
+      const sortedAsc  = [...regularGraded].sort((a, b) => a.earned - b.earned);
+      const sortedDesc = [...regularGraded].sort((a, b) => b.earned - a.earned);
+
+      // MIN scenario: drop the best (highest) scores to get worst possible outcome
+      // MAX scenario: drop the worst (lowest) scores to get best possible outcome
+      // We apply dropLowest + dropHighest per category spec first, then for
+      // min/max scenarios we additionally drop remaining items optimally.
+      // Simplest correct approach: apply category's configured drops to both scenarios,
+      // removing lowest N (dropLowest) + highest N (dropHighest) from graded pool.
+      let gradedForMin = [...regularGraded];
+      let gradedForMax = [...regularGraded];
+
+      if (totalDrops > 0) {
+        // Remove lowest dropLowest scores (always dropped regardless of scenario)
+        const dropLow  = meta.dropLowest;
+        const dropHigh = meta.dropHighest;
+
+        // Items to always remove (lowest scores first, then highest)
+        const toRemoveMin = new Set();
+        const toRemoveMax = new Set();
+
+        // For both scenarios: always drop the configured lowest and highest
+        sortedAsc.slice(0, dropLow).forEach((x, i)  => { toRemoveMin.add(x); toRemoveMax.add(x); });
+        sortedDesc.slice(0, dropHigh).forEach((x, i) => { toRemoveMin.add(x); toRemoveMax.add(x); });
+
+        gradedForMin = regularGraded.filter(x => !toRemoveMin.has(x));
+        gradedForMax = regularGraded.filter(x => !toRemoveMax.has(x));
+      }
+
+      // Build bucket sums
+      let regularMaxMin = 0, earnedMin = 0;
+      let regularMaxMax = 0, earnedMax = 0;
+
+      gradedForMin.forEach(x => { regularMaxMin += x.o.MaxPoints; earnedMin += x.earned; });
+      gradedForMax.forEach(x => { regularMaxMax += x.o.MaxPoints; earnedMax += x.earned; });
+
+      // Ungraded regular items: min=0, max=MaxPoints (never dropped — not yet submitted)
+      regularUngraded.forEach(x => {
+        regularMaxMin += x.o.MaxPoints; // earnedMin += 0 (implicit)
+        regularMaxMax += x.o.MaxPoints;
+        earnedMax     += x.o.MaxPoints;
+      });
+
+      // Bonus items: add to earned only, not to regularMax
+      bonusItems.forEach(x => {
+        earnedMin += x.earned;
+        earnedMax += x.graded ? x.earned : x.o.MaxPoints;
+      });
+
+      buckets[catId] = {
+        weight      : meta.weight,
+        canExceed   : meta.canExceed,
+        regularMaxMin,
+        regularMaxMax,
+        earnedMin,
+        earnedMax,
+      };
+    });
+
+    // Uncategorized items — each uses its own Weight
+    uncatItems.forEach(({ o, graded, earned }) => {
+      const itemWeight = o.Weight != null ? parseFloat(o.Weight) : null;
+      if (!itemWeight || itemWeight <= 0) return;
+
+      const canExceed = o.CanExceedMaxPoints === true;  // item field name
+      const key       = 'item_' + String(o.Id);
+
+      if (o.IsBonus) {
+        buckets[key] = {
+          weight      : itemWeight,
+          canExceed,
+          regularMaxMin: 0,
+          regularMaxMax: 0,
+          earnedMin   : earned,
+          earnedMax   : graded ? earned : o.MaxPoints,
+          maxPossible : o.MaxPoints,
+          isBonusOnly : true,
+        };
+      } else {
+        buckets[key] = {
+          weight      : itemWeight,
+          canExceed,
+          regularMaxMin: o.MaxPoints,
+          regularMaxMax: o.MaxPoints,
+          earnedMin   : earned,
+          earnedMax   : graded ? earned : o.MaxPoints,
+          isBonusOnly : false,
+        };
+      }
+    });
+
+    // Categories that carry WEIGHT but have no visible items (fully hidden /
+    // not yet released). The student API never returns their items, so we
+    // can't know the grades — treat them as fully still-achievable: 0 toward
+    // min, full category weight toward max. Without this, an unreleased
+    // category (e.g. a Final Exam) would wrongly cap the student's possible
+    // max by dropping its whole weight.
+    Object.entries(catMeta).forEach(([catId, meta]) => {
+      if (meta.weight > 0 && !rawCatItems[catId]) {
+        buckets['empty_' + catId] = {
+          weight        : meta.weight,
+          canExceed     : meta.canExceed,
+          regularMaxMin : 0,
+          regularMaxMax : 0,
+          earnedMin     : 0,
+          earnedMax     : 0,
+          fullyRemaining: true,
+        };
+      }
+    });
+
+    if (!Object.keys(buckets).length) return null;
+
+    let minFinal = 0;
+    let maxFinal = 0;
+
+    Object.values(buckets).forEach(b => {
+      if (b.weight === 0) return;
+
+      // Fully-hidden category: 0 toward min, full weight toward max.
+      if (b.fullyRemaining) { maxFinal += b.weight; return; }
+
+      if (b.isBonusOnly) {
+        // Uncategorized bonus: contribution = (earned / maxPossible) × weight
+        if (!b.maxPossible) return;
+        const cMin = (b.earnedMin / b.maxPossible) * b.weight;
+        const cMax = (b.earnedMax / b.maxPossible) * b.weight;
+        minFinal += cMin;
+        maxFinal += b.canExceed ? cMax : Math.min(cMax, b.weight);
+        return;
+      }
+
+      // Min scenario
+      if (b.regularMaxMin > 0) {
+        const cMin = (b.earnedMin / b.regularMaxMin) * b.weight;
+        minFinal  += b.canExceed ? cMin : Math.min(cMin, b.weight);
+      }
+
+      // Max scenario
+      if (b.regularMaxMax > 0) {
+        const cMax = (b.earnedMax / b.regularMaxMax) * b.weight;
+        maxFinal  += b.canExceed ? cMax : Math.min(cMax, b.weight);
+      }
+    });
+
+    return {
+      min: Math.max(0, parseFloat(minFinal.toFixed(1))),
+      max: finalCanExceed ? Math.max(0, parseFloat(maxFinal.toFixed(1))) : Math.min(100, parseFloat(maxFinal.toFixed(1))),
+    };
+  }
+
+  async function fetchLiveData() {
+    const { lp, le } = await discoverVersions();
+
+    // ── Phase 1: resolve identity + course code in parallel ───
+    // courseCode must be known BEFORE deciding whether to fetch grades,
+    // so this runs as its own batch first.
+    const [meResult, enrollResult] = await Promise.allSettled([
+      d2lFetch(`/d2l/api/lp/${lp}/users/whoami`),
+      tryFetch(`${BASE_URL}/d2l/api/lp/${lp}/enrollments/myenrollments/?orgUnitTypeId=3&pageSize=200`),
+    ]);
+
+    if (meResult.status === 'rejected') throw meResult.reason;
+    const userId = String(meResult.value.Identifier);
+    const ouId   = resolveOuId();
+
+    if (!ouId) throw new Error('Cannot determine the current course.\n\n' + (resolveOuId._debug || ''));
+
+    const enrollItems = (enrollResult.status === 'fulfilled'
+      ? enrollResult.value?.json?.Items : null) || [];
+    const enrollment = enrollItems.find(i => String(i.OrgUnit?.Id) === String(ouId));
+    const courseCode = enrollment?.OrgUnit?.Code || enrollment?.OrgUnit?.Name || '';
+    log('[D2L Widget] Enrollment OrgUnit:', JSON.stringify(enrollment?.OrgUnit));
+    log('[D2L Widget] courseCode:', courseCode);
+
+    // ── Phase 2: SoHC check — skip ALL grade API calls if matched ─
+    // These courses only show a gradebook redirect; no grade data needed.
+    const normCodeCheck = (courseCode || '').toUpperCase().replace(/[-_\s]/g, '');
+    const SOHC_PREFIXES = ['NMT','MLT','SUR','RES','RAD','DHG','MED','DAT','NUR','AHS','PTH'];
+    if (SOHC_PREFIXES.some(p => normCodeCheck.startsWith(p))) {
+      log('[D2L Widget] SoHC course — grade fetch skipped');
+      return { ouId, userId, courseCode, finalGrade: 0, minMax: null };
+    }
+
+    // ── Phase 3: not SoHC — fetch grades normally ─────────────
+    const [finalResult, minMaxResult] = await Promise.allSettled([
+      fetchFinalGrade(le, ouId, userId),
+      fetchMinMax(le, ouId, userId),
+    ]);
+
+    const minMax = minMaxResult.status === 'fulfilled' ? minMaxResult.value : null;
+
+    if (minMax?.noGradesYet) {
+      return { ouId, userId, courseCode, finalGrade: 0, minMax };
+    }
+
+    if (finalResult.status === 'rejected') {
+      throw finalResult.reason;
+    }
+
+    const finalGrade = finalResult.value;
+
+    // Safety clamp: the current grade is always achievable, so the estimated
+    // range must contain it — Max can't be below it, Min can't be above it.
+    // This prevents a mis-estimated range from ever contradicting the real
+    // current grade (e.g. a falsely low Max triggering "cannot pass").
+    if (minMax && !minMax.noGradesYet && typeof finalGrade === 'number' && isFinite(finalGrade)) {
+      const cur = Math.round(finalGrade * 10) / 10;
+      if (minMax.max < cur) minMax.max = cur;
+      if (minMax.min > cur) minMax.min = cur;
+      log('[D2L Widget] clamped to current', cur, '→ min', minMax.min, 'max', minMax.max);
+    }
+
+    return { ouId, userId, courseCode, finalGrade, minMax };
+  }
+
+
+  function render({ ouId, userId, courseCode, finalGrade, minMax }) {
+
+    const noGradesYet = minMax?.noGradesYet === true;
+
+    // ── Course-type detection ──────────────────────────────────
+    // Normalize separators so ENG-010, ENG_010, ENG-010-001-F25 all match.
+    const normCode = (courseCode || '').toUpperCase().replace(/[-_\s]/g, '');
+
+    // SITE.passFailCourses — Successful/Unsuccessful scale + badge thresholds
+    const normP = p => String(p).toUpperCase().replace(/[-_\s]/g, '');
+    const isSpecialSU = SITE.passFailCourses.some(p => normCode.includes(normP(p)));
+
+    // SITE.gradebookOnlyPrefixes — no grade display, redirect to gradebook only
+    const isSpecialSoHC = !isSpecialSU && SITE.gradebookOnlyPrefixes.some(p => normCode.startsWith(normP(p)));
+
+    log('[D2L Widget] render() courseCode:', JSON.stringify(courseCode),
+      '→ normCode:', normCode, '→ isSpecialSU:', isSpecialSU, '→ isSpecialSoHC:', isSpecialSoHC);
+
+    // ── Scale-aware helper functions (standard and SU only; SoHC exits early below) ──
+    const lgFn = isSpecialSU
+      ? p => p >= 70 ? 'Successful' : 'Unsuccessful'
+      : p => { if (p >= 90) return 'A'; if (p >= 80) return 'B';
+               if (p >= 70) return 'C'; if (p >= 60) return 'D'; return 'F'; };
+
+    const badgeClsFn = isSpecialSU
+      ? p => p >= 75 ? 'badge-passing' : p >= 70 ? 'badge-warning' : 'badge-failing'
+      : p => p >= 70 ? 'badge-passing' : p >= 60 ? 'badge-warning' : 'badge-failing';
+
+    const badgeLblFn = isSpecialSU
+      ? p => p >= 75 ? '✓ Passing' : p >= 70 ? '⚠ At Risk' : '✗ Not Passing'
+      : p => p >= 70 ? '✓ Passing' : p >= 60 ? '⚠ At Risk' : '✗ Not Passing';
+
+    // Motivation thresholds — standard vs SU (SoHC handled separately)
+    const T_CANNOTPASS   = isSpecialSU ? 70 : 60;
+    const T_FAILING      = isSpecialSU ? 70 : 60;
+    const T_ATRISK       = isSpecialSU ? 75 : 70;
+    const T_PASSING_LOW  = 80;
+    const T_PASSING_HIGH = 90;
+
+    const pct    = noGradesYet ? null : Math.round(finalGrade * 10) / 10;
+    const letter = noGradesYet ? 'NA' : lgFn(pct);
+
+    // ── Grade display ──────────────────────────────────────────
+    const letterEl = document.getElementById('gradeLetter');
+    const pctEl    = document.getElementById('gradePct');
+    if (noGradesYet) {
+      letterEl.textContent = 'NA';
+      letterEl.setAttribute('aria-label', 'Letter grade: Not available, no grades yet');
+      pctEl.textContent = '--';
+      pctEl.setAttribute('aria-label', 'No numeric grade yet');
+    } else {
+      letterEl.textContent = letter;
+      letterEl.setAttribute('aria-label', `Letter grade: ${letter}`);
+      pctEl.textContent = pct + '%';
+      pctEl.setAttribute('aria-label', `Numeric grade: ${pct} percent`);
+    }
+
+    // Use smaller font for long words (e.g. Successful / Unsuccessful)
+    letterEl.classList.toggle('grade-letter-long', letterEl.textContent.length > 3);
+
+    // ── SoHC: hide grade display, show gradebook redirect, exit ──
+    // Gradebook-only courses do not display grades or warnings.
+    if (isSpecialSoHC) {
+      letterEl.style.display = 'none';
+      pctEl.style.display    = 'none';
+      document.getElementById('gradeBadge').style.display      = 'none';
+      document.getElementById('gradeRange').style.display      = 'none';
+      document.getElementById('gradeDisclaimer').style.display = 'none';
+
+      const motEl = document.getElementById('gradeMotivation');
+      motEl.className = 'grade-motivation motivation-info';
+      motEl.innerHTML = 'Go to the <a href="'
+        + `${BASE_URL}/d2l/lms/grades/my_grades/main.d2l?ou=${ouId}`
+        + '" target="_top">Gradebook</a> tool to review your current status in this course.';
+      motEl.classList.remove('hidden');
+
+      document.getElementById('lastUpdated').textContent =
+        'Updated ' + new Date().toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      document.getElementById('gradesLink').href =
+        `${BASE_URL}/d2l/lms/grades/my_grades/main.d2l?ou=${ouId}`;
+
+      document.getElementById('stateLoading').classList.add('hidden');
+      document.getElementById('stateContent').classList.remove('hidden');
+
+      // Move focus to the message for screen reader / keyboard users
+      motEl.setAttribute('tabindex', '-1');
+      motEl.focus({ preventScroll: true });
+      return;
+    }
+
+    // ── Badge ──────────────────────────────────────────────────
+    const badge = document.getElementById('gradeBadge');
+    if (noGradesYet) {
+      badge.innerHTML  = '<span aria-hidden="true">📋 No Grades Yet</span>';
+      badge.className  = 'grade-badge badge-passing';
+      badge.setAttribute('aria-label', 'Grade status: No grades have been entered yet');
+    } else {
+      const statusText = badgeLblFn(pct).replace(/^[✓⚠✗]\s*/, '');
+      badge.innerHTML  = `<span aria-hidden="true">${badgeLblFn(pct)}</span>`;
+      badge.className  = 'grade-badge ' + badgeClsFn(pct);
+      badge.setAttribute('aria-label', `Grade status: ${statusText}`);
+    }
+
+    // ── Motivation / intervention message ──────────────────────
+    const motEl = document.getElementById('gradeMotivation');
+    motEl.className = 'grade-motivation';
+
+    if (noGradesYet) {
+      motEl.className += ' motivation-passing';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">📋</span>'
+        + 'You do not have any grades for this course yet.';
+      motEl.classList.remove('hidden');
+    } else if (minMax && minMax.max < T_CANNOTPASS) {
+      motEl.className += ' motivation-cannotpass';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">🚨</span>'
+        + '<strong>Passing is no longer possible.</strong> Please contact your instructor and/or academic advisor '
+        + 'as soon as possible to discuss your options.';
+      motEl.classList.remove('hidden');
+    } else if (pct < T_FAILING) {
+      motEl.className += ' motivation-failing';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">📉</span>'
+        + '<strong>Your grade needs attention.</strong> Contact your instructor '
+        + 'and/or reach out to ' + SUPPORT_LINK + ' — there may still be time to turn this around.';
+      motEl.classList.remove('hidden');
+    } else if (pct < T_ATRISK) {
+      motEl.className += ' motivation-atrisk';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">⚠️</span>'
+        + '<strong>You\'re at risk of not passing.</strong> Review upcoming assignments '
+        + 'and reach out to your instructor and/or ' + SUPPORT_LINK + ' if you need support.';
+      motEl.classList.remove('hidden');
+    } else if (pct < T_PASSING_LOW) {
+      motEl.className += ' motivation-passing';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">🌟</span>'
+        + '<strong>You\'re passing!</strong> Continue to stay on top of your remaining assignments '
+        + 'and reach out to your instructor and/or ' + SUPPORT_LINK + ' for support.';
+      motEl.classList.remove('hidden');
+    } else if (pct < T_PASSING_HIGH) {
+      motEl.className += ' motivation-passing';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">✅</span>'
+        + '<strong>You’re doing really well.</strong> Continue to work hard and reach out to your instructor '
+        + 'and/or ' + SUPPORT_LINK + ' for support if needed.';
+      motEl.classList.remove('hidden');
+    } else if (pct >= T_PASSING_HIGH) {
+      motEl.className += ' motivation-passing';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">✅</span>'
+        + '<strong>Excellent work!</strong> Continue to work hard and reach out to your instructor '
+        + 'and/or ' + SUPPORT_LINK + ' for support if needed.';
+      motEl.classList.remove('hidden');
+    } else {
+      motEl.className += ' motivation-passing';
+      motEl.innerHTML  = '<span class="motivation-icon" aria-hidden="true">🌟</span>'
+        + 'Continue to work hard and reach out to your instructor '
+        + 'and/or ' + SUPPORT_LINK + ' for support if needed.';
+      motEl.classList.remove('hidden');
+    }
+
+    // ── Min / max range row — hidden when no grades yet ────────
+    const PASS_COLOR = '#00e676';
+    const FAIL_COLOR = '#ff9999';
+    const rangeEl      = document.getElementById('gradeRange');
+    const disclaimerEl = document.getElementById('gradeDisclaimer');
+
+    if (!noGradesYet && minMax && !minMax.noGradesYet) {
+      const minEl = document.getElementById('gradeMin');
+      const maxEl = document.getElementById('gradeMax');
+      minEl.innerHTML = `${minMax.min}%<span class="range-sub">Low</span>`;
+      maxEl.innerHTML = `${minMax.max}%<span class="range-sub">High</span>`;
+      minEl.style.color = minMax.min >= 70 ? PASS_COLOR : FAIL_COLOR;
+      maxEl.style.color = minMax.max >= 70 ? PASS_COLOR : FAIL_COLOR;
+      minEl.setAttribute('aria-label', `Minimum possible final grade: ${minMax.min} percent`);
+      maxEl.setAttribute('aria-label', `Maximum possible final grade: ${minMax.max} percent`);
+      rangeEl.style.display      = '';
+      disclaimerEl.style.display = '';
+      document.getElementById('progressLink').href =
+        `${BASE_URL}/d2l/le/userprogress/${userId}/${ouId}/Summary`;
+    } else {
+      rangeEl.style.display      = 'none';
+      disclaimerEl.style.display = 'none';
+    }
+
+    document.getElementById('lastUpdated').textContent =
+      'Updated ' + new Date().toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    document.getElementById('gradesLink').href =
+      `${BASE_URL}/d2l/lms/grades/my_grades/main.d2l?ou=${ouId}`;
+
+    document.getElementById('stateLoading').classList.add('hidden');
+    document.getElementById('stateContent').classList.remove('hidden');
+
+    letterEl.setAttribute('tabindex', '-1');
+    letterEl.focus({ preventScroll: true });
+  }
+
+
+  /* ── Re-lock: return to privacy screen ── */
+  function relockGrade() {
+    ['stateError', 'stateNotReleased', 'stateContent', 'stateLoading'].forEach(id =>
+      document.getElementById(id).classList.add('hidden')
+    );
+    const privacyEl = document.getElementById('statePrivacy');
+    privacyEl.classList.remove('hidden');
+    // Return focus to the privacy button
+    privacyEl.querySelector('.privacy-btn').focus();
+  }
+
+  /* ── Reveal (called when student clicks the privacy button) ── */
+  function revealGrade() {
+    document.getElementById('statePrivacy').classList.add('hidden');
+    initWidget();
+  }
+
+  /* ── Init (runs only after privacy screen is dismissed) ── */
+  async function initWidget() {
+    ['stateError', 'stateNotReleased', 'stateContent'].forEach(id =>
+      document.getElementById(id).classList.add('hidden')
+    );
+    document.getElementById('stateLoading').classList.remove('hidden');
+    document.getElementById('refreshBtn').classList.add('spinning');
+
+    try {
+      render(IS_LIVE ? await fetchLiveData() : DEMO_DATA);
+    } catch (err) {
+      document.getElementById('stateLoading').classList.add('hidden');
+      if (err.notReleased) {
+        document.getElementById('stateNotReleased').classList.remove('hidden');
+      } else {
+        const msg = document.getElementById('errorMsg');
+        // Show a friendly message to students rather than raw HTTP errors
+        msg.style.cssText = 'font-size:13px;color:rgba(255,255,255,0.85);';
+        msg.textContent   = 'Your grade couldn\'t be loaded right now. '
+          + 'Please try again in a moment. If this keeps happening, contact your instructor.';
+        document.getElementById('stateError').classList.remove('hidden');
+        logErr('[D2L Widget]', err.message);
+      }
+    } finally {
+      document.getElementById('refreshBtn').classList.remove('spinning');
+    }
+  }
+
+  // Do NOT call initWidget() on load — wait for student to click the privacy button
+</script>
+</body>
+</html>

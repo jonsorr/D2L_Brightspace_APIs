@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<!--
+  ==========================================================================
+  Visual Table of Contents
+  Course homepage widget that shows course modules as visual tiles with progress tracking.
+
+  Created by Jonathan Sorrenti
+  Part of D2L Brightspace APIs: https://github.com/jonsorr/D2L_Brightspace_APIs
+  Licensed under the MIT License. Free to use, modify, and share.
+  If this tool saves you time, please consider sponsoring:
+  https://github.com/sponsors/jonsorr
+
+  D2L and Brightspace are trademarks of D2L Corporation. This is an
+  independent community project, not affiliated with or endorsed by D2L.
+  ==========================================================================
+-->
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="author" content="Jonathan Sorrenti">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Course Modules</title>
+<!-- ============================================================================
+     VISUAL TABLE OF CONTENTS — D2L Brightspace course homepage widget
+     Self-contained: one HTML file, no external dependencies.
+
+     WHAT IT DOES
+       • Reads the course's table of contents (LE Content API)
+       • Renders each top-level module as a tile, keyed to the module's own
+         Brightspace color, with a vertical "spine" that fills with progress
+       • Best-effort per-student completion overlay (degrades gracefully)
+       • Every tile deep-links straight into that module's content
+
+     PERSONALIZE
+       • Everything you'd want to tweak is in the CONFIG block below.
+       • One swap point for progress is marked  >>> PROGRESS SOURCE <<<  if your
+         instance exposes completion on a different route.
+
+     DEPLOY (two paths — see notes at the bottom of this file)
+       A. Paste into a Custom Widget's HTML (source view), OR
+       B. Upload to Manage Files and embed via an <iframe> widget (most robust).
+
+     All calls are GETs against same-origin /d2l/api/... routes, so they ride the
+     logged-in student's session — no API key, no CSRF/XSRF token needed.
+============================================================================ -->
+
+<style>
+/* All selectors are namespaced under .vtoc so nothing leaks into Brightspace. */
+html,body{margin:0;}
+body{background:transparent;}
+/* visually hidden, still announced by screen readers */
+.vtoc-sr{position:absolute!important; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;}
+.vtoc{
+  /* text colors below meet WCAG 2.1 AA contrast (>=4.5:1) on the white card */
+  --vtoc-ink:#16212b; --vtoc-muted:#5a6772; --vtoc-faint:#93a0ab;
+  --vtoc-line:#e6ebef; --vtoc-card:#ffffff; --vtoc-accent:#15659e;
+  --vtoc-done:#157347; --vtoc-resume:#a8531f;
+  --vtoc-shadow:0 1px 2px rgba(22,33,43,.05);
+  --vtoc-shadow-lift:0 6px 18px rgba(22,33,43,.10);
+  color:var(--vtoc-ink);
+  font-family:"Lato",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased; line-height:1.4; max-width:100%;
+}
+.vtoc *{box-sizing:border-box;}
+
+/* ---- header / overall progress (course-level scope) ---- */
+.vtoc-head{margin:0 0 14px;}
+.vtoc-head-row{display:flex; align-items:baseline; justify-content:space-between; gap:12px;}
+.vtoc-heading{margin:0; font-size:17px; font-weight:800; letter-spacing:-.01em;}
+.vtoc-overall{font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--vtoc-muted); font-variant-numeric:tabular-nums; white-space:nowrap;}
+.vtoc-track{height:3px; border-radius:3px; background:var(--vtoc-line); margin-top:9px; overflow:hidden;}
+.vtoc-track-fill{height:100%; width:0; border-radius:3px; background:var(--vtoc-accent);
+  transition:width .6s cubic-bezier(.2,.7,.2,1);}
+
+/* ---- grid of module tiles ---- */
+.vtoc-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px;}
+.vtoc-item{display:flex; min-width:0;}       /* role=listitem wrapper; keeps <a> a real link */
+.vtoc-item>.vtoc-card{flex:1 1 auto;}
+
+.vtoc-card{
+  position:relative; display:flex; gap:0; text-decoration:none; color:inherit;
+  background:var(--vtoc-card); border:1px solid var(--vtoc-line); border-radius:10px;
+  overflow:hidden; box-shadow:var(--vtoc-shadow); min-height:84px;
+  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.vtoc-card:hover{transform:translateY(-2px); box-shadow:var(--vtoc-shadow-lift); border-color:#d8dfe5;}
+.vtoc-card:focus{outline:3px solid var(--vtoc-accent); outline-offset:2px;}
+.vtoc-card:focus:not(:focus-visible){outline:none;}      /* hide ring on mouse click */
+.vtoc-card:focus-visible{outline:3px solid var(--vtoc-accent); outline-offset:2px;}
+
+/* the signature element: vertical color spine that fills bottom-up with progress */
+.vtoc-spine{position:relative; flex:0 0 6px; align-self:stretch;
+  background:color-mix(in srgb, var(--mc,var(--vtoc-accent)) 16%, transparent);
+  transition:flex-basis .18s ease;}
+.vtoc-card:hover .vtoc-spine{flex-basis:8px;}
+.vtoc-spine-fill{position:absolute; left:0; right:0; bottom:0; height:0;
+  background:var(--mc,var(--vtoc-accent)); transition:height .6s cubic-bezier(.2,.7,.2,1);}
+.vtoc-card.is-done .vtoc-spine-fill{background:var(--vtoc-done);}
+
+.vtoc-body{flex:1 1 auto; min-width:0; padding:12px 14px; display:flex; flex-direction:column; gap:4px;}
+.vtoc-eyebrow{font-size:10.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--vtoc-faint); font-variant-numeric:tabular-nums;}
+.vtoc-title{font-size:15px; font-weight:700; letter-spacing:-.005em; line-height:1.25;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+.vtoc-desc{font-size:12.5px; color:var(--vtoc-muted); line-height:1.4;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+.vtoc-foot{margin-top:auto; display:flex; align-items:flex-end; justify-content:space-between; gap:8px; padding-top:6px;}
+.vtoc-count{font-size:11.5px; color:var(--vtoc-muted); font-variant-numeric:tabular-nums;}
+
+/* per-activity breakdown (Content / Discussion / Dropbox / Quiz) */
+.vtoc-bd{display:flex; flex-direction:column; gap:2px; min-width:0;}
+.vtoc-bd-row{display:flex; align-items:center; gap:6px; font-size:11.5px; line-height:1.35; color:var(--vtoc-muted);}
+.vtoc-bd-row.is-line-done{color:var(--vtoc-done);}
+.vtoc-bd-dot{flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:var(--bd, var(--vtoc-faint));}
+.vtoc-bd-label{font-weight:600; color:var(--vtoc-ink);}
+.vtoc-bd-row.is-line-done .vtoc-bd-label{color:var(--vtoc-done);}
+.vtoc-bd-val{margin-left:auto; font-variant-numeric:tabular-nums; white-space:nowrap;}
+.vtoc-bd-pending{opacity:.55;}
+
+.vtoc-cta{font-size:12px; font-weight:700; color:var(--vtoc-accent); white-space:nowrap;
+  opacity:1; transform:translateX(-2px); transition:transform .18s ease;}
+.vtoc-cta.is-resume{color:var(--vtoc-resume);}   /* deeper Dropbox orange, AA on white */
+.vtoc-card:hover .vtoc-cta{transform:translateX(0);}
+.vtoc-card.is-done .vtoc-cta{color:var(--vtoc-done);}
+
+.vtoc-badge{position:absolute; top:9px; right:9px; width:18px; height:18px; border-radius:50%;
+  background:var(--vtoc-done); color:#fff; font-size:11px; line-height:18px; text-align:center; font-weight:800;}
+/* keep the title text clear of the check badge on completed tiles */
+.vtoc-card.is-done .vtoc-title{padding-right:24px;}
+
+/* ---- states ---- */
+.vtoc-note{padding:18px 16px; border:1px dashed var(--vtoc-line); border-radius:10px;
+  color:var(--vtoc-muted); font-size:13px; text-align:center; line-height:1.5;}
+.vtoc-demo{margin:12px 0 0; font-size:12px; color:var(--vtoc-muted);}
+
+/* ---- loading indicator (progress ring) ---- */
+.vtoc-loader{display:flex; flex-direction:column; align-items:center; gap:11px; padding:34px 16px;}
+.vtoc-loader[hidden]{display:none !important;}   /* hidden must win over the display rules above */
+.vtoc-ring-wrap{position:relative; width:48px; height:48px;}
+.vtoc-ring{width:48px; height:48px; transform:rotate(-90deg);}
+.vtoc-ring-track{fill:none; stroke:var(--vtoc-line); stroke-width:4;}
+.vtoc-ring-fill{fill:none; stroke:var(--vtoc-accent); stroke-width:4; stroke-linecap:round;
+  stroke-dasharray:119.38; stroke-dashoffset:119.38; transition:stroke-dashoffset .35s ease;}
+.vtoc-ring-pct{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:12px; font-weight:700; color:var(--vtoc-ink); font-variant-numeric:tabular-nums;}
+.vtoc-loader-label{font-size:12.5px; color:var(--vtoc-muted);}
+@media (prefers-reduced-motion: reduce){ .vtoc-ring-fill{transition:none;} }
+
+.vtoc-skel{border:1px solid var(--vtoc-line); border-radius:10px; height:84px; background:var(--vtoc-card);
+  position:relative; overflow:hidden;}
+.vtoc-skel::after{content:""; position:absolute; inset:0;
+  background:linear-gradient(90deg, transparent, rgba(22,33,43,.04), transparent);
+  transform:translateX(-100%); animation:vtoc-shimmer 1.2s infinite;}
+@keyframes vtoc-shimmer{to{transform:translateX(100%);}}
+
+@media (prefers-reduced-motion: no-preference){
+  .vtoc-card{opacity:0; transform:translateY(6px); animation:vtoc-in .42s ease forwards; animation-delay:calc(var(--i,0)*45ms);}
+  @keyframes vtoc-in{to{opacity:1; transform:translateY(0);}}
+}
+@media (prefers-reduced-motion: reduce){
+  .vtoc-track-fill,.vtoc-spine-fill,.vtoc-card,.vtoc-cta,.vtoc-spine{transition:none;}
+  .vtoc-skel::after{animation:none;}
+}
+</style>
+</head><body><nav id="vtoc-root" class="vtoc" aria-labelledby="vtoc-heading"><header class="vtoc-head" hidden="">
+<div class="vtoc-head-row">
+<h1 class="vtoc-heading" id="vtoc-heading">Course Modules</h1>
+<span class="vtoc-overall"></span></div>
+<div class="vtoc-track" hidden="" aria-hidden="true">
+<div class="vtoc-track-fill"></div>
+</div>
+<div style="text-align: center;">Disclaimer: This widget only shows the Content modules that your account has permissions to see. <br>Modules that are hidden because of date ranges or release conditions will not be shown.</div>
+</header>
+<div class="vtoc-loader" role="status" aria-live="polite">
+<div class="vtoc-ring-wrap" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" class="vtoc-ring" viewBox="0 0 44 44" aria-hidden="true">
+        <circle class="vtoc-ring-track" cx="22" cy="22" r="19"></circle>
+        <circle class="vtoc-ring-fill" cx="22" cy="22" r="19"></circle>
+      </svg> <span class="vtoc-ring-pct" aria-hidden="true">0%</span></div>
+<span class="vtoc-loader-label">Loading…</span></div>
+<div class="vtoc-grid" role="list" aria-label="Modules"></div>
+<p class="vtoc-note" role="status" hidden=""></p>
+<p class="vtoc-demo" hidden="">Preview — showing sample modules. Live data appears once this is placed on a course homepage.</p>
+<span class="vtoc-sr" aria-live="polite"></span></nav>
+<p><script>
+(function () {
+  "use strict";
+
+  /* =========================== CONFIG =========================== *
+   * Tweak these to make the widget your own. Nothing else needs editing.   */
+  var CONFIG = {
+    heading:          "Course Modules",   // widget title
+    accentColor:      "#15659e",          // fallback color for modules with no color set
+    showProgress:     true,               // show per-module + overall completion
+    checkActivities:  true,               // break out Dropbox/Quiz/Discussion submission status
+    activityConcurrency: 6,               // max simultaneous submission checks (rate-limit friendly)
+    scanConcurrency:  8,                  // max simultaneous content-page scans / quicklink resolves
+    scanPageLinks:    true,               // also scan HTML content pages for embedded Dropbox/Quiz/Discussion quicklinks
+    expandProgressPages: true,            // load User Progress pages in a hidden iframe to expand dropdowns / "Load more"
+    expandTimeoutMs:  10000,              // max time to spend expanding each progress page
+    pageScanCap:      80,                 // max content pages to fetch when scanning
+    quicklinkResolveCap: 150,             // max quicklinks to resolve to their activity id
+    showTopicCounts:  true,               // "3 of 8 complete" / "8 topics"
+    showDescriptions: false,              // show module description under the title
+    includeEmptyModules: false,            // show modules that contain no topics
+    minTileWidth:     200,                // px; tiles wrap based on this
+    openInNewTab:     false,
+    demoMode:         "off",             // "auto" | "on" | "off"
+    debug:            false               // true -> logs version/whoami/route results to the console
+  };
+
+  function dbg(){
+    if (CONFIG.debug && window.console){
+      try { console.log.apply(console, ["[Visual TOC]"].concat([].slice.call(arguments))); } catch(e){}
+    }
+  }
+
+  var root = document.getElementById("vtoc-root");
+  if (!root) return;
+  var headEl  = root.querySelector(".vtoc-head");
+  var gridEl  = root.querySelector(".vtoc-grid");
+  var noteEl  = root.querySelector(".vtoc-note");
+  var demoEl  = root.querySelector(".vtoc-demo");
+  var liveEl  = root.querySelector(".vtoc-sr[aria-live]");
+  function announce(msg){
+    if (!liveEl) return;
+    liveEl.textContent = "";
+    window.setTimeout(function(){ liveEl.textContent = msg; }, 60);
+  }
+
+  /* ---- loading progress ring ---- */
+  var loaderEl = root.querySelector(".vtoc-loader");
+  var idleTimer = null;
+  var progFrac = 0;
+  function setProgress(frac, label){
+    progFrac = Math.max(progFrac, Math.min(1, frac));   // never goes backwards
+    var off = (119.38 * (1 - progFrac)).toFixed(1);
+    var pct = Math.round(progFrac * 100) + "%";
+    var fills = root.querySelectorAll(".vtoc-ring-fill");
+    for (var i=0;i<fills.length;i++) fills[i].style.strokeDashoffset = off;
+    var pcts = root.querySelectorAll(".vtoc-ring-pct");
+    for (var j=0;j<pcts.length;j++) pcts[j].textContent = pct;
+    if (label){ var L = root.querySelector(".vtoc-loader-label"); if (L) L.textContent = label; }
+    bumpIdle();   // progress happened — push the stall timer back
+  }
+  function bumpIdle(){                       // hide the loader only if work truly stalls,
+    if (loaderHidden) return;                // not just because a big course takes a while
+    if (idleTimer) window.clearTimeout(idleTimer);
+    idleTimer = window.setTimeout(loaderDone, 90000);   // > the longest rate-limit pause, so only a true stall trips it
+  }
+  var loaderHidden = false;
+  function loaderDone(){                      // loading finished — remove the % and ring for good
+    if (loaderHidden) return;
+    loaderHidden = true;
+    if (idleTimer) window.clearTimeout(idleTimer);
+    setProgress(1);
+    if (loaderEl) loaderEl.hidden = true;
+  }
+  root.style.setProperty("--vtoc-accent", CONFIG.accentColor);
+  gridEl.style.gridTemplateColumns =
+    "repeat(auto-fill,minmax(" + CONFIG.minTileWidth + "px,1fr))";
+
+  /* ----------------------- helpers ----------------------- */
+  function el(tag, cls){ var n=document.createElement(tag); if(cls) n.className=cls; return n; }
+  function esc(s){ var d=document.createElement("div"); d.textContent=(s==null?"":String(s)); return d.innerHTML; }
+  function stripHtml(s){ var d=document.createElement("div"); d.innerHTML=s||""; return (d.textContent||"").trim(); }
+  function pad2(n){ return (n<10?"0":"")+n; }
+
+  /* --------------------- rate limiting ---------------------
+     D2L meters the API per user per minute and returns the remaining credits in
+     response headers; exceeding it yields 429. Every request goes through here,
+     which (1) reads X-Rate-Limit-Remaining / -Reset on each response, (2) pauses
+     proactively when credits run low so we avoid the limit, and (3) on a 429 honors
+     Retry-After (or falls back to exponential backoff: ~1s, 2s, 4s, 8s …). Same-
+     origin requests can read these headers directly. */
+  var RL = { remaining: Infinity, resetAt: 0 };  // shared across all in-flight calls
+  var RL_FLOOR = 3;                              // start easing off at this many credits
+  var RL_MAX_RETRIES = 6;
+  function sleep(ms){ return new Promise(function(r){ window.setTimeout(r, ms); }); }
+
+  function noteRateHeaders(res){
+    var rem = res.headers.get("X-Rate-Limit-Remaining");
+    if (rem != null && rem !== ""){ var n = parseInt(rem, 10); if (!isNaN(n)) RL.remaining = n; }
+    var reset = res.headers.get("X-Rate-Limit-Reset");
+    if (reset != null && reset !== ""){
+      var s = parseFloat(reset);
+      if (!isNaN(s)){
+        // value is seconds-until-reset (small) or an epoch timestamp (large)
+        RL.resetAt = (s > 1e6) ? (s * 1000) : (Date.now() + Math.max(0, s) * 1000);
+      }
+    }
+  }
+
+  function backoffMs(res, attempt){
+    var ra = res.headers.get("Retry-After");
+    if (ra != null && ra !== ""){
+      var s = parseInt(ra, 10);
+      if (!isNaN(s) && String(s) === ra.trim()) return s * 1000;   // delta-seconds
+      var when = Date.parse(ra);                                   // or an HTTP date
+      if (!isNaN(when)) return Math.max(0, when - Date.now());
+    }
+    var reset = res.headers.get("X-Rate-Limit-Reset");
+    if (reset != null && reset !== ""){ var rs = parseFloat(reset); if (!isNaN(rs) && rs <= 120) return Math.max(500, rs * 1000); }
+    return Math.min(16000, Math.pow(2, attempt) * 1000) + Math.floor(Math.random() * 300); // 1s,2s,4s… + jitter
+  }
+
+  // Proactively wait if we're out of credits and still inside the window.
+  function awaitCredit(){
+    if (RL.remaining > RL_FLOOR) return Promise.resolve();
+    var wait = RL.resetAt - Date.now();
+    if (wait <= 0){ RL.remaining = Infinity; return Promise.resolve(); }  // window rolled over
+    dbg("rate limit low (remaining " + RL.remaining + "); pausing " + wait + "ms");
+    return sleep(Math.min(wait + 100, 65000)).then(function(){ RL.remaining = Infinity; });
+  }
+
+  function getJSON(url){ return rawFetch(url, "json", 0).then(function(r){ return r.json(); }); }
+  function getText(url){ return rawFetch(url, "text", 0).then(function(r){ return r.text(); }); }
+  // Follow redirects (e.g. a quicklink) and report the final resolved URL. HEAD
+  // avoids downloading the target page's body; fall back to GET if HEAD is refused.
+  function resolveFinalUrl(url){
+    return rawFetch(url, "any", 0, "HEAD").then(function(r){ return r.url; })
+      .catch(function(){ return rawFetch(url, "any", 0, "GET").then(function(r){ return r.url; }); });
+  }
+
+  function rawFetch(url, accept, attempt, method){
+    return awaitCredit().then(function(){
+      if (isFinite(RL.remaining)) RL.remaining -= 1;   // optimistic reserve for concurrent callers
+      var hdrs = (accept === "json") ? { "Accept":"application/json" } : {};
+      return fetch(url, { method: method || "GET", credentials:"same-origin", headers:hdrs, redirect:"follow" });
+    }).then(function(res){
+      noteRateHeaders(res);                            // reconcile with authoritative count
+      if (res.status === 429){
+        if (attempt >= RL_MAX_RETRIES) throw new Error(url + " -> 429 (gave up after " + attempt + " retries)");
+        var delay = backoffMs(res, attempt);
+        dbg("429 on " + url + " — backing off " + delay + "ms (retry " + (attempt+1) + ")");
+        return sleep(delay).then(function(){ return rawFetch(url, accept, attempt + 1, method); });
+      }
+      if (!res.ok) throw new Error(url + " -> " + res.status);
+      return res;
+    });
+  }
+
+  /* When this file runs inside a same-origin iframe (the Manage Files deploy),
+     size the host iframe to the content so there's no clipping and no dead
+     space — the widget iframe can be left height-less. Silently no-ops if we're
+     not in a (reachable) frame. */
+  var _fitRAF;
+  function fitFrame(){
+    try {
+      var fe = window.frameElement;          // throws if cross-origin; null if top-level
+      if (!fe) return;
+      var h = Math.ceil(root.getBoundingClientRect().height) + 6;
+      if (h > 0) fe.style.height = h + "px";
+    } catch (e) { /* cross-origin or no frame: leave the iframe's own height */ }
+  }
+  function scheduleFit(){ cancelAnimationFrame(_fitRAF); _fitRAF = requestAnimationFrame(fitFrame); }
+  if (window.ResizeObserver){ try { new ResizeObserver(scheduleFit).observe(root); } catch(e){} }
+  window.addEventListener("resize", scheduleFit);
+
+  /* Resolve the course (org unit) id. Tries, in order:
+     1. the {OrgUnitId} replacement string (works inside a Custom Widget)
+     2. the page / referrer / parent URL (works for iframe-hosted files too)  */
+  function resolveOrgUnitId(){
+    var replaced = "{OrgUnitId}";           // Brightspace substitutes this in widget HTML
+    if (/^\d+$/.test(replaced)) return replaced;
+
+    var hunt = [];
+    try { hunt.push(window.location.href); } catch(e){}
+    try { hunt.push(document.referrer); } catch(e){}
+    try { hunt.push(window.parent.location.href); } catch(e){}  // cross-origin throws; ignored
+
+    var patterns = [
+      /\/d2l\/home\/(\d+)/,
+      /\/d2l\/le\/content\/(\d+)/,
+      /\/content\/enforced\/(\d+)-/,
+      /[?&]ou=(\d+)/
+    ];
+    for (var i=0;i<hunt.length;i++){
+      var src = hunt[i] || "";
+      for (var p=0;p<patterns.length;p++){
+        var m = src.match(patterns[p]);
+        if (m) return m[1];
+      }
+    }
+    return null;
+  }
+
+  /* Negotiate API versions (LE for content, LP for whoami), with safe fallbacks. */
+  function resolveVersions(){
+    return getJSON("/d2l/api/versions/").then(function(list){
+      function pick(code){
+        var v = (list||[]).filter(function(x){ return x && String(x.ProductCode).toLowerCase()===code; })[0];
+        return (v && v.Version) ? v.Version : null;
+      }
+      var le = pick("le"), lp = pick("lp");
+      if (le && lp) return { le:le, lp:lp };
+      throw new Error("versions incomplete");
+    }).catch(function(){
+      // Fall back to the product-specific version routes (LatestVersion each).
+      return Promise.all([
+        getJSON("/d2l/api/le/versions/").catch(function(){ return null; }),
+        getJSON("/d2l/api/lp/versions/").catch(function(){ return null; })
+      ]).then(function(r){
+        return {
+          le: (r[0] && r[0].LatestVersion) ? r[0].LatestVersion : "1.74",
+          lp: (r[1] && r[1].LatestVersion) ? r[1].LatestVersion : "1.47"
+        };
+      });
+    });
+  }
+
+  /* Current student's user id — used for the per-user progress route. */
+  function whoAmI(lp){
+    return getJSON("/d2l/api/lp/"+lp+"/users/whoami").then(function(w){
+      var id = w && (w.Identifier!=null ? w.Identifier : w.UserId);
+      return id!=null ? String(id) : null;
+    }).catch(function(){ return null; });
+  }
+
+  /* Walk every topic under a module (including nested modules). */
+  function eachTopic(mod, fn){
+    (mod.Topics||[]).forEach(fn);
+    (mod.Modules||[]).forEach(function(child){ eachTopic(child, fn); });
+  }
+
+  /* Classify a content topic that links to a graded tool. Returns
+     "Dropbox" | "Quiz" | "Discussion" | null. Uses ActivityType
+     (CONTENTACTIVITYTYPE_T) first, then the TypeIdentifier string as a backstop. */
+  function activityKind(t){
+    switch (t.ActivityType){
+      case 3: return "Dropbox";       // Dropbox / Assignment
+      case 4: return "Quiz";
+      case 5: case 6: return "Discussion";  // DiscussionForum / DiscussionTopic
+    }
+    var ti = String(t.TypeIdentifier || "").toLowerCase();
+    if (ti.indexOf("dropbox") >= 0 || ti.indexOf("assignment") >= 0) return "Dropbox";
+    if (ti.indexOf("quiz") >= 0) return "Quiz";
+    if (ti.indexOf("discuss") >= 0 || ti.indexOf("forum") >= 0) return "Discussion";
+    return null;
+  }
+  function isRequiredTopic(t){
+    // Manual(1) or Auto(2) completion = "required"; None(3)/exempt = optional.
+    return (t.CompletionType === 1 || t.CompletionType === 2) && !t.IsExempt;
+  }
+
+  /* Gather the ids of every visible Dropbox/Quiz/Discussion topic in the course. */
+  function collectActivityTopicIds(modules){
+    var ids = [];
+    modules.forEach(function(m){
+      eachTopic(m, function(t){
+        if (t.IsHidden) return;
+        if (activityKind(t)) ids.push(String(t.TopicId));
+      });
+    });
+    return ids;
+  }
+
+  /* For each activity topic, ask D2L whether THIS student has completed it.
+     content/topics/{topicId}/completions/users/{userId} returns a
+     ContentTopicCompletion whose CompletionDate is set once the student submits
+     the quiz / assignment / discussion (these tools auto-complete on submit).
+     Runs a small concurrency pool so we don't flood the API. Returns a Set of
+     completed topic ids; a failed/unauthorized check just counts as not done. */
+  function fetchActivityCompletions(ver, ou, userId, topicIds){
+    var done = new Set();
+    if (!CONFIG.checkActivities || !userId || !topicIds.length) return Promise.resolve(done);
+    var ids = topicIds.slice(0, 400);          // safety cap for very large shells
+    if (ids.length < topicIds.length) dbg("activity check capped at", ids.length, "of", topicIds.length);
+    var i = 0, CONC = Math.max(1, CONFIG.activityConcurrency || 4);
+    function worker(){
+      if (i >= ids.length) return Promise.resolve();
+      var tid = ids[i++];
+      return getJSON("/d2l/api/le/"+ver+"/"+ou+"/content/topics/"+tid+"/completions/users/"+userId)
+        .then(function(c){ if (c && (c.CompletionDate || c.CompletedDate)) done.add(String(tid)); })
+        .catch(function(){ /* not completed, unauthorized, or gave up after retries */ })
+        .then(worker);
+    }
+    var pool = [];
+    for (var k = 0; k < Math.min(CONC, ids.length); k++) pool.push(worker());
+    return Promise.all(pool).then(function(){
+      dbg("activity completions: checked", ids.length, "| submitted", done.size);
+      return done;
+    });
+  }
+
+  /* ============ EMBEDDED ACTIVITIES (links inside HTML content pages) ============
+     Instructors sometimes drop a quiz/dropbox/discussion quicklink *inside* an HTML
+     page rather than adding it as its own content topic. Those have no content-topic
+     completion, so we read submission status from the student's own User Progress
+     detail pages (same-origin HTML), which list each activity with the student's
+     Threads Created / Files Submitted / Attempts. Flow (the two reads run in parallel):
+       1. discoverEmbedded   -> scan each page, resolve its quicklinks to activity ids
+       2. fetchSubmissionMaps -> parse the 3 Details pages into id -> submitted
+       3. applyEmbedded       -> match discovered ids against the maps, tally per module
+     This relies on D2L's rendered HTML, so it's best-effort and heavily logged. */
+
+  function norm(s){ return String(s==null?"":s).toLowerCase().replace(/\s+/g," ").trim(); }
+  function firstInt(s){ var m = String(s||"").match(/\d+/); return m ? parseInt(m[0],10) : null; }
+  function anyPositiveInt(s){ var m = String(s||"").match(/\d+/g); if(!m) return false; for(var i=0;i<m.length;i++){ if(parseInt(m[i],10)>0) return true; } return false; }
+  function absUrl(u){
+    if (!u) return null;
+    try { var a = new URL(u, window.location.href); return (a.origin === window.location.origin) ? a.href : null; }
+    catch(e){ return null; }
+  }
+
+  // Pull a {type,id} out of a *resolved* activity URL.
+  function idFromActivityUrl(url){
+    var u = String(url||"");
+    var m;
+    if ((m = u.match(/\/discussions\/topics\/(\d+)/i)))      return { type:"Discussion", id:m[1] };
+    if ((m = u.match(/[?&]db=(\d+)/i)))                        return { type:"Dropbox",    id:m[1] };
+    if ((m = u.match(/[?&]qi=(\d+)/i)))                        return { type:"Quiz",       id:m[1] };
+    return null;
+  }
+  // The quicklink itself only tells us the type; the id needs the resolved URL.
+  function typeFromQuicklink(href){
+    var m = String(href||"").match(/[?&]type=([a-z]+)/i);
+    if (!m) return null;
+    var t = m[1].toLowerCase();
+    if (t.indexOf("quiz") >= 0) return "Quiz";
+    if (t.indexOf("dropbox") >= 0 || t.indexOf("assign") >= 0) return "Dropbox";
+    if (t.indexOf("disc") >= 0 || t.indexOf("fora") >= 0) return "Discussion";
+    return null;
+  }
+
+  /* Parse one User Progress "Details" page into { activityId: submitted(bool) }.
+     linkSel/idRe locate each activity and its id; countLabels names the column that
+     means "did something" (Threads Created / Files Submitted / Attempts). */
+  function parseProgressPage(html, linkSel, idRe, countLabels){
+    var map = {};
+    var doc;
+    try { doc = new DOMParser().parseFromString(html, "text/html"); } catch(e){ return map; }
+
+    function record(id, submitted){ if (id!=null){ id=String(id); map[id] = !!map[id] || !!submitted; } }
+
+    var tables = doc.querySelectorAll("table");
+    for (var ti=0; ti<tables.length; ti++){
+      var tbl = tables[ti];
+      // map the "count" column from the header row
+      var ths = tbl.querySelectorAll("th");
+      var colIdx = -1;
+      for (var h=0; h<ths.length && colIdx<0; h++){
+        var ht = norm(ths[h].textContent);
+        for (var c=0;c<countLabels.length;c++){ if (ht.indexOf(countLabels[c])>=0){ colIdx = h; break; } }
+      }
+      var rows = tbl.querySelectorAll("tr");
+      for (var r=0; r<rows.length; r++){
+        var link = rows[r].querySelector(linkSel);
+        if (!link) continue;
+        var mm = (link.getAttribute("href")||"").match(idRe);
+        if (!mm) continue;
+        var cells = rows[r].querySelectorAll("td");
+        var submitted;
+        if (colIdx>=0 && cells[colIdx]) submitted = firstInt(cells[colIdx].textContent) > 0;
+        else submitted = linkSubmitted(link, linkSel, idRe, countLabels);   // per-item read
+        record(mm[1], submitted);
+      }
+    }
+    // Also scan every matching link anywhere (D2L's expanded/lazy content is often
+    // web-component/div based, not a <table>). Don't overwrite a table-derived value.
+    var links = doc.querySelectorAll(linkSel);
+    for (var li=0; li<links.length; li++){
+      var mr = (links[li].getAttribute("href")||"").match(idRe);
+      if (!mr) continue;
+      if (String(mr[1]) in map) continue;
+      record(mr[1], linkSubmitted(links[li], linkSel, idRe, countLabels));
+    }
+    return map;
+  }
+
+  // Read "<label>: <number>" from a text blob; number must come right after the
+  // label, so a different item's number can't bleed in. Returns true/false, or
+  // null if the label isn't present at all.
+  function labeledValue(text, labels){
+    var t = norm(text);
+    for (var c=0;c<labels.length;c++){
+      var idx = t.indexOf(labels[c]);
+      if (idx >= 0){
+        var after = t.slice(idx + labels[c].length);
+        var m = after.match(/\d+/);
+        return m ? (parseInt(m[0],10) > 0) : false;
+      }
+    }
+    return null;
+  }
+  function hostOf(n){ try { var r = n.getRootNode && n.getRootNode(); return (r && r.host) || null; } catch(e){ return null; } }
+
+  // Decide submission for ONE activity link. Walk up while the scope still covers a
+  // single activity id (a same-id "Details" link is fine; a second, different
+  // activity stops the walk), keeping the labeled count from the widest such scope.
+  function linkSubmitted(link, linkSel, idRe, labels){
+    var node = link, guard = 0;
+    while (node && guard++ < 12){
+      var distinct = 0;
+      try {
+        var ids = {}, ls = node.querySelectorAll(linkSel);
+        for (var j=0;j<ls.length;j++){ var mm = (ls[j].getAttribute("href")||"").match(idRe); if (mm) ids[mm[1]] = 1; }
+        distinct = Object.keys(ids).length;
+      } catch(e){}
+      if (distinct > 1) break;                 // scope now spans another activity; stop
+      var v = null;
+      try { v = labeledValue(node.textContent, labels); } catch(e){}
+      if (v !== null) return v;                 // narrowest single-activity scope with the label
+      node = node.parentElement || hostOf(node);
+    }
+    return false;
+  }
+
+  // Collect elements matching `selector` across a root, every web-component shadow
+  // root, AND every nested same-origin iframe (querySelectorAll crosses neither).
+  function deepQueryAll(root, selector){
+    var out = [], guard = 0;
+    function visit(node){
+      if (!node || !node.querySelectorAll || guard++ > 4000) return;
+      try { node.querySelectorAll(selector || "*").forEach(function(e){ out.push(e); }); } catch(e){}
+      var kids; try { kids = node.querySelectorAll("*"); } catch(e){ kids = []; }
+      for (var i=0;i<kids.length;i++){
+        if (kids[i].shadowRoot) visit(kids[i].shadowRoot);
+        if (kids[i].tagName === "IFRAME" || kids[i].tagName === "FRAME"){
+          var d = null; try { d = kids[i].contentDocument; } catch(e){}   // cross-origin throws
+          if (d) visit(d);
+        }
+      }
+    }
+    visit(root);
+    return out;
+  }
+
+  // Build an id->submitted map from a LIVE document (pierces shadow DOM).
+  function extractFromLiveDoc(doc, linkSel, idRe, labels){
+    var map = {};
+    if (!doc) return map;
+    var links = deepQueryAll(doc, linkSel);
+    for (var i=0;i<links.length;i++){
+      var href = links[i].getAttribute("href") || "";
+      var m = href.match(idRe); if (!m) continue;
+      var id = String(m[1]);
+      var submitted = linkSubmitted(links[i], linkSel, idRe, labels);
+      map[id] = !!map[id] || submitted;
+    }
+    return map;
+  }
+
+  /* Load a same-origin page in a hidden, sandboxed iframe so D2L's own JavaScript
+     runs, expand collapsed sections / "Load more" (across shadow DOM) until the DOM
+     stops growing, then run extractFn against the LIVE document. The sandbox allows
+     scripts + same-origin (session and AJAX work) but NOT top navigation, so a
+     frame-busting page can't redirect the homepage. Resolves null on failure. */
+  function expandAndExtract(url, extractFn){
+    return new Promise(function(resolve){
+      var iframe = document.createElement("iframe");
+      iframe.setAttribute("aria-hidden","true");
+      iframe.setAttribute("sandbox","allow-scripts allow-same-origin");
+      iframe.style.cssText = "position:absolute;left:-9999px;top:-9999px;width:1280px;height:1400px;border:0;visibility:hidden;";
+      var settled = false, started = Date.now();
+      var MAX_MS = CONFIG.expandTimeoutMs || 16000;
+
+      function finish(){
+        if (settled) return; settled = true;
+        var result = null;
+        try { result = extractFn(iframe.contentDocument); } catch(e){}
+        dbg("iframe expand:", url.split("/").slice(-2).join("/"), "— clicks:", totalClicks);
+        try { iframe.parentNode && iframe.parentNode.removeChild(iframe); } catch(e){}
+        resolve(result);
+      }
+      var totalClicks = 0;
+      function isToggle(b){
+        try {
+          var tag = b.tagName || "";
+          if (tag === "BUTTON" || b.getAttribute("role") === "button") return true;
+          if (b.hasAttribute && (b.hasAttribute("aria-expanded") || b.hasAttribute("aria-controls"))) return true;
+          if (/^D2L-/i.test(tag)) return true;                 // d2l web components
+          if (tag === "A"){ var h = b.getAttribute("href")||""; return !h || h === "#" || /^javascript:/i.test(h); }
+        } catch(e){}
+        return false;
+      }
+      function pump(iter){
+        if (settled) return;
+        if (Date.now() - started > MAX_MS || iter > 40) return finish();
+        var doc;
+        try { doc = iframe.contentDocument; } catch(e){ return finish(); }  // cross-origin / busted
+        if (!doc || !doc.body) return window.setTimeout(function(){ pump(iter+1); }, 300);
+        var clicked = 0;
+        try {
+          var all = deepQueryAll(doc);   // includes shadow DOM + nested iframes
+          for (var i=0;i<all.length;i++){
+            var b = all[i];
+            try {
+              if (b.__vtocDone) continue;                       // never click the same control twice
+              var ariaExp = b.getAttribute && b.getAttribute("aria-expanded");
+              if (ariaExp === "true") continue;                 // already open — leave it (don't collapse)
+              if (b.tagName === "DETAILS"){ if (!b.open){ b.__vtocDone = true; b.open = true; clicked++; } continue; }
+              if (ariaExp === "false"){ b.__vtocDone = true; b.click(); clicked++; continue; }
+              // controls without an expanded-state: match by label, click once
+              var t = norm((b.textContent||"")) + " " + norm(b.getAttribute && (b.getAttribute("aria-label")||b.getAttribute("text")||""));
+              if (!t) continue;
+              var wants = /load more|show more|view more|see more|more results|show all|expand all|view topics|show topics/.test(t)
+                          || /\b\d+\s*topics?\b/.test(t);       // per-forum "# Topics" dropdown
+              if (wants && isToggle(b)){ b.__vtocDone = true; b.click(); clicked++; }
+            } catch(e){}
+          }
+        } catch(e){}
+        totalClicks += clicked;
+        window.setTimeout(function(){
+          if (clicked > 0) pump(iter+1);
+          else window.setTimeout(finish, 1200);   // settle: let the last AJAX render before scraping
+        }, 850);
+      }
+      iframe.onload  = function(){ window.setTimeout(function(){ pump(0); }, 600); };
+      iframe.onerror = finish;
+      try { iframe.src = url; document.body.appendChild(iframe); }
+      catch(e){ return resolve(null); }
+      window.setTimeout(finish, MAX_MS + 2500);   // absolute backstop
+    });
+  }
+
+  function mergeMaps(a, b){
+    var out = {}, k;
+    for (k in a) out[k] = !!a[k];
+    for (k in b) out[k] = !!out[k] || !!b[k];
+    return out;
+  }
+  // Parse the static render, AND extract from the live expanded iframe DOM, then
+  // union. Static reliably carries server-rendered rows (quizzes, assignments);
+  // the iframe adds anything behind dropdowns / "Load more" / shadow DOM (discussions).
+  function mapForPage(url, linkSel, idRe, labels){
+    var s = getText(url).catch(function(){ return ""; })
+              .then(function(html){ return parseProgressPage(html, linkSel, idRe, labels); });
+    var x = CONFIG.expandProgressPages
+              ? expandAndExtract(absUrl(url) || url, function(doc){ return extractFromLiveDoc(doc, linkSel, idRe, labels); })
+                  .then(function(m){ return m || {}; }).catch(function(){ return {}; })
+              : Promise.resolve({});
+    return Promise.all([s, x]).then(function(r){
+      dbg("  ", url.split("/").slice(-2).join("/"), "— static:", Object.keys(r[0]).length, "expanded:", Object.keys(r[1]).length);
+      return mergeMaps(r[0], r[1]);
+    });
+  }
+
+  // D2L "partial render" responses look like  while(1);{ ... "Payload":{"Html":"..."} }.
+  // Strip the guard prefix and pull the inner HTML out.
+  function d2lPartialHtml(text){
+    if (!text) return "";
+    var i = text.indexOf("{");
+    if (i < 0) return "";
+    var j; try { j = JSON.parse(text.slice(i)); } catch(e){ return ""; }
+    try { return (j.Payload && j.Payload.Html) || ""; } catch(e){ return ""; }
+  }
+
+  /* The Discussions Progress page hides each forum's topics behind a "# Topics"
+     toggle that, when opened, calls a D2L partial-render endpoint returning the
+     topic rows (each with its "Threads Created" count). Those endpoint URLs are
+     embedded in the page, so we read them straight from the static HTML and fetch
+     them directly — no clicking needed. Returns { topicId: submitted }. */
+  function discussionMapViaRpc(ou, userId, staticHtml){
+    var map = {};
+    if (!staticHtml) return Promise.resolve(map);
+    var hay = staticHtml.replace(/\\u0026/gi, "&").replace(/&amp;/g, "&").replace(/\\\//g, "/");
+    var re  = new RegExp("/d2l/le/userprogress/" + userId + "/" + ou + "/discussions/[A-Za-z]\\w*\\?[^\"'\\\\\\s<>]+", "g");
+    var seen = {}, m;
+    while ((m = re.exec(hay))){
+      var u = m[0];
+      if (/\/discussions\/details\?/i.test(u)) continue;     // skip the page itself
+      seen[u] = 1;
+    }
+    var urls = Object.keys(seen).slice(0, 120);
+    dbg("discussion RPC partials found:", Object.keys(seen).length, urls[0] ? ("e.g. " + urls[0]) : "");
+    if (!urls.length) return Promise.resolve(map);
+    var i = 0, CONC = Math.max(1, CONFIG.activityConcurrency || 4);
+    function worker(){
+      if (i >= urls.length) return Promise.resolve();
+      var u = urls[i++];
+      return getText(u).then(function(text){
+        var html = d2lPartialHtml(text);
+        if (html){
+          var sub = parseProgressPage(html, 'a[href*="/discussions/topics/"]', /\/discussions\/topics\/(\d+)/i, ["threads created","threads","thread"]);
+          for (var k in sub){ map[k] = !!map[k] || sub[k]; }
+        }
+      }).catch(function(){}).then(worker);
+    }
+    var pool = [];
+    for (var k2=0; k2<Math.min(CONC, urls.length); k2++) pool.push(worker());
+    return Promise.all(pool).then(function(){ return map; });
+  }
+
+  function fetchSubmissionMaps(ou, userId){
+    var base = "/d2l/le/userprogress/" + userId + "/" + ou + "/";
+    var DSEL = 'a[href*="/discussions/topics/"]', DRE = /\/discussions\/topics\/(\d+)/i, DLAB = ["threads created","threads","thread"];
+    var discUrl = base + "Discussions/Details";
+
+    // Discussions: static page ∪ RPC topic partials (the forum "# Topics" dropdowns
+    // are read straight from their partial-render endpoints, so no iframe needed).
+    var disc = getText(discUrl).catch(function(){ return ""; }).then(function(staticHtml){
+      var mStatic = parseProgressPage(staticHtml, DSEL, DRE, DLAB);
+      return discussionMapViaRpc(ou, userId, staticHtml).then(function(rpc){
+        dbg("   Discussions/Details — static:", Object.keys(mStatic).length, "rpc:", Object.keys(rpc).length);
+        return mergeMaps(mStatic, rpc);
+      });
+    });
+
+    return Promise.all([
+      disc,
+      mapForPage(base+"Assignments/Details", 'a[href*="folder_submit_files"]', /[?&]db=(\d+)/i, ["files submitted","submissions","submitted"]),
+      mapForPage(base+"Quizzes/Details",     'a[href*="quiz_summary"]',        /[?&]qi=(\d+)/i, ["attempts","attempt","completed"])
+    ]).then(function(m){
+      var maps = { Discussion:m[0], Dropbox:m[1], Quiz:m[2] };
+      function done(o){ var n=0,k; for(k in o){ if(o[k]) n++; } return n; }
+      dbg("submission maps — Discussion:", Object.keys(maps.Discussion).length, "("+done(maps.Discussion)+" done)",
+          "| Dropbox:", Object.keys(maps.Dropbox).length, "("+done(maps.Dropbox)+" done)",
+          "| Quiz:", Object.keys(maps.Quiz).length, "("+done(maps.Quiz)+" done)");
+      return maps;
+    });
+  }
+
+  // HTML content-page topics (uploaded .html files, or HTML-editor pages).
+  function collectHtmlPages(modules){
+    var pages = [];
+    modules.forEach(function(m){
+      var mid = String(m.ModuleId);
+      eachTopic(m, function(t){
+        if (t.IsHidden) return;
+        var url = absUrl(t.Url);
+        if (!url) return;
+        var ti = String(t.TypeIdentifier||"").toLowerCase();
+        var isHtml = /\.html?($|\?|#)/i.test(url) || ti === "contentservice" || ti === "html";
+        if (isHtml) pages.push({ moduleId:mid, url:url });
+      });
+    });
+    return pages;
+  }
+
+  // Ids of activities already linked directly as content topics (to avoid double counting).
+  function collectTopicActivityIds(modules){
+    var ids = new Set();
+    modules.forEach(function(m){
+      eachTopic(m, function(t){
+        if (activityKind(t) && t.ToolItemId != null) ids.add(String(t.ToolItemId));
+      });
+    });
+    return ids;
+  }
+
+  /* Discover embedded activities by scanning pages and resolving their quicklinks.
+     Returns { moduleId: [ {type,id} ] } (deduped, excluding direct topics). This does
+     no submission lookups, so it can run in parallel with fetchSubmissionMaps. */
+  function discoverEmbedded(ver, ou, pages, topicActivityIds, onProgress){
+    var byModule = {};
+    if (!CONFIG.scanPageLinks || !pages.length) return Promise.resolve(byModule);
+    var list = pages.slice(0, CONFIG.pageScanCap || 80);
+    if (list.length < pages.length) dbg("page scan capped at", list.length, "of", pages.length, "pages");
+    var resolveBudget = CONFIG.quicklinkResolveCap || 150;
+    var seenGlobal = {};   // dedupe identical quicklinks across pages: href -> {type,id}
+
+    function add(mid, type, id){
+      if (topicActivityIds.has(String(id))) return;            // already a direct topic
+      var arr = byModule[mid] || (byModule[mid] = []);
+      var key = type + "|" + id;
+      for (var z=0; z<arr.length; z++){ if (arr[z]._k === key) return; }   // dedupe within module
+      arr.push({ type:type, id:String(id), _k:key });
+    }
+    function resolveLink(href, hintType){
+      var direct = idFromActivityUrl(href);
+      if (direct) return Promise.resolve(direct);
+      if (seenGlobal[href] !== undefined) return Promise.resolve(seenGlobal[href]);
+      if (resolveBudget <= 0) return Promise.resolve(null);
+      resolveBudget--;
+      var abs = absUrl(href);
+      if (!abs) return Promise.resolve(null);
+      return resolveFinalUrl(abs).then(function(finalUrl){
+        var info = idFromActivityUrl(finalUrl) || (hintType ? { type:hintType, id:null } : null);
+        seenGlobal[href] = info; return info;
+      }).catch(function(){ seenGlobal[href] = null; return null; });
+    }
+
+    var i = 0, done = 0, CONC = Math.max(1, CONFIG.scanConcurrency || 8);
+    function worker(){
+      if (i >= list.length) return Promise.resolve();
+      var p = list[i++];
+      return getText(p.url).then(function(html){
+        var doc = new DOMParser().parseFromString(html, "text/html");
+        var nodes = doc.querySelectorAll('a[href], iframe[src]');
+        var jobs = [];
+        for (var n=0; n<nodes.length; n++){
+          var href = nodes[n].getAttribute("href") || nodes[n].getAttribute("src") || "";
+          var isQuick = /quicklink\.d2l/i.test(href);
+          var hintType = isQuick ? typeFromQuicklink(href) : null;
+          if (!hintType && !idFromActivityUrl(href)) continue;  // not an activity link
+          (function(h, ht){
+            jobs.push(resolveLink(h, ht).then(function(info){
+              if (info && info.id != null){ var type = info.type || ht; if (type) add(p.moduleId, type, info.id); }
+            }));
+          })(href, hintType);
+        }
+        return Promise.all(jobs);
+      }).catch(function(){ /* page not fetchable; skip */ })
+        .then(function(){ if (onProgress) onProgress(++done, list.length); return worker(); });
+    }
+    var pool = [];
+    for (var k=0; k<Math.min(CONC, list.length); k++) pool.push(worker());
+    return Promise.all(pool).then(function(){ return byModule; });
+  }
+
+  /* Apply submission maps to discovered embedded activities -> per-module tallies. */
+  function applyEmbedded(discovered, maps){
+    var byModule = {}, found = 0, embDone = 0;
+    for (var mid in discovered){
+      var t = { Discussion:{found:0,done:0}, Dropbox:{found:0,done:0}, Quiz:{found:0,done:0} };
+      discovered[mid].forEach(function(a){
+        if (!t[a.type]) return;
+        var sub = maps[a.type] && maps[a.type][a.id];
+        t[a.type].found++; found++;
+        if (sub){ t[a.type].done++; embDone++; }
+      });
+      byModule[mid] = t;
+    }
+    dbg("embedded scan: found", found, "embedded activities,", embDone, "submitted");
+    return byModule;
+  }
+
+  /* >>> PROGRESS SOURCE <<<
+     Per-module completed/required counts for the calling student.
+
+     Primary route: content/completions/mycount/?level=2 — D2L's own roll-up of
+     completed and required topics for the current user, one ContentAggregateCompletion
+     row per root module { ObjectId (module id), RequiredItems, CompletedItems }.
+     The level parameter is REQUIRED (2 = RootModule, 1 = OrgUnit/whole course);
+     omitting it returns 400 "Invalid level". Needs no API key and no special
+     permission beyond viewing your own progress.
+
+     Fallback: content/completions/?userIdsCSV={userId} — ContentLearnerProgress,
+     which gives the course total only (no per-module breakdown).
+
+     (The content/userprogress/ routes are intentionally not used: D2L returns 404
+     for them on many tenants, including this one.)
+
+     Returns { byModule:{ id:{completed,required} }, overall:{completed,required}|null,
+     available:true } or null if nothing usable came back. Set CONFIG.debug = true
+     to log which route answered and what it contained.                            */
+  function fetchProgress(ver, ou, userId){
+    if (!CONFIG.showProgress) return Promise.resolve(null);
+    var base = "/d2l/api/le/"+ver+"/"+ou;
+
+    // 1) Per-module roll-up (level=2). Best result: fills every tile.
+    return getAllRows(base+"/content/completions/mycount/?level=2").then(function(rows){
+      var p = aggregateFromRows(rows);
+      if (p && Object.keys(p.byModule).length){
+        dbg("progress OK: mycount level=2 | modules:", Object.keys(p.byModule).length);
+        return p;
+      }
+      dbg("mycount level=2 had no per-module rows; trying level=1");
+      // 2) Whole-course roll-up (level=1): overall % only.
+      return getAllRows(base+"/content/completions/mycount/?level=1").then(function(rows1){
+        var p1 = aggregateFromRows(rows1);
+        if (p1 && (p1.overall || Object.keys(p1.byModule).length)){
+          dbg("progress OK: mycount level=1 | overall:", p1.overall);
+          return p1;
+        }
+        // 3) ContentLearnerProgress for the calling user: overall % only.
+        if (!userId) return null;
+        return getJSON(base+"/content/completions/?userIdsCSV="+encodeURIComponent(userId)).then(function(d){
+          var lp = parseLearnerProgress(d);
+          dbg("progress via userIdsCSV | overall:", lp && lp.overall);
+          return lp;
+        }).catch(function(err){ dbg("userIdsCSV failed:", String(err)); return null; });
+      });
+    }).catch(function(err){ dbg("mycount level=2 failed:", String(err)); return null; });
+  }
+
+  function asNum(x){ var n = (x==null) ? NaN : Number(x); return isFinite(n) ? n : null; }
+
+  /* D2L hands list data back two ways: an ObjectListPage { Next, Objects:[...] }
+     or a bare array / PagedResultSet { Items:[...] }. Pull the array from any. */
+  function rowsOf(data){
+    if (!data) return null;
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data.Objects)) return data.Objects;   // ObjectListPage
+    if (Array.isArray(data.Items))   return data.Items;     // PagedResultSet
+    return null;
+  }
+
+  /* Fetch every page of an ObjectListPage, following the Next links, and return
+     all rows concatenated. Rejects only if the very first request fails. */
+  function getAllRows(url){
+    var acc = [];
+    function step(u, guard, first){
+      return getJSON(u).then(function(data){
+        var rows = rowsOf(data);
+        if (first && (!rows || !rows.length)){
+          dbg("getAllRows: no rows from", u, "| raw:", JSON.stringify(data).slice(0, 1500));
+        }
+        if (rows) acc = acc.concat(rows);
+        var next = data && data.Next;
+        return (next && guard > 0) ? step(next, guard-1, false) : acc;
+      });
+    }
+    return step(url, 25, true);   // up to 26 pages; ample for any course
+  }
+
+  /* ContentAggregateCompletion rows -> per-module (and/or course) counts. */
+  function aggregateFromRows(rows){
+    if (!rows || !rows.length) return null;
+    var byModule = {}, overall = null, any = false;
+    rows.forEach(function(r){
+      if (!r || typeof r !== "object") return;
+      var req = asNum(r.RequiredItems), done = asNum(r.CompletedItems);
+      if (req == null && done == null) return;       // not an aggregate row
+      any = true;
+      var entry = { completed: done||0, required: req||0 };
+      var oid = r.ObjectId;
+      if (oid == null || Number(oid) === 0) overall = entry;   // course-level roll-up
+      else byModule[String(oid)] = entry;                      // per root module
+    });
+    return any ? { byModule:byModule, overall:overall, available:true } : null;
+  }
+
+  /* ContentLearnerProgress -> course total only. */
+  function parseLearnerProgress(data){
+    var rows = rowsOf(data) || (data && typeof data === "object" ? [data] : null);
+    if (!rows) return null;
+    var row = rows.filter(function(r){ return r && (r.RequiredItems!=null || r.CompletedItems!=null); })[0];
+    if (!row) return null;
+    return { byModule:{}, overall:{ completed:asNum(row.CompletedItems)||0, required:asNum(row.RequiredItems)||0 }, available:true };
+  }
+
+  /* ----------------------- render ----------------------- */
+  function showNote(html){ noteEl.innerHTML = html; noteEl.hidden = false; scheduleFit(); }
+
+  function renderSkeletons(n){
+    gridEl.setAttribute("aria-busy","true");
+    gridEl.innerHTML = "";
+    for (var i=0;i<n;i++){ var sk=el("div","vtoc-skel"); sk.setAttribute("aria-hidden","true"); gridEl.appendChild(sk); }
+  }
+
+  function moduleLink(ou, moduleId){
+    return "/d2l/le/content/"+ou+"/Home?itemIdentifier=" +
+           "D2L.LE.Content.ContentObject.ModuleCO-"+moduleId;
+  }
+
+  function bdRow(label, done, total, dotColor){
+    var row = el("span", "vtoc-bd-row" + (total > 0 && done >= total ? " is-line-done" : ""));
+    row.style.setProperty("--bd", dotColor);
+    row.appendChild(el("span","vtoc-bd-dot"));
+    var lab = el("span","vtoc-bd-label"); lab.textContent = label + ":"; row.appendChild(lab);
+    var val = el("span","vtoc-bd-val"); val.textContent = done + " of " + total; row.appendChild(val);
+    return row;
+  }
+  var BD_COLORS = { Discussion:"#7a59a8", Dropbox:"#a8531f", Quiz:"#2f7d8c" };  // Dropbox = --vtoc-resume
+
+  /* activities: a Set of completed activity-topic ids, or null if that check
+     hasn't run yet (first paint) — in which case tiles show the plain total. */
+  function render(modules, ou, progress, activities, embedded){
+    // Preserve keyboard focus across the two-phase re-render.
+    var refocus = -1, ae = document.activeElement;
+    if (ae && gridEl.contains(ae)){
+      var cur = gridEl.querySelectorAll(".vtoc-card");
+      for (var ci=0; ci<cur.length; ci++){ if (cur[ci]===ae){ refocus = ci; break; } }
+    }
+    gridEl.innerHTML = "";
+    gridEl.setAttribute("aria-busy","false");
+    var P = (CONFIG.showProgress && progress && progress.available) ? progress : null;
+    var grandReq = 0, grandDone = 0, sawCounts = false, shown = 0;
+
+    modules.forEach(function(mod, i){
+      if (mod.IsHidden) return;
+
+      var rootId = String(mod.ModuleId);
+      var mc = P ? P.byModule[rootId] : null;     // real counts for this module?
+
+      var mcReq, mcDone, withProgress;
+      if (mc){
+        mcReq = mc.required;
+        mcDone = Math.min(mc.completed, mc.required); // optional/hidden completions can exceed required
+        withProgress = true;
+      } else {
+        mcReq = 0;
+        eachTopic(mod, function(t){
+          if (t.IsHidden) return;
+          if (t.IsExempt || t.CompletionType === 3) return; // exempt / optional
+          mcReq++;
+        });
+        mcDone = 0;
+        withProgress = false;
+      }
+
+      // Embedded activities (quicklinks inside pages) are real items too, so fold
+      // them into the module totals: the completion % counts content + embedded.
+      var emb = embedded && embedded[rootId];
+      var embFound = 0, embDone = 0;
+      if (emb){
+        ["Discussion","Dropbox","Quiz"].forEach(function(k){
+          if (emb[k]){ embFound += emb[k].found; embDone += emb[k].done; }
+        });
+      }
+      var required = mcReq + (withProgress ? embFound : 0);
+      var done = Math.min(mcDone + (withProgress ? embDone : 0), required);
+
+      if (!CONFIG.includeEmptyModules && required === 0) return;
+
+      if (withProgress){ grandReq += required; grandDone += done; sawCounts = true; }
+      var pct = required ? Math.round((done/required)*100) : 0;
+      var isDone = withProgress && required > 0 && done >= required;
+
+      // Tally Dropbox/Quiz/Discussion topics (and split them out of "Content").
+      var showBreakdown = withProgress && CONFIG.checkActivities && activities;
+      var T, contentReq = 0, contentDone = mcDone, activityCount = 0;
+      if (showBreakdown){
+        T = { Discussion:{found:0,req:0,done:0,reqDone:0},
+              Dropbox:{found:0,req:0,done:0,reqDone:0},
+              Quiz:{found:0,req:0,done:0,reqDone:0} };
+        eachTopic(mod, function(t){
+          if (t.IsHidden) return;
+          var req  = isRequiredTopic(t);
+          var kind = activityKind(t);
+          if (kind){
+            var s = T[kind]; s.found++; activityCount++;
+            var c = activities.has(String(t.TopicId));
+            if (c) s.done++;
+            if (req){ s.req++; if (c) s.reqDone++; }
+          } else if (req){
+            contentReq++;
+          }
+        });
+        var specialReqDone = T.Discussion.reqDone + T.Dropbox.reqDone + T.Quiz.reqDone;
+        contentDone = Math.max(0, Math.min(mcDone - specialReqDone, contentReq));  // content topics only (excludes embedded)
+
+        // Embedded activities also add to their per-type breakdown lines.
+        if (emb){
+          ["Discussion","Dropbox","Quiz"].forEach(function(k){
+            if (emb[k]){ T[k].found += emb[k].found; T[k].done += emb[k].done; activityCount += emb[k].found; }
+          });
+        }
+      }
+
+      var card = el("a", "vtoc-card" + (isDone ? " is-done" : ""));
+      card.href = moduleLink(ou, mod.ModuleId);
+      // _top breaks out of the widget iframe so the module opens in the full window.
+      card.target = CONFIG.openInNewTab ? "_blank" : "_top";
+      card.style.setProperty("--mc", mod.Color || CONFIG.accentColor);
+      card.style.setProperty("--i", String(shown));
+
+      var spine = el("span","vtoc-spine");
+      spine.setAttribute("aria-hidden","true");           // decorative; progress is also in text
+      var fill  = el("span","vtoc-spine-fill");
+      fill.style.height = (withProgress ? pct : 0) + "%";
+      spine.appendChild(fill); card.appendChild(spine);
+
+      var body = el("span","vtoc-body");
+
+      var title = el("span","vtoc-title");
+      title.textContent = mod.Title || "Untitled module";
+      body.appendChild(title);
+
+      if (CONFIG.showDescriptions && mod.Description){
+        var dtxt = stripHtml(mod.Description.Html || mod.Description.Text || "");
+        if (dtxt){ var d=el("span","vtoc-desc"); d.textContent=dtxt; body.appendChild(d); }
+      }
+
+      if (showBreakdown && (contentReq > 0 || activityCount > 0)){
+        var bd = el("span","vtoc-bd");
+        if (contentReq > 0) bd.appendChild(bdRow("Content", contentDone, contentReq, "var(--mc, var(--vtoc-accent))"));
+        if (T.Discussion.found) bd.appendChild(bdRow("Discussion", T.Discussion.done, T.Discussion.found, BD_COLORS.Discussion));
+        if (T.Dropbox.found)    bd.appendChild(bdRow("Dropbox",    T.Dropbox.done,    T.Dropbox.found,    BD_COLORS.Dropbox));
+        if (T.Quiz.found)       bd.appendChild(bdRow("Quiz",       T.Quiz.done,       T.Quiz.found,       BD_COLORS.Quiz));
+        body.appendChild(bd);
+      } else {
+        var count = el("span","vtoc-count");
+        if (withProgress){ count.textContent = done + " of " + required + " complete"; }
+        else if (CONFIG.showTopicCounts && required){ count.textContent = required + " topic" + (required===1?"":"s"); }
+        body.appendChild(count);
+      }
+
+      var foot = el("span","vtoc-foot");
+      var isResume = withProgress && !isDone && done > 0;
+      var cta = el("span","vtoc-cta" + (isResume ? " is-resume" : ""));
+      var ctaWord = withProgress ? (isDone ? "Review" : (isResume ? "Resume" : "Start")) : "Open";
+      cta.appendChild(document.createTextNode(ctaWord));
+      var sr = el("span","vtoc-sr"); sr.textContent = " module"; cta.appendChild(sr); // "Resume module"
+      var arrow = el("span"); arrow.setAttribute("aria-hidden","true"); arrow.textContent = " →";
+      cta.appendChild(arrow);
+      foot.appendChild(cta);
+      body.appendChild(foot);
+
+      card.appendChild(body);
+
+      if (isDone){ var b=el("span","vtoc-badge"); b.textContent="✓"; b.setAttribute("aria-hidden","true"); card.appendChild(b); }
+
+      // The link's accessible name is its visible text (title + breakdown + action),
+      // so screen-reader and visual users get the same information and "Label in
+      // Name" holds. No aria-label override.
+      var item = el("div","vtoc-item");
+      item.setAttribute("role","listitem");
+      item.appendChild(card);
+      gridEl.appendChild(item);
+      shown++;
+    });
+
+    if (refocus >= 0){
+      var nc = gridEl.querySelectorAll(".vtoc-card");
+      if (nc[refocus]) nc[refocus].focus();
+    }
+
+    if (shown === 0){
+      showNote("No modules are available yet. Check back once your instructor publishes course content.");
+      return;
+    }
+
+    // header — overall completion (course-level row if present, else summed modules)
+    root.querySelector(".vtoc-heading").textContent = CONFIG.heading;
+    var overallEl = root.querySelector(".vtoc-overall");
+    var trackEl   = root.querySelector(".vtoc-track");
+    // Prefer the summed per-module totals (which include embedded items) so the
+    // overall figure matches the tiles; fall back to D2L's course roll-up only if
+    // we have no per-module counts at all.
+    var ov = sawCounts ? { completed:grandDone, required:grandReq } : (P ? P.overall : null);
+    if (ov && ov.required){
+      var op = Math.round((Math.min(ov.completed, ov.required) / ov.required) * 100);
+      overallEl.textContent = op + "% complete";
+      trackEl.hidden = false;
+      trackEl.querySelector(".vtoc-track-fill").style.width = op + "%";
+    } else {
+      overallEl.textContent = shown + " module" + (shown===1?"":"s");
+      trackEl.hidden = true;
+    }
+    headEl.hidden = false;
+    scheduleFit();
+  }
+
+  /* ----------------------- demo data ----------------------- */
+  // Topic shape mirrors the live TOC: TopicId, CompletionType (2 = required/auto),
+  // and ActivityType for graded tools (3 Dropbox, 4 Quiz, 5 Discussion).
+  function T(id, activityType){ return { TopicId:id, CompletionType:2, ActivityType:activityType||0 }; }
+  function demoModules(){
+    return [
+      { ModuleId:1, Title:"Getting Started in the Computer Lab", Color:"#15659e", IsHidden:false,
+        Topics:[T(101),T(102),T(103),T(104)] },
+      { ModuleId:2, Title:"Files, Folders & the Network Drive", Color:"#3a8f57", IsHidden:false,
+        Topics:[T(201),T(202),T(203),T(204),T(205)] },
+      { ModuleId:3, Title:"Word Processing Essentials", Color:"#c2683a", IsHidden:false,
+        Topics:[T(301),T(302),T(303),T(304), T(305,5), T(306,3), T(307,4)] },  // +discussion, dropbox, quiz
+      { ModuleId:4, Title:"Spreadsheets & Simple Formulas", Color:"#7a59a8", IsHidden:false,
+        Topics:[T(401),T(402),T(403), T(404,4)] },                              // +quiz
+      { ModuleId:5, Title:"Staying Safe Online", Color:"#b23a64", IsHidden:false,
+        Topics:[T(501),T(502),T(503)] },
+      { ModuleId:6, Title:"Final Project & Showcase", Color:"#2f7d8c", IsHidden:false,
+        Topics:[T(601), T(602,3)] }                                            // +dropbox
+    ];
+  }
+  function demoCompletedIds(){
+    return new Set(["101","102","103","104","201","202","203","204","205",
+                    "301","302","303","305","307","401","404","501"]);
+  }
+  function demoProgress(mods){
+    var comp = demoCompletedIds(), by = {};
+    mods.forEach(function(m){
+      var req=0, done=0;
+      eachTopic(m, function(t){
+        if (!isRequiredTopic(t)) return;
+        req++; if (comp.has(String(t.TopicId))) done++;
+      });
+      by[String(m.ModuleId)] = { completed:done, required:req };
+    });
+    return { byModule:by, overall:null, available:true };
+  }
+  function demoActivities(mods){
+    var comp = demoCompletedIds(), set = new Set();
+    mods.forEach(function(m){ eachTopic(m, function(t){
+      if (activityKind(t) && comp.has(String(t.TopicId))) set.add(String(t.TopicId));
+    }); });
+    return set;
+  }
+
+  function demoEmbedded(){
+    // e.g. Module 5's page embeds a quiz (done) and a discussion (not done);
+    // Module 4's page embeds a dropbox (done).
+    return {
+      "5": { Discussion:{found:1,done:0}, Dropbox:{found:0,done:0}, Quiz:{found:1,done:1} },
+      "4": { Discussion:{found:0,done:0}, Dropbox:{found:1,done:1}, Quiz:{found:0,done:0} }
+    };
+  }
+  function runDemo(){
+    demoEl.hidden = false;
+    var mods = demoModules();
+    var prog = CONFIG.showProgress ? demoProgress(mods) : null;
+    render(mods, "0", prog, null);                                   // first paint
+    if (prog && CONFIG.checkActivities){
+      render(mods, "0", prog, demoActivities(mods), null);           // topic-level breakdown
+      if (CONFIG.scanPageLinks) render(mods, "0", prog, demoActivities(mods), demoEmbedded());  // + embedded
+    }
+    loaderDone();
+  }
+
+  /* ----------------------- boot ----------------------- */
+  function boot(){
+    if (CONFIG.demoMode === "on") return runDemo();
+
+    var ou = resolveOrgUnitId();
+    if (!ou){
+      if (CONFIG.demoMode === "off"){
+        showNote("Couldn't determine which course this is. Place the widget on a course homepage.");
+        return;
+      }
+      return runDemo();  // "auto": no course context (e.g. preview) -> sample modules
+    }
+
+    setProgress(0.06, "Loading your modules…");
+    resolveVersions().then(function(vers){
+      dbg("orgUnitId:", ou, "versions:", vers);
+      setProgress(0.12);
+      var whoReq = CONFIG.showProgress ? whoAmI(vers.lp) : Promise.resolve(null);
+      return whoReq.then(function(userId){
+        dbg("current userId:", userId);
+        setProgress(0.18);
+        var tocReq = getJSON("/d2l/api/le/"+vers.le+"/"+ou+"/content/toc");
+        var prgReq = fetchProgress(vers.le, ou, userId);
+        return Promise.all([tocReq, prgReq]).then(function(res){
+          var toc = res[0] || {};
+          var modules = toc.Modules || [];
+          var progress = res[1];
+          dbg("top-level modules:", modules.length,
+              "progress:", progress ? ("per-module "+Object.keys(progress.byModule).length+", overall "+JSON.stringify(progress.overall)) : "(none)");
+          render(modules, ou, progress, null);   // first paint: module totals
+          var n = gridEl.querySelectorAll(".vtoc-card").length;
+          if (n) announce(n + " module" + (n===1?"":"s") + " loaded.");
+          setProgress(0.30, "Checking your progress…");
+
+          if (!(CONFIG.checkActivities && progress && userId)){ loaderDone(); return; }
+
+          // Phase 2 (topic-level submissions) and Phase 3 (embedded scan) are
+          // independent, so run them at the same time and paint as each finishes.
+          var actIds = collectActivityTopicIds(modules);
+          dbg("activity topics found:", actIds.length);
+          var pSet = fetchActivityCompletions(vers.le, ou, userId, actIds).then(function(set){
+            setProgress(Math.max(progFrac, 0.40));
+            render(modules, ou, progress, set, null);   // phase 2 paint
+            return set;
+          });
+
+          var pEmb = Promise.resolve(null);
+          if (CONFIG.scanPageLinks){
+            var pages = collectHtmlPages(modules);
+            dbg("html content pages:", pages.length);
+            if (pages.length){
+              var topicActIds = collectTopicActivityIds(modules);
+              var pDisc = discoverEmbedded(vers.le, ou, pages, topicActIds, function(d, total){
+                setProgress(0.42 + 0.50 * (d / total), "Scanning pages… " + d + "/" + total);
+              });
+              var pMaps = fetchSubmissionMaps(ou, userId).then(function(m){ setProgress(Math.max(progFrac, 0.46)); return m; });
+              pEmb = Promise.all([pDisc, pMaps]).then(function(r){ return applyEmbedded(r[0], r[1]); });
+            }
+          }
+
+          Promise.all([pSet, pEmb]).then(function(r){
+            if (r[1] && Object.keys(r[1]).length){
+              render(modules, ou, progress, r[0], r[1]);   // phase 3: + embedded
+            }
+            loaderDone();
+          }).catch(function(e){ dbg("enhance failed:", String(e)); loaderDone(); });
+        });
+      });
+    }).catch(function(err){
+      if (window.console) console.error("Visual TOC:", err);
+      gridEl.innerHTML = "";
+      if (CONFIG.demoMode === "off"){
+        loaderDone();
+        showNote("Couldn't load the table of contents. Refresh the page to try again.");
+      } else {
+        runDemo();  // graceful: show the design even if the API isn't reachable here
+      }
+    });
+  }
+
+  boot();
+})();
+</script></p>
+<!-- ============================================================================
+     DEPLOYING IN BRIGHTSPACE
+
+     PATH A — Custom Widget (quickest)
+       1. Course Admin → Widgets → Create Widget.
+       2. In the Content area, switch to source / HTML mode (the </> button) and
+          paste this entire file.
+       3. Save. The {OrgUnitId} replacement string fills in automatically.
+       4. Add the widget to your course homepage.
+       Note: some tenants sanitize <script> out of widget HTML. If the tiles
+       don't appear, use Path B.
+
+     PATH B — Hosted file in an iframe  (your chosen path)
+       1. Course Admin → Manage Files → upload this file (e.g. visual-toc.html).
+       2. Get the file's real URL: in Manage Files, click the file to open it in
+          the browser, then copy the address bar. It looks like
+            /content/enforced/{orgUnitId}-{nnnn}/visual-toc.html
+          The "-{nnnn}" suffix is course-specific and is NOT the org unit id — so
+          copy the actual path; don't try to build it by hand.
+       3. Create a Custom Widget whose HTML is just an iframe. No height needed —
+          the file sizes its own iframe:
+            <iframe src="PASTE_THE_PATH_FROM_STEP_2"
+                    style="width:100%;border:0;min-height:160px"
+                    loading="lazy" title="Course modules"></iframe>
+       4. Add the widget to your homepage.
+
+       Why no API key / token: the file is served from your Brightspace domain,
+       so it is same-origin with the LMS. The GET calls ride the student's
+       session cookie automatically, and the org unit id is read from the
+       enforced path.
+
+     BEFORE GO-LIVE
+       • Set CONFIG.demoMode = "off". In "auto" (the shipped default, handy for
+         previewing), the widget falls back to SAMPLE modules if it can't reach
+         the API — you don't want students seeing sample data. With "off" they'll
+         see a plain "couldn't load / no modules yet" note instead.
+
+     IF IT LOADS SAMPLE DATA OR ASKS TO LOG IN (the one thing to test)
+       A few tenants serve uploaded HTML from a separate, sandboxed content
+       origin instead of the main domain. If yours does, the same-origin API
+       calls won't carry the session and the grid can't load live data. Quick
+       test: open the Manage Files URL directly while logged in — if the page
+       loads modules, you're same-origin and good. If it can't, the iframe path
+       won't authenticate on your tenant; tell me and we'll switch tactics
+       (Path A with scripts allowed, or a small LTI/quicklink approach).
+
+     PROGRESS
+       • Per-module totals come from content/completions/mycount/?level=2 — the
+         current student's own roll-up of completed vs. required topics, one row
+         per module. (level is required: 2 = per module, 1 = whole-course total.)
+         No API key, no special permission. If completion tracking is off,
+         RequiredItems is 0 and tiles fall back to a plain topic count.
+       • DROPBOX / QUIZ / DISCUSSION breakdown (CONFIG.checkActivities): each
+         content topic that links to one of these tools is detected from the TOC
+         (ActivityType), and the student's submission is read from
+         content/topics/{topicId}/completions/users/{userId}. These tools
+         auto-complete the topic on submit, so a completion date = "submitted."
+         Those objects are split out of the Content count, and a line is shown per
+         type only when the module contains one. Tiles paint first with the module
+         total, then the breakdown fills in once the per-topic checks finish (one
+         GET per activity topic, run a few at a time; capped at 400 for safety).
+         Note: the per-tool submission APIs (quiz attempts, dropbox submissions)
+         are instructor-scoped, so topic completion is the right student-readable
+         signal. Set checkActivities = false to skip these calls entirely.
+       • Set CONFIG.debug = true to log, in the browser console, the negotiated
+         versions, your user id, which completion route answered, and how many
+         activity topics were found / submitted.
+
+     EMBEDDED ACTIVITIES (links inside HTML pages — CONFIG.scanPageLinks)
+       • Quiz/Dropbox/Discussion quicklinks placed *inside* an HTML content page
+         have no topic completion, so submission is read from the student's own
+         User Progress detail pages: /d2l/le/userprogress/{userId}/{ou}/
+         {Discussions|Assignments|Quizzes}/Details. Those pages list each activity
+         with Threads Created / Files Submitted / Attempts; > 0 = submitted.
+       • For each HTML page the widget finds quicklinks, resolves each to its real
+         activity id (discussions/topics/{id}, db={id}, qi={id}), looks that id up
+         in the progress maps, skips any activity already linked as a direct topic,
+         and adds the rest to the module's Dropbox/Quiz/Discussion lines.
+       • This parses D2L's rendered HTML, so it's best-effort — turn on debug to
+         confirm the maps and counts. The User Progress pages lazy-load their rows
+         (collapsed dropdowns, "Load more"), so they're loaded in a hidden,
+         sandboxed iframe where D2L's own JavaScript runs; the widget expands every
+         section and clicks "Load more" until the list stops growing, then scrapes
+         the live DOM (falling back to a plain fetch if that yields nothing).
+         The sandbox blocks top-navigation, so a framed page can't redirect the
+         homepage. Toggle with expandProgressPages; expandTimeoutMs bounds it.
+       • Caps: pageScanCap (pages fetched, default 80) and quicklinkResolveCap
+         (default 150). Set scanPageLinks = false to skip embedded scanning.
+         Requires the student to have permission to view their own User Progress.
+
+     RATE LIMITS (429)
+       • Every request goes through one rate-aware layer. It reads
+         X-Rate-Limit-Remaining / -Reset on each response and pauses on its own
+         when credits run low, so it tries to stay under the per-minute limit
+         rather than hit it. If a 429 does come back, it honors Retry-After (or
+         backs off exponentially: ~1s, 2s, 4s, 8s …, up to 6 tries) before
+         retrying. A check that ultimately fails just counts as "not submitted,"
+         so the grid never breaks. activityConcurrency (default 4) caps how many
+         submission checks run at once — lower it if a huge course still pushes
+         the limit; raise it for snappier loads on small courses.
+============================================================================ --></body></html>
