@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D2L Brightspace APIs: 21 Free Tools for D2L Brightspace</title>
+<meta name="description" content="21 free, ready-to-use tools for D2L Brightspace: admin bulk tools, department reports, homepage widgets, and content templates. One HTML file each. Upload and go, with no servers or API keys.">
+<meta name="author" content="Jonathan Sorrenti">
+<link rel="canonical" href="https://jonsorr.github.io/D2L_Brightspace_APIs/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="D2L Brightspace APIs: 21 Free Tools for D2L Brightspace">
+<meta property="og:description" content="Free admin tools, department reports, homepage widgets, and content templates for D2L Brightspace. One HTML file each.">
+<meta property="og:url" content="https://jonsorr.github.io/D2L_Brightspace_APIs/">
+<meta property="og:image" content="https://jonsorr.github.io/D2L_Brightspace_APIs/assets/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0b2b45;--navy2:#081d2f;--blue:#006EB3;--blue-d:#004E80;--sky:#7cc4f2;--amber:#f5a81c;--ink:#1c2b36;--muted:#5a6772;--line:#e3e9ee;--bg:#f4f7fa}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:Lato,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--blue-d)}
+a:focus-visible,button:focus-visible{outline:3px solid var(--amber);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;left:-999px;top:8px;background:#fff;padding:8px 12px;z-index:9}.skip:focus{left:8px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+/* top bar */
+.top{background:var(--navy2);color:#cfe0ec;font-size:14px}
+.top .wrap{display:flex;justify-content:space-between;align-items:center;height:48px;gap:16px}
+.top a{color:#fff;text-decoration:none;font-weight:700}
+.top nav{display:flex;gap:20px}
+/* hero */
+.hero{background:radial-gradient(1100px 600px at 85% 20%,#0f4c7a 0%,var(--navy) 55%,var(--navy2) 100%);color:#fff;position:relative;overflow:hidden}
+.hero:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:40px 40px}
+.hero .wrap{position:relative;display:grid;grid-template-columns:1.05fr 1fr;gap:48px;align-items:center;padding-top:72px;padding-bottom:80px}
+.kicker{display:inline-flex;align-items:center;gap:10px;color:var(--amber);font-weight:900;letter-spacing:.12em;text-transform:uppercase;font-size:14px}
+.kicker:before{content:"";width:32px;height:4px;border-radius:4px;background:var(--amber)}
+h1{font-family:"Playfair Display",Georgia,serif;font-size:clamp(40px,5.4vw,64px);line-height:1.05;margin:14px 0 0;letter-spacing:-.01em}
+h1 span{color:var(--sky)}
+.lead{font-size:20px;color:#d6e6f2;margin:18px 0 0;max-width:560px}
+.lead b{color:#fff}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 22px;border-radius:999px;font-weight:900;text-decoration:none;font-size:16px;border:2px solid transparent}
+.btn.primary{background:var(--amber);color:var(--navy)}
+.btn.primary:hover{background:#ffbb3d}
+.btn.ghost{border-color:rgba(255,255,255,.4);color:#fff}
+.btn.ghost:hover{background:rgba(255,255,255,.1)}
+.btn.sponsor{background:#fff;color:#bf3989}
+.shot{border-radius:14px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.12);background:#fff}
+.shot img{display:block;width:100%}
+.hero .shot{transform:perspective(1600px) rotateY(-8deg) rotateX(2deg)}
+/* stats */
+.stats{background:#fff;border-bottom:1px solid var(--line)}
+.stats .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:0}
+.stat{padding:26px 18px;text-align:center;border-left:1px solid var(--line)}.stat:first-child{border-left:0}
+.stat b{display:block;font-family:"Playfair Display",Georgia,serif;font-size:36px;color:var(--blue-d);line-height:1.1}
+.stat span{color:var(--muted);font-size:15px}
+/* sections */
+section.band{padding:72px 0}
+h2{font-family:"Playfair Display",Georgia,serif;font-size:clamp(28px,3.4vw,38px);margin:0 0 10px;line-height:1.15}
+.intro{color:var(--muted);font-size:18px;margin:0 0 28px;max-width:720px}
+.catnav{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 36px}
+.catnav a{text-decoration:none;background:#fff;border:1px solid var(--line);border-radius:999px;padding:9px 16px;font-weight:700;color:var(--ink)}
+.catnav a span{background:var(--navy);color:#fff;border-radius:999px;padding:1px 8px;font-size:13px;margin-left:4px}
+.catnav a:hover{border-color:var(--blue)}
+.cat{margin-top:44px;scroll-margin-top:16px}
+.cat-head h3{font-family:"Playfair Display",Georgia,serif;font-size:28px;margin:0;display:flex;align-items:center;gap:10px}
+.count{font-family:Lato,sans-serif;font-size:14px;background:var(--amber);color:var(--navy);border-radius:999px;padding:2px 10px;font-weight:900}
+.cat-head p{color:var(--muted);margin:6px 0 18px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;transition:box-shadow .2s,transform .2s}
+.card:hover{box-shadow:0 14px 34px rgba(11,43,69,.12);transform:translateY(-2px)}
+.thumb{display:block;height:180px;overflow:hidden;background:#eef3f7;border-bottom:1px solid var(--line)}
+.thumb img{width:100%;display:block;object-fit:cover;object-position:top}
+.cbody{padding:16px 18px 18px;display:flex;flex-direction:column;flex:1}
+.cbody h4{margin:0;font-size:18px}
+.cbody p{margin:6px 0 0;color:var(--muted);font-size:15px}
+.cbody .file code{font-size:12.5px;background:#f0f4f7;padding:2px 6px;border-radius:5px;color:var(--ink)}
+.links{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto;padding-top:14px}
+.lnk{font-size:14px;font-weight:700;text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:6px 12px;color:var(--blue-d)}
+.lnk:hover{border-color:var(--blue);background:#eef6fc}
+.lnk.demo{background:var(--blue);border-color:var(--blue);color:#fff}
+.lnk.demo:hover{background:var(--blue-d)}
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:s}
+.step{background:#fff;border:1px solid var(--line);border-radius:14px;padding:24px;position:relative}
+.step:before{counter-increment:s;content:counter(s);position:absolute;top:-16px;left:22px;width:34px;height:34px;border-radius:50%;background:var(--amber);color:var(--navy);font-weight:900;display:grid;place-items:center}
+.step h3{margin:8px 0 6px;font-size:19px}
+.step p{margin:0;color:var(--muted)}
+.step code{background:#f0f4f7;padding:1px 6px;border-radius:5px;font-size:14px}
+.white{background:#fff;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+/* features */
+.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.f{padding:20px;border-radius:14px;background:var(--bg)}
+.f b{display:block;font-size:17px;margin-bottom:4px}
+.f span{color:var(--muted);font-size:15px}
+/* roi */
+.roi{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);font-size:15px}
+thead th{background:var(--navy);color:#fff}
+td.us{font-weight:900;color:#1d7a46}
+tr:last-child td{border-bottom:0}
+.fine{font-size:13px;color:var(--muted);margin-top:10px}
+/* sponsor */
+.sponsor{background:radial-gradient(900px 500px at 20% 0%,#0f4c7a 0%,var(--navy) 60%,var(--navy2) 100%);color:#fff;text-align:center}
+.sponsor p{color:#d6e6f2;font-size:18px;max-width:680px;margin:10px auto 0}
+.sponsor .cta{justify-content:center}
+.goal{display:inline-block;margin-top:22px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:8px 18px;font-weight:700}
+footer{background:var(--navy2);color:#9fb6c8;font-size:14px;padding:28px 0}
+footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+footer a{color:#fff}
+@media (max-width:900px){.hero .wrap,.roi{grid-template-columns:1fr}.hero .shot{transform:none}.steps,.feat{grid-template-columns:1fr}.stats .wrap{grid-template-columns:repeat(2,1fr)}.stat:nth-child(3){border-left:0}.top nav{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="top"><div class="wrap"><a href="https://jonsorr.github.io/D2L_Brightspace_APIs/">D2L Brightspace APIs</a>
+<nav aria-label="Primary"><a href="#tools">Tools</a><a href="#start">Get started</a><a href="#roi">Savings</a><a href="#support">Sponsor</a><a href="https://github.com/jonsorr/D2L_Brightspace_APIs">GitHub</a></nav></div></div>
+<header class="hero"><div class="wrap">
+  <div>
+    <div class="kicker">Free · Open source · MIT</div>
+    <h1>D2L Brightspace <span>APIs</span></h1>
+    <p class="lead"><b>21 free, ready-to-use tools for D2L Brightspace.</b> Each one is a single HTML file. Upload it to Brightspace and it runs with your existing login: no servers, no installs, no API keys.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/jonsorr/D2L_Brightspace_APIs/archive/refs/heads/main.zip">⬇ Download all 21 tools</a>
+      <a class="btn ghost" href="https://github.com/jonsorr/D2L_Brightspace_APIs">View on GitHub</a>
+      <a class="btn sponsor" href="https://github.com/sponsors/jonsorr">❤ Sponsor</a>
+    </div>
+  </div>
+  <div class="shot"><img src="Department_Tools/screenshots/department-dashboard.png" alt="The Department Tools Dashboard, showing eight reports that share one course scan"></div>
+</div></header>
+<div class="stats" role="region" aria-label="Project at a glance"><div class="wrap">
+  <div class="stat"><b>21</b><span>tools running live in production</span></div>
+  <div class="stat"><b>50,000+</b><span>courses in a single bulk run</span></div>
+  <div class="stat"><b>100,000+</b><span>courses loaded and paged</span></div>
+  <div class="stat"><b>0</b><span>API keys required</span></div>
+</div></div>
+<main id="main">
+<section class="band" id="tools"><div class="wrap">
+  <h2>The tools</h2>
+  <p class="intro">Every tool runs live in a production Brightspace environment at a college. Click <b>Live demo</b> to try one with sample data right in your browser, or <b>Details</b> for setup steps and settings.</p>
+  <nav class="catnav" aria-label="Tool categories"><a href="#admin">🔧 Admin Tools <span>6</span></a><a href="#dept">🏫 Department Tools <span>9</span></a><a href="#home">🏠 Homepage Widgets <span>5</span></a><a href="#content">📄 Content Page Templates <span>1</span></a></nav>
+  <section class="cat" id="admin" aria-labelledby="admin-h">
+  <div class="cat-head"><h3 id="admin-h"><span aria-hidden="true">🔧</span> Admin Tools <span class="count">6</span></h3>
+  <p>Bulk tools for LMS administrators: change thousands of records in minutes instead of days. <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/tree/main/Admin_Tools">Open the folder →</a></p></div>
+  <div class="cards"><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#summary-notification-settings-updater" tabindex="-1" aria-hidden="true"><img src="Admin_Tools/screenshots/d2l_notification_updater.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Summary Notification Settings Updater</h4><p>Paste a list of usernames and bulk-update their Summary Notification settings.</p><p class="file"><code>d2l_notification_updater.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#summary-notification-settings-updater">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/d2l_notification_updater.html">Code</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#correct-user-emails" tabindex="-1" aria-hidden="true"><img src="Admin_Tools/screenshots/d2l_correct_user_emails.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Correct User Emails</h4><p>Stop bounce-backs by correcting email addresses in bulk based on each user&#x27;s role.</p><p class="file"><code>d2l_correct_user_emails.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#correct-user-emails">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/d2l_correct_user_emails.html">Code</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#adjusted-grade-config-updater" tabindex="-1" aria-hidden="true"><img src="Admin_Tools/screenshots/adjusted-grade-config-update.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Adjusted Grade Config Updater</h4><p>Bulk-change a course-level config variable override across 50,000+ courses.</p><p class="file"><code>adjusted-grade-config-update.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#adjusted-grade-config-updater">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/adjusted-grade-config-update.html">Code</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#create-org-units" tabindex="-1" aria-hidden="true"><img src="Admin_Tools/screenshots/d2l_create_org_units.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Create Org Units</h4><p>Create Departments, Course Templates, and Course Offerings in bulk.</p><p class="file"><code>d2l_create_org_units.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#create-org-units">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/d2l_create_org_units.html">Code</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#set-active-status" tabindex="-1" aria-hidden="true"><img src="Admin_Tools/screenshots/d2l_set_active_status.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Set Active Status</h4><p>Set courses Active or Inactive and clean up unused org units, built for 100,000+ courses.</p><p class="file"><code>d2l_set_active_status.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#set-active-status">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/d2l_set_active_status.html">Code</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#delete-groups" tabindex="-1" aria-hidden="true"><img src="Admin_Tools/screenshots/d2l_delete_groups.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Delete Groups</h4><p>Remove unused groups and group categories after checking that nothing uses them.</p><p class="file"><code>d2l_delete_groups.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/README.md#delete-groups">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Admin_Tools/d2l_delete_groups.html">Code</a></div></div>
+</article></div>
+</section><section class="cat" id="dept" aria-labelledby="dept-h">
+  <div class="cat-head"><h3 id="dept-h"><span aria-hidden="true">🏫</span> Department Tools <span class="count">9</span></h3>
+  <p>Reports and batch tools for deans, department chairs, and program coordinators. <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/tree/main/Department_Tools">Open the folder →</a></p></div>
+  <div class="cards"><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#-department-tools-dashboard" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/department-dashboard.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Department Tools Dashboard</h4><p>All 8 department tools on one page, sharing a single course and term scan.</p><p class="file"><code>department-dashboard.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#-department-tools-dashboard">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/department-dashboard.html">Code</a><a class="lnk demo" href="Department_Tools/department-dashboard.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#department-grades" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/d2l_dean_grade_widget.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Department Grades</h4><p>At-risk and not-passing student counts for every active course in a department.</p><p class="file"><code>d2l_dean_grade_widget.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#department-grades">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/d2l_dean_grade_widget.html">Code</a><a class="lnk demo" href="Department_Tools/d2l_dean_grade_widget.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#course-readiness-audit" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/course-content-check.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Course Readiness Audit</h4><p>Find course sections with nothing in Content before students arrive.</p><p class="file"><code>course-content-check.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#course-readiness-audit">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/course-content-check.html">Code</a><a class="lnk demo" href="Department_Tools/course-content-check.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#course-template-audit" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/course-template-audit.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Course Template Audit</h4><p>Check courses for the modules your template requires and flag outdated ones.</p><p class="file"><code>course-template-audit.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#course-template-audit">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/course-template-audit.html">Code</a><a class="lnk demo" href="Department_Tools/course-template-audit.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#attendance-check" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/course-attendance-check.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Attendance Check</h4><p>Registers, session counts, and whether attendance is actually being marked.</p><p class="file"><code>course-attendance-check.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#attendance-check">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/course-attendance-check.html">Code</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#last-date-instructor-accessed" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/course-instructor-access.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Last Date Instructor Accessed</h4><p>When each instructor last opened each course, in color-coded groups.</p><p class="file"><code>course-instructor-access.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#last-date-instructor-accessed">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/course-instructor-access.html">Code</a><a class="lnk demo" href="Department_Tools/course-instructor-access.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#copy-course-batch" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/course-copy-batch.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Copy Course Batch</h4><p>Copy one model course into many course offerings in a single run.</p><p class="file"><code>course-copy-batch.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#copy-course-batch">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/course-copy-batch.html">Code</a><a class="lnk demo" href="Department_Tools/course-copy-batch.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#enrollment-batch-csv-builder" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/course-enrollment-batch.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Enrollment Batch CSV Builder</h4><p>Build a ready-to-upload ENROLL CSV for Bulk User Management.</p><p class="file"><code>course-enrollment-batch.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#enrollment-batch-csv-builder">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/course-enrollment-batch.html">Code</a><a class="lnk demo" href="Department_Tools/course-enrollment-batch.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#post-news-batch" tabindex="-1" aria-hidden="true"><img src="Department_Tools/screenshots/course-news-batch.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Post News Batch</h4><p>Write one announcement and post it into many courses at once.</p><p class="file"><code>course-news-batch.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/README.md#post-news-batch">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Department_Tools/course-news-batch.html">Code</a><a class="lnk demo" href="Department_Tools/course-news-batch.html">Live demo ↗</a></div></div>
+</article></div>
+</section><section class="cat" id="home" aria-labelledby="home-h">
+  <div class="cat-head"><h3 id="home-h"><span aria-hidden="true">🏠</span> Homepage Widgets <span class="count">5</span></h3>
+  <p>Student- and instructor-facing widgets for course homepages and the org homepage. <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/tree/main/Course_Homepages">Open the folder →</a></p></div>
+  <div class="cards"><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#student-grade-widget" tabindex="-1" aria-hidden="true"><img src="Course_Homepages/screenshots/d2l_grade_widget.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Student Grade Widget</h4><p>Current grade, a passing / at-risk badge, the possible final grade range, and a privacy screen.</p><p class="file"><code>d2l_grade_widget.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#student-grade-widget">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/d2l_grade_widget.html">Code</a><a class="lnk demo" href="Course_Homepages/d2l_grade_widget.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#instructor-grade-widget" tabindex="-1" aria-hidden="true"><img src="Course_Homepages/screenshots/d2l_instructor_grade_widget.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Instructor Grade Widget</h4><p>The whole class in five performance groups, with one-click check-in emails.</p><p class="file"><code>d2l_instructor_grade_widget.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#instructor-grade-widget">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/d2l_instructor_grade_widget.html">Code</a><a class="lnk demo" href="Course_Homepages/d2l_instructor_grade_widget.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#my-courses-widget" tabindex="-1" aria-hidden="true"><img src="Course_Homepages/screenshots/d2l_my_courses_widget.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>My Courses Widget</h4><p>Past / Last / This / Next Semester tabs with course cards that show what needs attention.</p><p class="file"><code>d2l_my_courses_widget.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#my-courses-widget">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/d2l_my_courses_widget.html">Code</a><a class="lnk demo" href="Course_Homepages/d2l_my_courses_widget.html">Live demo ↗</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#welcome-window" tabindex="-1" aria-hidden="true"><img src="Course_Homepages/screenshots/d2l_welcome_window_widget.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Welcome Window</h4><p>A course homepage pop-up that shows unread pages from the Announcements module.</p><p class="file"><code>d2l_welcome_window_widget.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#welcome-window">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/d2l_welcome_window_widget.html">Code</a></div></div>
+</article><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#visual-table-of-contents" tabindex="-1" aria-hidden="true"><img src="Course_Homepages/screenshots/visual-toc-widget.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Visual Table of Contents</h4><p>Course modules as visual tiles with each student&#x27;s progress.</p><p class="file"><code>visual-toc-widget.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/README.md#visual-table-of-contents">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Course_Homepages/visual-toc-widget.html">Code</a></div></div>
+</article></div>
+</section><section class="cat" id="content" aria-labelledby="content-h">
+  <div class="cat-head"><h3 id="content-h"><span aria-hidden="true">📄</span> Content Page Templates <span class="count">1</span></h3>
+  <p>Ready-made pages instructors add to a course&#x27;s Content area. <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/tree/main/Content_Templates">Open the folder →</a></p></div>
+  <div class="cards"><article class="card">
+  <a class="thumb" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Content_Templates/README.md#automated-assignment-schedule" tabindex="-1" aria-hidden="true"><img src="Content_Templates/screenshots/90_Automated_Assignment_Builder.png" alt="" loading="lazy"></a>
+  <div class="cbody"><h4>Automated Assignment Schedule</h4><p>A schedule page that builds itself from every dated activity in the course.</p><p class="file"><code>90_Automated_Assignment_Builder.html</code></p>
+  <div class="links"><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Content_Templates/README.md#automated-assignment-schedule">Details</a><a class="lnk" href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/Content_Templates/90_Automated_Assignment_Builder.html">Code</a><a class="lnk demo" href="Content_Templates/90_Automated_Assignment_Builder.html">Live demo ↗</a></div></div>
+</article></div>
+</section>
+</div></section>
+
+<section class="band white" id="start"><div class="wrap">
+  <h2>Get started in three steps</h2>
+  <p class="intro">No developer needed. If you can upload a file to Brightspace, you can use these tools.</p>
+  <div class="steps">
+    <div class="step"><h3>Download</h3><p>Grab one file from its folder on GitHub, or <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/archive/refs/heads/main.zip">download everything</a> as a ZIP.</p></div>
+    <div class="step"><h3>Upload</h3><p>In Brightspace, go to <b>Admin Tools → Public Files</b> and upload each file to a folder, for example <code>Department_Tools</code>.</p></div>
+    <div class="step"><h3>Open and go</h3><p>Add a navbar link or homepage widget that points to the file. It runs as the signed-in user. <a href="https://github.com/jonsorr/D2L_Brightspace_APIs#-quick-start">Full setup guide →</a></p></div>
+  </div>
+</div></section>
+
+<section class="band"><div class="wrap">
+  <h2>Built to be safe and reliable</h2>
+  <p class="intro">Every tool shares the same proven foundation.</p>
+  <div class="feat">
+    <div class="f"><b>🔑 Your login, your permissions</b><span>Tools use your Brightspace session and can only do what your role already can.</span></div>
+    <div class="f"><b>🔒 Your data stays put</b><span>Everything runs in your browser and talks only to your Brightspace site.</span></div>
+    <div class="f"><b>🧪 Test before you change</b><span>Bulk tools offer previews, test runs, or dry runs before anything is written.</span></div>
+    <div class="f"><b>🚦 Built-in rate limiting</b><span>Tools slow down automatically when Brightspace asks, and retry safely.</span></div>
+    <div class="f"><b>🔄 Update-proof</b><span>API versions are detected automatically, so tools keep working after Brightspace updates.</span></div>
+    <div class="f"><b>♿ Accessible</b><span>Student-facing widgets are built to ADA and WCAG 2.1 AA standards.</span></div>
+  </div>
+</div></section>
+
+<section class="band white" id="roi"><div class="wrap roi">
+  <div>
+    <h2>Return on investment</h2>
+    <p class="intro">Buying similar functionality from D2L or a vendor can cost <b>more than $2,000 per app</b>, and some features carry <b>annual fees of $2,000 or more</b>. These tools do many of the same jobs for $0, so your school avoids those costs up front.</p>
+    <p class="intro">Replacing even <b>one</b> paid app saves more than a full year of this project's $150/month sponsorship goal.</p>
+  </div>
+  <div>
+    <table>
+      <thead><tr><th scope="col"></th><th scope="col">Paid add-on</th><th scope="col">These tools</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Up-front cost</th><td>$2,000+ per app</td><td class="us">$0</td></tr>
+        <tr><th scope="row">Yearly cost</th><td>$2,000+ for some features</td><td class="us">$0</td></tr>
+        <tr><th scope="row">Tools included</th><td>One at a time</td><td class="us">21</td></tr>
+        <tr><th scope="row">Setup</th><td>Contracts and purchase orders</td><td class="us">Upload and go</td></tr>
+        <tr><th scope="row">Code access</th><td>Closed</td><td class="us">Open</td></tr>
+      </tbody>
+    </table>
+    <p class="fine">Cost figures are typical estimates. Actual pricing varies by institution, contract, and product.</p>
+  </div>
+</div></section>
+
+<section class="band sponsor" id="support"><div class="wrap">
+  <h2>Keep new tools coming</h2>
+  <p>These tools are free and always will be. Sponsorships pay for the development tools, testing environments, and hosting behind every release. If a tool saved your school time or money, please consider giving back.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/sponsors/jonsorr">❤ Sponsor on GitHub</a>
+    <a class="btn ghost" href="https://paypal.me/jonsorr">Donate with PayPal</a>
+  </div>
+  <div class="goal">🎯 Current goal: $150/month</div>
+</div></section>
+</main>
+<footer><div class="wrap">
+  <div>Created by <b style="color:#fff">Jonathan Sorrenti</b> · <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/LICENSE">MIT License</a> · <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/issues">Report an issue</a> · <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/issues/new">Request a tool</a></div>
+  <div>D2L and Brightspace are trademarks of D2L Corporation. Independent project, not affiliated with or endorsed by D2L.</div>
+</div></footer>
+</body>
+</html>

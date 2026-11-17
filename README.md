@@ -3,7 +3,7 @@
 **Free, ready-to-use tools for D2L Brightspace — just download, upload, and go.**
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ea4aaa?logo=github)](https://github.com/sponsors/jonsorr)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/LICENSE)
 ![Brightspace](https://img.shields.io/badge/Platform-D2L%20Brightspace-orange)
 
 Every tool in this repository is a **single, self-contained HTML file** that runs inside your Brightspace site using the **Brightspace (Valence) API**. Upload the file, open it, and it works with your existing Brightspace login. You don't need a server, an install, an API key, or a developer.
@@ -12,6 +12,8 @@ Every tool in this repository is a **single, self-contained HTML file** that run
   <img src="Department_Tools/screenshots/department-dashboard.png" alt="The Department Tools Dashboard: eight reports and batch tools on one page" width="800"><br>
   <sub>The Department Tools Dashboard: 8 reports and batch tools sharing a single course scan (demo data).</sub>
 </p>
+
+🌐 **Website:** [jonsorr.github.io/D2L_Brightspace_APIs](https://jonsorr.github.io/D2L_Brightspace_APIs/)
 
 **Jump to a folder:** [🔧 Admin Tools](Admin_Tools/) · [🏫 Department Tools](Department_Tools/) · [🏠 Homepage Widgets](Course_Homepages/) · [📄 Content Page Templates](Content_Templates/)
 
@@ -144,8 +146,7 @@ https://YOUR-BRIGHTSPACE-URL/shared/Admin_Tools/adjusted-grade-config-update.htm
 
 #### Part 2: Use the HTML files
 
-<details open>
-<summary><strong>A: Admin Tools and Department Tools</strong></summary>
+#### A: Admin Tools and Department Tools
 
 **To show the tools on a navbar, create a custom link:**
 
@@ -171,10 +172,8 @@ https://YOUR-BRIGHTSPACE-URL/shared/Admin_Tools/adjusted-grade-config-update.htm
 
 > 🔒 **Note:** Use **release conditions** on the links or widgets to control which roles can see them.
 
-</details>
 
-<details open>
-<summary><strong>B: Homepage Widgets</strong></summary>
+#### B: Homepage Widgets
 
 The Student Grade, Instructor Grade, Welcome Window, and Visual Table of Contents widgets go on **course homepages**. The My Courses widget goes on the **org (main) homepage**.
 
@@ -198,10 +197,8 @@ Adjust the `height` value to fit each widget.
 
 > 🔒 **Note:** Use **release conditions** to control which roles can see each widget.
 
-</details>
 
-<details open>
-<summary><strong>C: Content Page Templates</strong></summary>
+#### C: Content Page Templates
 
 Content page templates must be uploaded to the **same folder as your other Content templates**.
 
@@ -213,7 +210,6 @@ d2l.Tools.Content.TemplatePath   (Org Unit)
 
 For example, if it's set to `/shared/Content_Templates/`, upload the template into the `Content_Templates` folder in **Public Files**. Instructors can then add it to a course from the Content tool's document templates.
 
-</details>
 
 ### 3. Open it and go
 Open the link, widget, or page. Each tool runs as **the signed-in user**, using that person's Brightspace login and permissions.
@@ -276,20 +272,20 @@ Each folder's README explains what every tool reads or changes, so you can match
 | Problem | Likely cause | Fix |
 |---------|--------------|-----|
 | `403 Forbidden` errors | Your role lacks permission | Ask your Brightspace admin to check your role's permissions |
-| `404 Not Found` errors | The item doesn't exist, or your Brightspace version doesn't support that API route | Confirm the course or org unit still exists, and [open an issue](../../issues) with the route shown in the error |
+| `404 Not Found` errors | The item doesn't exist, or your Brightspace version doesn't support that API route | Confirm the course or org unit still exists, and [open an issue](https://github.com/jonsorr/D2L_Brightspace_APIs/issues) with the route shown in the error |
 | Tool shows sample or demo data | The file was opened from your computer instead of Brightspace | Open the tool from its `/shared/` URL inside Brightspace, not from your Downloads folder |
 | Grade widget or Visual TOC can't tell which course it's in | The file was opened directly instead of inside a course homepage widget | Add it to a custom widget with an `<iframe>` and place the widget on a course homepage |
 | Welcome Window never appears | No top-level Content module named **Announcements**, or every page in it is already read | Check the module name (or change `moduleTitle` in the file), and make sure the module and its pages are visible to students |
-| Tool worked before but stopped | A Brightspace update changed the API | Check this repo for an updated version, or [open an issue](../../issues) |
+| Tool worked before but stopped | A Brightspace update changed the API | Check this repo for an updated version, or [open an issue](https://github.com/jonsorr/D2L_Brightspace_APIs/issues) |
 
-Still stuck? [Open an issue](../../issues) and include the tool name, the error message, and the steps you took.
+Still stuck? [Open an issue](https://github.com/jonsorr/D2L_Brightspace_APIs/issues) and include the tool name, the error message, and the steps you took.
 
 ---
 
 ## 🗺️ Roadmap
 
 1. **More documentation.** Video walkthroughs and a permissions checklist for every tool.
-2. **New tools.** Sponsors at the $10/month tier and above vote on what gets built next. Anyone can [suggest a tool](../../issues/new).
+2. **New tools.** Sponsors at the $10/month tier and above vote on what gets built next. Anyone can [suggest a tool](https://github.com/jonsorr/D2L_Brightspace_APIs/issues/new).
 
 ---
 
@@ -342,8 +338,8 @@ Thank you to everyone who supports this work!
 
 Contributions are welcome! Ways to help:
 
-- 🐛 **Report bugs** by [opening an issue](../../issues)
-- 💡 **Suggest a tool** by [opening an issue](../../issues/new) that starts with "Tool request:"
+- 🐛 **Report bugs** by [opening an issue](https://github.com/jonsorr/D2L_Brightspace_APIs/issues)
+- 💡 **Suggest a tool** by [opening an issue](https://github.com/jonsorr/D2L_Brightspace_APIs/issues/new) that starts with "Tool request:"
 - 📝 **Improve documentation** by fixing typos, adding screenshots, or clarifying steps
 - 🔧 **Submit code** by forking the repo, making your changes, and opening a pull request
 
@@ -355,13 +351,13 @@ When you submit a tool, please keep it to **one self-contained HTML file** with 
 
 Created and maintained by **Jonathan Sorrenti**, an instructional technology professional with an MEd in Instructional Technology and more than 15 years in educational technology. Every tool here started as a real problem at a real college and was built, tested, and used in production before being shared.
 
-Questions, ideas, or a tool that saved your team time? [Open an issue](../../issues) or [become a sponsor](https://github.com/sponsors/jonsorr). 💙
+Questions, ideas, or a tool that saved your team time? [Open an issue](https://github.com/jonsorr/D2L_Brightspace_APIs/issues) or [become a sponsor](https://github.com/sponsors/jonsorr). 💙
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License**. You're free to use, modify, and share these tools, including at your institution. See [LICENSE](LICENSE) for details.
+This project is licensed under the **MIT License**. You're free to use, modify, and share these tools, including at your institution. See [LICENSE](https://github.com/jonsorr/D2L_Brightspace_APIs/blob/main/LICENSE) for details.
 
 ---
 
@@ -376,6 +372,6 @@ These tools are provided **as-is, without warranty**. Always test in a non-produ
 <p align="center">
   Made with 💙 for the Brightspace community by Jonathan Sorrenti<br>
   <a href="https://github.com/sponsors/jonsorr">Sponsor</a> ·
-  <a href="../../issues">Report an Issue</a> ·
-  <a href="../../issues/new">Request a Tool</a>
+  <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/issues">Report an Issue</a> ·
+  <a href="https://github.com/jonsorr/D2L_Brightspace_APIs/issues/new">Request a Tool</a>
 </p>

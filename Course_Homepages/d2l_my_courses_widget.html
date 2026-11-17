@@ -661,8 +661,10 @@
     try {
       // Live whenever the page is served from a web server (your Brightspace
       // site). Opened straight from disk (file://) or localhost = demo preview.
+      // (github.io = the project's public demo site, which always shows sample data)
       return /^https?:$/.test(window.location.protocol) &&
-             !/^(localhost|127\.0\.0\.1|)$/.test(window.location.hostname);
+             !/^(localhost|127\.0\.0\.1|)$/.test(window.location.hostname) &&
+             !/\.github\.io$/i.test(window.location.hostname);
     } catch { return false; }
   })();
 
