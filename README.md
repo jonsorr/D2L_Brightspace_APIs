@@ -13,12 +13,14 @@ Every tool in this repository is a **single, self-contained HTML file** that run
 ## 📑 Table of Contents
 
 - [Why These Tools?](#-why-these-tools)
+- [Proven in Production](#-proven-in-production)
 - [Available Tools](#-available-tools)
 - [Quick Start](#-quick-start)
 - [Configuration](#-configuration)
 - [Permissions](#-permissions)
 - [Security & Privacy](#-security--privacy)
 - [Troubleshooting](#-troubleshooting)
+- [Roadmap](#-roadmap)
 - [Support This Project](#-support-this-project)
 - [Contributing](#-contributing)
 - [License](#-license)
@@ -40,47 +42,69 @@ These tools handle many of those jobs for free:
 
 ---
 
+## 🏭 Proven in Production
+
+These aren't experiments or demos. **Every tool listed below is running live in a production Brightspace environment at a college**, doing real work for staff, faculty, and students every day.
+
+| | |
+|---|---|
+| 🧰 **Tools running live in production** | 21 |
+| ⚡ **Largest bulk run designed for** | 50,000+ course offerings in a single pass |
+| 📚 **Largest course list handled** | 100,000+ courses loaded and paged in the browser |
+| 🔑 **API keys required** | 0 |
+
+---
+
 ## 🧰 Available Tools
 
-> **Status key:** ✅ Available · 🚧 In progress · 📅 Planned
+> **Status key:** ✅ Published in this repo · 📦 Live in production, being prepared for release
+>
+> Every tool is already running in production. Tools move from 📦 to ✅ as each one is cleaned up, made configurable for any institution, and documented.
 
-### Administration
+### 🔧 Admin Tools
+*Bulk tools for LMS administrators: change thousands of records in minutes instead of days.*
 
-| Tool | What it does | Status |
-|------|--------------|--------|
-| **Notification Settings Updater** | Bulk-update users' Summary Notification settings | 📅 |
-| **Correct User Emails** | Fix or clear external email addresses by org role to stop bounce-backs | 📅 |
-| **Create Org Units** | Create Departments, Course Templates, and Course Offerings in bulk | 📅 |
-| **Set Active Status** | Set many org units to Active or Inactive at once | 📅 |
-| **Delete Groups** | Bulk-delete groups and group categories across courses | 📅 |
-| **Adjusted Grade Config** | Bulk-set the `ReleaseAdjustedGrade` config variable across courses | 📅 |
+| Tool | File | What it does | Status |
+|------|------|--------------|--------|
+| **Summary Notification Settings Updater** | `d2l_notification_updater.html` | Paste a list of usernames and bulk-update their Summary Notification settings, with parallel workers for very large lists | 📦 |
+| **Correct User Emails** | `d2l_correct_user_emails.html` | Stop bounce-backs by correcting user email addresses in bulk based on each user's role | 📦 |
+| **Adjusted Grade Config Updater** | `adjusted-grade-config-update.html` | Bulk-set the Release Adjusted Final Grade setting across 50,000+ courses, with preview mode and a one-course test run | 📦 |
+| **Create Org Units** | `d2l_create_org_units.html` | Create Departments, Course Templates, and Course Offerings in bulk | 📦 |
+| **Set Active Status** | `d2l_set_active_status.html` | Set Divisions, Departments, Templates, Semesters, and Courses Active or Inactive, built to handle 100,000+ courses | 📦 |
+| **Delete Groups** | `d2l_delete_groups.html` | Clean up thousands of groups and group categories, deleting a group only after checking that no Content, Quiz, Discussion, or Assignment uses it | 📦 |
 
-### Course Batch Tools
+### 🏫 Department Tools
+*Reports and batch tools for deans, department chairs, and program coordinators.*
 
-| Tool | What it does | Status |
-|------|--------------|--------|
-| **Copy Course Batch** | Copy a master shell into many course offerings in one run | 📅 |
-| **Enrollment Batch CSV** | Build an enrollment CSV by picking courses, users, and a role | 📅 |
-| **Post News Batch** | Post one announcement into many courses at once | 📅 |
+| Tool | File | What it does | Status |
+|------|------|--------------|--------|
+| ⭐ **Department Tools Dashboard** | `department-dashboard.html` | All 8 department tools on one page, sharing **one** course and term scan instead of eight | 📦 |
+| **Department Grades** | `d2l_dean_grade_widget.html` | Every active course in a department, with counts of at-risk and not-passing students, matched to Brightspace's own grade math | 📦 |
+| **Course Readiness Audit** | `course-content-check.html` | Find course sections with nothing in Content before students arrive | 📦 |
+| **Course Template Audit** | `course-template-audit.html` | Check courses for the Content modules your template requires and flag outdated ones | 📦 |
+| **Attendance Check** | `course-attendance-check.html` | Report attendance registers, session counts, and whether attendance is being marked | 📦 |
+| **Last Date Instructor Accessed** | `course-instructor-access.html` | Show when each faculty member last opened each course, in color-coded groups you can click to filter | 📦 |
+| **Copy Course Batch** | `course-copy-batch.html` | Copy one model course into many course offerings in a single run, with an option to target only empty courses | 📦 |
+| **Enrollment Batch CSV Builder** | `course-enrollment-batch.html` | Build a ready-to-upload enrollment CSV: pick courses, enter people, choose roles | 📦 |
+| **Post News Batch** | `course-news-batch.html` | Write an announcement once and post it into many courses, with a rich-text editor and protection against duplicate posts | 📦 |
 
-### Reports
+### 🏠 Homepage Widgets
+*Student- and instructor-facing widgets that live on Brightspace homepages.*
 
-| Tool | What it does | Status |
-|------|--------------|--------|
-| **Instructor Last Accessed** | Show each course's instructors and when they last accessed it | 📅 |
-| **Attendance Check** | Check whether courses have attendance registers and whether attendance is being taken | 📅 |
-| **Empty Course Check** | Find active courses with nothing in Content | 📅 |
-| **Template Audit** | Check courses for required Content modules and flag outdated ones | 📅 |
-| **Department Tools Dashboard** | Run several reports from one page after a single course scan | 📅 |
+| Tool | File | What it does | Status |
+|------|------|--------------|--------|
+| **Student Grade Widget** | `d2l_grade_widget.html` | Current grade with a ring chart, a category breakdown, the lowest and highest possible final grade, and a privacy screen | 📦 |
+| **Instructor Grade Widget** | `d2l_instructor_grade_widget.html` | The whole class at a glance in five performance groups, with one-click email links; matches Brightspace's Class Progress exactly | 📦 |
+| **My Courses Widget** | `d2l_my_courses_widget.html` | Past / Last / This / Next Semester tabs with course cards based on your role | 📦 |
+| **Welcome Window** | `mtc-welcome-window-widget.html` | Course homepage pop-up that shows unread Announcements pages, with no instructor setup | 📦 |
+| **Visual Table of Contents** | `visual-toc-widget.html` | Course modules shown as visual tiles with progress tracking; ADA / WCAG 2.1 AA reviewed | 📦 |
 
-### Widgets & Course Pages
+### 📄 Content Page Templates
+*Ready-made pages that instructors drop into a course's Content area.*
 
-| Tool | What it does | Status |
-|------|--------------|--------|
-| **My Courses Widget** | Homepage widget with semester tabs and role-based course cards | 📅 |
-| **Welcome Window** | Course homepage pop-up that shows unread announcements | 📅 |
-| **Visual Table of Contents** | Visual, card-style navigation for course content | 📅 |
-| **Assignment Schedule** | Course page that lists every dated activity, grouped by due date | 📅 |
+| Tool | File | What it does | Status |
+|------|------|--------------|--------|
+| **Automated Assignment Schedule** | `90_Automated_Assignment_Builder.html` | A schedule that builds itself: every dated activity from Content, Assignments, Quizzes, and Discussions, grouped by due date, with the next group due highlighted | 📦 |
 
 ---
 
@@ -89,23 +113,97 @@ These tools handle many of those jobs for free:
 ### 1. Download a tool
 Open the tool's folder in this repository and download the `.html` file (click the file, then **Download raw file**).
 
-### 2. Upload it to Brightspace
-Pick the option that fits the tool:
+### 2. Upload it to D2L Brightspace
 
-**Option A: Admin and report tools (recommended)**
-1. Go to an admin or sandbox course you control.
-2. Open **Course Admin → Manage Files** and upload the `.html` file.
-3. In **Content**, add the file as a topic (**Upload / Create → Add from Manage Files**).
-4. Restrict the topic so only admins can see it.
+#### Part 1: Store the HTML files in the D2L Public Files area
 
-**Option B: Homepage and course widgets**
-1. Upload the `.html` file to **Manage Files** in the course or org unit.
-2. Create a custom widget (**Course Admin → Widgets → Create Widget**).
-3. Embed the file in the widget with an `<iframe>` pointing to its file path.
-4. Add the widget to your homepage layout.
+1. Sign in to D2L as an **Admin** or **SuperAdmin**.
+2. Click the **Admin Tools** (gear) icon.
+3. Open the **Public Files** tool.
+4. Create a folder for each category of HTML files. For example:
+   - `Admin_Pages`
+   - `Department_Tools`
+   - `Homepage_Widgets`
+   - `Content_Templates`
+5. Upload each HTML file from this repository into the matching folder.
+
+Files in Public Files are served from `/shared/`. For example, a file uploaded to the `Admin_Pages` folder is at:
+
+```
+https://YOUR-BRIGHTSPACE-URL/shared/Admin_Pages/adjusted-grade-config-update.html
+```
+
+#### Part 2: Use the HTML files
+
+<details open>
+<summary><strong>A: Admin Tools and Department Tools</strong></summary>
+
+**To show the tools on a navbar, create a custom link:**
+
+1. Sign in to D2L as an **Admin** or **SuperAdmin**.
+2. Click the **Admin Tools** (gear) icon.
+3. Open the **Navigation & Themes** tool.
+4. Choose the **Custom Links** tab.
+5. Click **Create Link**.
+6. Enter a **name** and the **URL**, then click **Save**. For example:
+   `https://YOUR-BRIGHTSPACE-URL/shared/Admin_Pages/adjusted-grade-config-update.html`
+7. Add the new link to your navbar.
+
+**To show the tools on a homepage, create a custom widget:**
+
+1. Sign in to D2L as an **Admin** or **SuperAdmin**.
+2. Click the **Admin Tools** (gear) icon.
+3. Open the **Homepage Management** tool.
+4. Choose the **Widgets** tab.
+5. Click **Create Widget**.
+6. Enter a **name**, then open the **Content** tab.
+7. Use the HTML Editor to build a list of links to the tools, using the same URL structure as the example above. Set each link to **open in a new window**.
+8. Click **Save and Close**, then add the widget to your homepage.
+
+> 🔒 **Note:** Use **release conditions** on the links or widgets to control which roles can see them.
+
+</details>
+
+<details open>
+<summary><strong>B: Homepage Widgets</strong></summary>
+
+1. Sign in to D2L as an **Admin** or **SuperAdmin**.
+2. Click the **Admin Tools** (gear) icon.
+3. Open the **Homepage Management** tool.
+4. Choose the **Widgets** tab.
+5. Click **Create Widget**.
+6. Enter a **name**, then open the **Content** tab.
+7. Click the **Source Code** option on the toolbar.
+8. Add an `<iframe>` that points to the HTML file. For example:
+   ```html
+   <iframe src="/shared/Homepage_Widgets/d2l_instructor_grade_widget.html" style="width: 100%;" height="437" scrolling="no"></iframe>
+   ```
+9. Click **Save**, then **Save and Close**.
+10. Add the widget to your homepage.
+
+Adjust the `height` value to fit each widget.
+
+> 🔒 **Note:** Use **release conditions** to control which roles can see each widget.
+
+</details>
+
+<details open>
+<summary><strong>C: Content Page Templates</strong></summary>
+
+Content page templates must be uploaded to the **same folder as your other Content templates**.
+
+To find that folder, check this setting in the **Config Variable Browser**:
+
+```
+d2l.Tools.Content.TemplatePath   (Org Unit)
+```
+
+For example, if it's set to `/shared/Content_Templates/`, upload the template into the `Content_Templates` folder in **Public Files**. Instructors can then add it to a course from the Content tool's document templates.
+
+</details>
 
 ### 3. Open it and go
-Open the topic or page. The tool runs as **you**, using your current Brightspace login and permissions.
+Open the link, widget, or page. Each tool runs as **the signed-in user**, using that person's Brightspace login and permissions.
 
 > 💡 **Tip:** Always test a new tool in a **sandbox course or test environment** first, especially tools that change data in bulk.
 
@@ -153,6 +251,13 @@ Each tool's own README lists the permissions it needs.
 - **Uses your session.** Tools authenticate with your existing Brightspace login and the built-in security token. No passwords or API keys are stored in the files.
 - **Open source.** You or your IT team can read every line of code before using it.
 - **Bulk changes ask first.** Tools that change data show a preview and ask you to confirm before making changes.
+- **Privacy screens on grade widgets.** Grade widgets keep grade data hidden until the user chooses to show it, so grades aren't shown on a projector or shared screen by accident.
+- **Accessible by design.** Student-facing widgets are built to ADA and WCAG 2.1 AA standards.
+
+### Built to be reliable
+- **Automatic API version detection.** Tools ask your Brightspace site which API versions it supports, so they keep working after Brightspace updates.
+- **Built-in rate limiting.** Tools slow down automatically when Brightspace asks them to, retry safely, and never post the same item twice.
+- **Built for scale.** Bulk tools use parallel workers with live progress, speed, and time-remaining estimates.
 
 > ⚠️ Review your institution's policies before deploying custom tools, and check with your IT or LMS team if you're unsure.
 
@@ -164,10 +269,18 @@ Each tool's own README lists the permissions it needs.
 |---------|--------------|-----|
 | `403 Forbidden` errors | Your role lacks permission | Ask your Brightspace admin to check your role's permissions |
 | `404 Not Found` errors | Wrong org unit ID or API version | Double-check the values in the configuration block |
-| Blank page or nothing loads | The file was opened from your computer instead of Brightspace | Open the tool from inside Brightspace, not from your Downloads folder |
+| Blank page or nothing loads | The file was opened from your computer instead of Brightspace | Open the tool from its `/shared/` URL inside Brightspace, not from your Downloads folder |
 | Tool worked before but stopped | A Brightspace update changed the API | Check this repo for an updated version, or [open an issue](../../issues) |
 
 Still stuck? [Open an issue](../../issues) and include the tool name, the error message, and the steps you took.
+
+---
+
+## 🗺️ Roadmap
+
+1. **Publish every production tool here.** Each one is being cleaned up, with institution-specific values moved into a simple settings block at the top of the file.
+2. **Documentation for every tool.** A setup guide, a permissions list, and screenshots.
+3. **New tools.** Sponsors at the $10/month tier and above vote on what gets built next. Anyone can [suggest a tool](../../issues/new).
 
 ---
 
@@ -175,9 +288,12 @@ Still stuck? [Open an issue](../../issues) and include the tool name, the error 
 
 These tools are free and always will be. Building and testing them still costs money for AI development tools, testing environments, hosting, and API access.
 
+**🎯 Current goal: $150/month**, enough to cover the core development tools behind every release.
+
 **If a tool saved your team time or money, please consider sponsoring.** Every sponsorship helps pay for more tools, faster updates, and better documentation for the whole Brightspace community.
 
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor%20on%20GitHub-%E2%9D%A4-ea4aaa?style=for-the-badge&logo=github)](https://github.com/sponsors/jonsorr)
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal)](https://paypal.me/jonsorr)
 
 ### 🌟 Sponsors
 
