@@ -15,7 +15,9 @@ Every tool in this repository is a **single, self-contained HTML file** that run
 
 🌐 **Website:** [jonsorr.github.io/D2L_Brightspace_APIs](https://jonsorr.github.io/D2L_Brightspace_APIs/)
 
-**Jump to a folder:** [🔧 Admin Tools](Admin_Tools/) · [🏫 Department Tools](Department_Tools/) · [🏠 Homepage Widgets](Course_Homepages/) · [📄 Content Page Templates](Content_Templates/)
+**Jump to a folder:** [🔧 Admin Tools](Admin_Tools/) · [🏫 Department Tools](Department_Tools/) · [🏠 Homepage Widgets](Course_Homepages/) · [📄 Content Page Templates](Content_Templates/) · [🧩 Custom Apps](CustomApps/)
+
+> 🆕 **New: [Attendance Plus](CustomApps/README.md#attendance-plus).** Brightspace's Attendance tool, upgraded to work like the Gradebook: frozen learner and session headings, scrollbars at the top and bottom, a **Spreadsheet View** to take attendance right from the main page, **Totals on the left**, and **Take Attendance by Grades**. Every mark is still saved by D2L itself, so Data Hub and reports don't change.
 
 ---
 
@@ -58,7 +60,7 @@ These aren't experiments or demos. **Every tool listed below is running live in 
 
 | | |
 |---|---|
-| 🧰 **Tools running live in production** | 21 |
+| 🧰 **Tools running live in production** | 22 |
 | ⚡ **Largest bulk run designed for** | 50,000+ course offerings in a single pass |
 | 📚 **Largest course list handled** | 100,000+ courses loaded and paged in the browser |
 | 🔑 **API keys required** | 0 |
@@ -67,7 +69,7 @@ These aren't experiments or demos. **Every tool listed below is running live in 
 
 ## 🧰 Available Tools
 
-> ✅ **All 21 tools are available now.** Click a tool's name for screenshots, setup steps, and settings, or click its file name to view and download the code.
+> ✅ **All 22 tools are available now.** Click a tool's name for screenshots, setup steps, and settings, or click its file name to view and download the code.
 
 ### 🔧 [Admin Tools](Admin_Tools/)
 *Bulk tools for LMS administrators: change thousands of records in minutes instead of days.*
@@ -114,12 +116,29 @@ These aren't experiments or demos. **Every tool listed below is running live in 
 |------|------|--------------|
 | **[Automated Assignment Schedule](Content_Templates/README.md#automated-assignment-schedule)** | [`90_Automated_Assignment_Builder.html`](Content_Templates/90_Automated_Assignment_Builder.html) | A schedule that builds itself: every dated activity from Content, Assignments, Quizzes, and Discussions, grouped by due date, with the next group due highlighted |
 
+### 🧩 [Custom Apps](CustomApps/)
+*Full upgrades to Brightspace's built-in tools. Instructors keep using the same tool, with new features added on top.*
+
+| Tool | File | What it does |
+|------|------|--------------|
+| 🆕 **[Attendance Plus](CustomApps/README.md#attendance-plus)** | [`attendance-plus.html`](CustomApps/attendance-plus.html) | Makes the Attendance tool work like the Gradebook, while D2L still saves every mark |
+
+**What's new in Attendance Plus:**
+1. ↔️ **Scrollbars at the top and bottom** of the attendance table, so you never have to scroll down to move sideways
+2. 📌 **Learners stay on the left** while you scroll across sessions
+3. 📌 **Sessions stay at the top** while you scroll down the class list
+4. 📝 **Switch to Spreadsheet View** to take attendance right from the main page: a dropdown in every cell, whole-column fills, Undo, and keyboard entry
+5. ☑️ **Display Totals at the front**: a checkbox that moves the totals to the left, so you don't have to scroll to the far right
+6. 📊 **Take Attendance by Grades** on the Set Attendance Data page and in Spreadsheet View: suggests P / T / A from the grade items you choose
+
+**Plus:** a **Take Attendance** button for any session, **at-risk flags** from the register's Cause for Concern %, **safe saving** that confirms every mark and retries up to 3 times, and **recovery of unsaved marks**.
+
 ---
 
 ## 🚀 Quick Start
 
 ### 1. Download the tools
-- **One tool:** open its folder (`Admin_Tools`, `Department_Tools`, `Course_Homepages`, or `Content_Templates`), click the `.html` file, then click **Download raw file**.
+- **One tool:** open its folder (`Admin_Tools`, `Department_Tools`, `Course_Homepages`, `Content_Templates`, or `CustomApps`), click the `.html` file, then click **Download raw file**.
 - **Everything at once:** click the green **Code** button at the top of this page, then **Download ZIP**.
 
 ### 2. Upload it to D2L Brightspace
@@ -134,9 +153,10 @@ These aren't experiments or demos. **Every tool listed below is running live in 
    - `Department_Tools`
    - `Course_Homepages`
    - `Content_Templates`
+   - `CustomApps`
 5. Upload each HTML file from this repository into the matching folder.
 
-> 📁 These folder names match this repository's folders (`Admin_Tools`, `Department_Tools`, `Course_Homepages`, `Content_Templates`). Each folder has its own README with screenshots and details for every tool.
+> 📁 These folder names match this repository's folders (`Admin_Tools`, `Department_Tools`, `Course_Homepages`, `Content_Templates`, `CustomApps`). Each folder has its own README with screenshots and details for every tool.
 
 Files in Public Files are served from `/shared/`. For example, a file uploaded to the `Admin_Tools` folder is at:
 
@@ -210,6 +230,19 @@ d2l.Tools.Content.TemplatePath   (Org Unit)
 
 For example, if it's set to `/shared/Content_Templates/`, upload the template into the `Content_Templates` folder in **Public Files**. Instructors can then add it to a course from the Content tool's document templates.
 
+#### D: Custom Apps
+
+Custom apps replace a built-in tool's navbar link, so everyone keeps clicking the same place. For **Attendance Plus**:
+
+1. Upload `attendance-plus.html` to your `CustomApps` folder in **Public Files**.
+2. In **Navigation & Themes**, create a **Custom Link** with this URL, and set it to open in the **Same window**:
+   ```
+   /shared/CustomApps/attendance-plus.html?ou={OrgUnitId}
+   ```
+3. Replace the course navbar's **Attendance** item with the new link, and keep the name **Attendance**.
+
+Brightspace fills in `{OrgUnitId}` for each course. Students are sent straight to D2L's normal student Attendance page. To roll back, point the navbar item back at D2L's built-in Attendance link. See the [CustomApps README](CustomApps/README.md#attendance-plus) for the full test checklist.
+
 
 ### 3. Open it and go
 Open the link, widget, or page. Each tool runs as **the signed-in user**, using that person's Brightspace login and permissions.
@@ -232,6 +265,7 @@ A few tools have **optional institution settings** in a clearly marked `CONFIG` 
 | Support center link | Student and Instructor Grade Widgets | The tutoring or support resource named in messages |
 | Pass/fail and gradebook-only courses | Grade widgets, Department Grades, Dashboard | Course codes graded Successful/Unsuccessful, or that should show only a Gradebook link |
 | Term dates | My Courses Widget | The date windows for Spring, Summer, and Fall |
+| Features, wording, and defaults | Attendance Plus | Turn each feature on or off, rename buttons, and set defaults such as the starting status and grade rules |
 
 Open the file in any text editor (Notepad, TextEdit, VS Code), change the values, save, and re-upload. Each folder's README lists the settings for every tool in that folder.
 
@@ -305,7 +339,7 @@ Buying similar functionality directly from D2L or a vendor can cost **more than 
 |---|---|---|
 | **Up-front cost** | $2,000+ per app | **$0** |
 | **Yearly cost** | $2,000+ per year for some features | **$0** |
-| **Number of tools** | Usually priced one at a time | **21 included** |
+| **Number of tools** | Usually priced one at a time | **22 included** |
 | **Setup** | Contracts, purchase orders, vendor timelines | Upload an HTML file and go |
 | **Code access** | Closed | Open and editable |
 
@@ -322,13 +356,13 @@ Replacing even **one** paid app saves more than a **full year** of the $150/mont
 
 Thank you to everyone who supports this work!
 
-<!-- sponsors -->*Be the first sponsor!*<!-- sponsors -->
+<!-- sponsors --><!-- sponsors -->
 
 ### 🏫 Institutional Partners
 
 Sponsors at the **$100/month** tier and above.
 
-<!-- partners -->*Your institution could be listed here.*<!-- partners -->
+<!-- partners --><!-- partners -->
 
 ---
 
