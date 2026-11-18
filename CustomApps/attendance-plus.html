@@ -1,0 +1,2126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance</title>
+<!--
+  Attendance Plus for D2L Brightspace
+  -----------------------------------------------------------------------
+  A drop-in front door for the Brightspace Attendance tool.
+
+  SETUP
+    1. Upload this file to Public Files, e.g. /shared/CustomApps/attendance-plus.html
+    2. In Navigation & Themes, point the course navbar's Attendance link
+       (a Custom Link) at:   /shared/CustomApps/attendance-plus.html?ou={OrgUnitId}
+       Same window. Brightspace replaces {OrgUnitId} with the course's org unit.
+
+  HOW IT WORKS
+    - Who sees what is decided by D2L itself: this page asks D2L's own
+      Attendance link (/d2l/lms/attendance/index.d2l?ou=...) where it lands.
+      Anyone D2L sends to the student view is sent straight to the real
+      student page. No role names to configure, so it works at any college.
+    - Everyone else gets the real D2L Attendance pages, shown full-window.
+      Registers, Schemes, New Register, More Actions, Edit Data, student
+      links, sorting, search, filters, Export and Email are all D2L's own.
+    - On a register's Attendance Data page this adds: frozen Learner column,
+      frozen session headings, "Display Totals at the front", and a
+      Spreadsheet View whose Save runs D2L's own Save on each session's
+      Set Attendance Data page, so Data Hub / reporting see normal D2L saves.
+    - No API keys; everything runs as the signed-in user.
+
+  SETTINGS are at the top of the script below (features on/off, wording, defaults).
+
+  VERSION HISTORY
+    1.5.0  Take Attendance (any session, dates or names), at-risk flags from Cause for Concern,
+           unsaved-mark recovery, Copy details on save problems, settings block, per-page fix
+    1.4.0  Accessibility pass (WCAG 2.2 AA): menu buttons, dialog focus, announcements, contrast
+    1.3.0  Take Attendance by Grades (from Henry Ecker's tool), bookmarklet pass-through
+    1.2.0  Save waits for D2L, confirms every change, retries up to 3 times
+    1.1.0  Chrome fix, opens at the left, top scrollbar, no "Resend" prompt
+    1.0.0  Frozen panes, Totals first, Spreadsheet View
+  -----------------------------------------------------------------------
+-->
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; }
+  #atg-frame { border: 0; width: 100%; height: 100%; display: block; }
+  #atg-boot {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; font: 15px/1.4 "Lato", "Segoe UI", Arial, sans-serif; color: #494c4e;
+  }
+  #atg-boot .spin {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 4px solid #e3e9f1; border-top-color: #006fbf; animation: atgspin .9s linear infinite;
+  }
+  @keyframes atgspin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { #atg-boot .spin { animation-duration: 3s; } }
+  #atg-boot a { color: #006fbf; }
+  .atg-hidden-frame { position: absolute; width: 1px; height: 1px; left: -9999px; top: 0; border: 0; visibility: hidden; }
+</style>
+</head>
+<body>
+<div id="atg-boot" role="status" aria-live="polite"><div class="spin" aria-hidden="true"></div><div id="atg-boot-msg">Loading Attendance…</div></div>
+<iframe id="atg-frame" title="Attendance" hidden></iframe>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================================================================== *
+   *  SETTINGS — the only part most schools ever need to touch.
+   *  Every value below is the default behavior; change it, save, re-upload.
+   * ================================================================== */
+  var VERSION = '1.5.0';
+  var SETTINGS = {
+    // ---- Features (true = on, false = off) ----
+    features: {
+      spreadsheetView:        true,   // "Switch to Spreadsheet View" on a register's Attendance Data page
+      totalsFirstOption:      true,   // "Display Totals at the front of the table" checkbox
+      frozenPanes:            true,   // frozen Learner column + session headings, top scrollbar
+      takeAttendance:         true,   // "Take Attendance" button (pick any session, start everyone as P, fix exceptions)
+      attendanceByGrades:     true,   // "Take Attendance by Grades" (Set Attendance Data page + spreadsheet icons)
+      atRiskFlags:            true,   // flag learners below the register's Cause for Concern %
+      draftRecovery:          true,   // keep unsaved spreadsheet marks in the browser until they're saved
+      showMostLearnersPerPage: true,  // Spreadsheet View / Set Attendance Data switch to D2L's biggest "per page"
+      bookmarkletPassThrough: true    // older bookmarklets clicked on this page run on the D2L page inside it
+    },
+
+    // ---- Button and label wording ----
+    labels: {
+      spreadsheet:    'Switch to Spreadsheet View',
+      standard:       'Switch to Standard View',
+      takeAttendance: 'Take Attendance',
+      byGrades:       'Take Attendance by Grades',
+      totalsFirst:    'Display Totals at the front of the table',
+      save:           'Save'
+    },
+
+    // ---- Defaults ----
+    totalsFirstDefault: false,          // Totals checkbox for someone who has never touched it
+    takeAttendanceStartWith: 'P',       // "Start everyone as" in Take Attendance ('' = leave blank); falls back to blank if the scheme has no such symbol
+    gradeRuleDefaults: {                // Take Attendance by Grades, until a user changes them ('' = leave current mark as is)
+      all: 'P',                         //   scored above 0 on every item
+      some: 'T',                        //   scored above 0 on some items
+      none: 'A',                        //   scored 0 on every item
+      ungraded: ''                      //   any item not graded yet
+    },
+    atRiskDefaultPercent: null,         // used only when a register has no Cause for Concern % (null = no flags for those registers)
+    draftKeepDays: 7,                   // how long unsaved spreadsheet marks are offered back
+
+    // ---- Technical (rarely changed) ----
+    attendanceRoot: '/d2l/lms/attendance/',
+    saveTimeoutMs: 45000,               // max wait for one session's D2L save
+    saveAttempts: 3,                    // automatic tries per session before reporting a change as not saved
+    readyTimeoutMs: 30000               // max wait for a hidden D2L page to finish loading
+  };
+  var F = SETTINGS.features, LBL = SETTINGS.labels;
+
+  /* ------------------------------------------------------------------ *
+   *  Boot / routing
+   * ------------------------------------------------------------------ */
+  var params = new URLSearchParams(location.search);
+  var OU = params.get('ou') || params.get('orgUnitId') || params.get('ouId') || '';
+  var NATIVE_INDEX = SETTINGS.attendanceRoot + 'index.d2l?ou=' + encodeURIComponent(OU);
+  var frame = document.getElementById('atg-frame');
+  var bootMsg = document.getElementById('atg-boot-msg');
+
+  function bootFail(html) {
+    bootMsg.innerHTML = html;
+    var s = document.querySelector('#atg-boot .spin'); if (s) s.remove();
+  }
+
+  // Opened from the navbar *inside* our own frame: just show the native tool there.
+  if (window.top !== window.self) {
+    try {
+      if (window.top.location.pathname === location.pathname) { location.replace(NATIVE_INDEX); return; }
+    } catch (e) { /* different origin parent: carry on as top-level */ }
+  }
+
+  if (!/^\d+$/.test(OU)) {
+    bootFail('This page needs the course org unit in its address, e.g. <code>?ou={OrgUnitId}</code>.');
+    return;
+  }
+
+  function isAttendancePath(p) { return p.toLowerCase().indexOf(SETTINGS.attendanceRoot) === 0; }
+
+  function startPath() {
+    var p = params.get('p');
+    if (p && p.charAt(0) === '/' && isAttendancePath(p.split('?')[0])) return p;
+    return NATIVE_INDEX;
+  }
+
+  fetch(NATIVE_INDEX, { credentials: 'same-origin', cache: 'no-store' })
+    .then(function (res) { return res.text().then(function (html) { return { url: res.url || '', html: html }; }); })
+    .then(function (r) {
+      var finalPath = '';
+      try { finalPath = new URL(r.url, location.href).pathname.toLowerCase(); } catch (e) {}
+      var studentView = finalPath.indexOf('/attendance/view/') !== -1 || /my attendance<\/h1>|attendance_list\.d2l\?ou=/i.test(r.html);
+      var staffView = /registers_list\.d2l|registers_newedit\.d2l|data_list\.d2l\?registerid=/i.test(finalPath + ' ' + r.html);
+      if (staffView && !(/\/attendance\/view\//.test(finalPath))) {
+        frame.hidden = false;
+        frame.src = startPath();
+      } else {
+        // Students (or anything we can't classify) get exactly what D2L would show.
+        location.replace(NATIVE_INDEX);
+      }
+    })
+    .catch(function () { location.replace(NATIVE_INDEX); });
+
+  frame.addEventListener('load', onFrameLoad);
+  if (F.bookmarkletPassThrough) passBookmarkletsThrough();
+
+  function onFrameLoad() {
+    var w, d, loc;
+    try { w = frame.contentWindow; d = w.document; loc = w.location; void loc.pathname; }
+    catch (e) { location.href = NATIVE_INDEX; return; }       // left our origin
+
+    // Chrome fires a load for the frame's initial blank document: ignore it.
+    if (loc.href === 'about:blank' || loc.protocol === 'about:' || !frame.getAttribute('src')) return;
+
+    // Left the Attendance tool (navbar, breadcrumb, etc.): become that page for real.
+    if (!isAttendancePath(loc.pathname)) { location.href = loc.href; return; }
+
+    var boot = document.getElementById('atg-boot'); if (boot) boot.remove();
+    document.title = d.title || 'Attendance';
+    frame.title = d.title || 'Attendance';
+    try {
+      var keep = new URL(location.href);
+      keep.searchParams.set('ou', OU);
+      keep.searchParams.set('p', loc.pathname + loc.search);
+      history.replaceState(null, '', keep.pathname + keep.search);
+    } catch (e) {}
+
+    hookNavigation(w, d);
+    if (/\/attendance\/attendance\/data_list\.d2l$/i.test(loc.pathname)) {
+      try { enhanceDataList(w, d); } catch (err) { console.error('[Attendance Plus]', err); }
+    } else if (/\/attendance\/attendance\/data_edit\.d2l$/i.test(loc.pathname)) {
+      try { enhanceDataEdit(w, d); } catch (err) { console.error('[Attendance Plus]', err); }
+    }
+  }
+
+  // Links that leave the Attendance tool open as a normal top-level page.
+  function hookNavigation(w, d) {
+    d.addEventListener('click', function (e) {
+      if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      var path = e.composedPath ? e.composedPath() : [e.target];
+      var a = null;
+      for (var i = 0; i < path.length; i++) {
+        var n = path[i];
+        if (n && n.tagName === 'A' && n.getAttribute && n.getAttribute('href')) { a = n; break; }
+      }
+      if (!a) return;
+      var target = (a.getAttribute('target') || '').toLowerCase();
+      if (target && target !== '_self' && target !== '_top' && target !== '_parent') return;
+      var href = a.href;
+      if (!href || /^javascript:/i.test(href) || href.charAt(href.length - 1) === '#') return;
+      var u; try { u = new URL(href, w.location.href); } catch (er) { return; }
+      if (u.origin !== location.origin || !isAttendancePath(u.pathname)) {
+        e.preventDefault();
+        location.href = u.href;
+      }
+    }, true);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Register "Attendance Data" page enhancements
+   * ------------------------------------------------------------------ */
+  var CSS = [
+    '.atg-scroll{position:relative;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;}',
+    '.atg-scroll > d2l-table-wrapper,.atg-scroll > .atg-wrap{display:block!important;width:max-content!important;min-width:100%!important;max-width:none!important;overflow:visible!important;}',
+    '.atg-topbar{overflow-x:auto;overflow-y:hidden;height:16px;position:sticky;top:0;z-index:6;background:#fff;margin-bottom:2px;}',
+    '.atg-topbar-inner{height:1px;}',
+    '.atg-st{position:sticky!important;z-index:3;}',
+    '.atg-sl{position:sticky!important;z-index:2;}',
+    '.atg-st.atg-sl{z-index:5;}',
+    '.atg-edge{box-shadow:inset -1px 0 0 #cdd5dc,6px 0 6px -5px rgba(0,0,0,.28)!important;}',
+    '.atg-hshadow{box-shadow:inset 0 -1px 0 #cdd5dc,0 6px 6px -5px rgba(0,0,0,.22)!important;}',
+    '.atg-hshadow.atg-edge{box-shadow:inset -1px -1px 0 #cdd5dc,4px 4px 6px -4px rgba(0,0,0,.25)!important;}',
+    '.atg-today-h{box-shadow:inset 0 -3px 0 #006fbf!important;}',
+    '.atg-opts{display:flex;flex-wrap:wrap;align-items:center;gap:10px 28px;margin:14px 0 8px;font-size:.8rem;color:#202122;}',
+    '.atg-opts label{display:inline-flex;align-items:center;gap:8px;cursor:pointer;}',
+    '.atg-opts input[type=checkbox]{margin:0;}',
+    '.atg-bar{display:none;align-items:center;gap:14px;flex-wrap:wrap;}',
+    '.atg-sheet .atg-bar{display:inline-flex;}',
+    '.atg-count{font-weight:700;color:#494c4e;}',
+    '.atg-count.atg-has{color:#9c4a00;}',
+    '.atg-link{background:none;border:0;padding:0;color:#006fbf;font:inherit;cursor:pointer;text-decoration:underline;}',
+    '.atg-link[disabled]{color:#90989d;cursor:default;text-decoration:none;}',
+    '.atg-tip{color:#6e7477;}',
+    '.atg-sel{font:inherit;font-size:.8rem;padding:3px 4px;min-width:4.2em;min-height:24px;border:1px solid #6e7477;border-radius:4px;background:#fff;color:#202122;cursor:pointer;}',
+    '.atg-sel:focus{outline:2px solid #006fbf;outline-offset:1px;border-color:#006fbf;}',
+    'td.atg-dirty,td.atg-dirty.atg-sl{background-color:#fff4cc!important;}',
+    'td.atg-dirty .atg-sel{border-color:#c77d00;background:#fffaf0;font-weight:700;}',
+    'td.atg-fail{outline:2px solid #cd2026;outline-offset:-2px;}',
+    '.atg-mb{font:inherit;font-size:.75rem;min-height:24px;padding:2px 8px;border:1px solid #006fbf;border-radius:4px;background:#fff;color:#006fbf;font-weight:700;cursor:pointer;white-space:nowrap;}',
+    '.atg-mb:hover{background:#e8f8ff;}',
+    '.atg-mb:focus-visible,.atg-mb[aria-expanded="true"]{outline:2px solid #006fbf;outline-offset:1px;}',
+    '.atg-col{display:block;margin:6px auto 0;}',
+    '.atg-menu{position:fixed;z-index:100001;margin:0;padding:4px 0;list-style:none;background:#fff;border:1px solid #6e7477;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.2);min-width:12rem;max-height:60vh;overflow:auto;font-size:.82rem;color:#202122;}',
+    '.atg-menu ul{list-style:none;margin:0;padding:0;}',
+    '.atg-menu-gh{padding:6px 12px 2px;font-size:.72rem;font-weight:700;color:#494c4e;text-transform:uppercase;letter-spacing:.02em;}',
+    '.atg-menu [role="menuitem"]{padding:6px 14px 6px 18px;cursor:pointer;min-height:24px;line-height:1.3;}',
+    '.atg-menu [role="menuitem"]:hover,.atg-menu [role="menuitem"]:focus{background:#006fbf;color:#fff;outline:none;}',
+    '.atg-menu-sep{height:1px;background:#e3e9f1;margin:4px 0;}',
+    '.atg-gd-rules select:focus,.atg-gd-res select:focus,.atg-gd-filter:focus{outline:2px solid #006fbf;outline-offset:1px;}',
+    '.atg-sr{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;}',
+    '.atg-link:focus-visible{outline:2px solid #006fbf;outline-offset:2px;}',
+    '@media (prefers-reduced-motion: reduce){.atg-prog > div{transition:none;}}',
+    '.atg-toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:100000;background:#202122;color:#fff;padding:10px 18px;border-radius:6px;font-size:.85rem;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:80vw;}',
+    '.atg-toast.atg-err{background:#cd2026;}',
+    '.atg-overlay{position:fixed;inset:0;z-index:99999;background:rgba(32,33,34,.35);display:flex;align-items:center;justify-content:center;}',
+    '.atg-modal{background:#fff;border-radius:8px;padding:22px 26px;min-width:280px;max-width:520px;box-shadow:0 8px 30px rgba(0,0,0,.3);font-size:.9rem;color:#202122;}',
+    '.atg-modal h2{margin:0 0 10px;font-size:1.1rem;}',
+    '.atg-modal ul{margin:8px 0 14px;padding-left:18px;max-height:220px;overflow:auto;}',
+    '.atg-prog{height:6px;background:#e3e9f1;border-radius:3px;overflow:hidden;margin-top:12px;}',
+    '.atg-prog > div{height:100%;width:0;background:#006fbf;transition:width .25s;}',
+    '.atg-gbtn{display:inline-flex;align-items:center;justify-content:center;vertical-align:middle;margin-left:4px;width:24px;height:24px;padding:0;border:1px solid transparent;border-radius:4px;background:transparent;cursor:pointer;color:#006fbf;}',
+    '.atg-gbtn:hover,.atg-gbtn:focus{background:#e8f8ff;border-color:#29a6ff;outline:none;}',
+    '.atg-gbtn svg{width:17px;height:17px;}',
+    '.atg-gd{width:min(980px,94vw);max-width:none;max-height:88vh;display:flex;flex-direction:column;padding:0;}',
+    '.atg-gd-head{padding:18px 24px 10px;border-bottom:1px solid #e3e9f1;}',
+    '.atg-gd-head h2{margin:0;font-size:1.15rem;}',
+    '.atg-gd-sub{color:#6e7477;font-size:.82rem;margin-top:4px;}',
+    '.atg-gd-body{padding:14px 24px;overflow:auto;flex:1;font-size:.85rem;}',
+    '.atg-gd-foot{padding:12px 24px;border-top:1px solid #e3e9f1;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;}',
+    '.atg-gd-rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px 16px;background:#f9fbff;border:1px solid #e3e9f1;border-radius:6px;padding:10px 12px;margin-bottom:12px;}',
+    '.atg-gd-rules label{display:flex;justify-content:space-between;align-items:center;gap:8px;}',
+    '.atg-gd-rules select,.atg-gd-res select{font:inherit;padding:2px 4px;min-height:24px;border:1px solid #6e7477;border-radius:4px;}',
+    '.atg-gd-filter{width:100%;box-sizing:border-box;font:inherit;padding:6px 8px;border:1px solid #6e7477;border-radius:4px;margin-bottom:10px;}',
+    '.atg-gd-cat{margin:0 0 12px;}',
+    '.atg-gd-cat h3{font-size:.9rem;margin:8px 0 4px;display:flex;align-items:center;gap:10px;}',
+    '.atg-gd-cat h3 button{font-size:.75rem;}',
+    '.atg-gd-item{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:4px;cursor:pointer;}',
+    '.atg-gd-item:hover{background:#f1f5fb;}',
+    '.atg-gd-item input:focus-visible,.atg-gd-name input:focus-visible{outline:2px solid #006fbf;outline-offset:2px;}',
+    '.atg-gd-res{border-collapse:collapse;width:100%;}',
+    '.atg-gd-res th,.atg-gd-res td{border:1px solid #e3e9f1;padding:5px 8px;text-align:center;white-space:nowrap;}',
+    '.atg-gd-res th:first-child,.atg-gd-res td:first-child,.atg-gd-res tbody th{text-align:left;position:sticky;left:0;background:#fff;font-weight:400;}',
+    '.atg-gd-res thead th{position:sticky;top:0;background:#f9fbff;z-index:1;}',
+    '.atg-gd-res thead th:first-child{z-index:2;}',
+    '.atg-g-yes{color:#1e6b34;}.atg-g-no{color:#cd2026;}.atg-g-un{color:#6e7477;font-style:italic;}',
+    '.atg-gd-sum{margin:0 0 10px;color:#494c4e;}',
+    '.atg-gd-name{display:inline-flex;align-items:center;gap:8px;cursor:pointer;}',
+    '.atg-gd-set{margin-top:4px;}',
+    '.atg-gd-err{color:#cd2026;}',
+    '.atg-btnrow{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;}',
+    '.atg-risk{display:inline-flex;align-items:center;gap:12px;flex-wrap:wrap;}',
+    '.atg-risk-badge{display:inline-block;margin-left:8px;padding:1px 6px;border-radius:10px;background:#fdecea;color:#a3141b;font-size:.7rem;font-weight:700;white-space:nowrap;vertical-align:middle;}',
+    'td.atg-risk-pct{color:#a3141b!important;font-weight:700;}',
+    '.atg-take{width:min(620px,94vw);max-width:none;}',
+    '.atg-take-fs{border:0;margin:0 0 12px;padding:0;}',
+    '.atg-take-fs legend{font-weight:700;margin-bottom:6px;padding:0;}',
+    '.atg-take-list{max-height:40vh;overflow:auto;border:1px solid #e3e9f1;border-radius:6px;}',
+    '.atg-take-row{display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #f1f5fb;cursor:pointer;}',
+    '.atg-take-row:hover{background:#f1f5fb;}',
+    '.atg-take-name{flex:1;}',
+    '.atg-take-tag{font-size:.75rem;color:#494c4e;white-space:nowrap;}',
+    '.atg-take-start{display:flex;flex-wrap:wrap;gap:8px 18px;}',
+    '.atg-take-start label{display:inline-flex;align-items:center;gap:6px;cursor:pointer;}',
+    '.atg-take input:focus-visible{outline:2px solid #006fbf;outline-offset:2px;}',
+    'th.atg-take-col{box-shadow:inset 0 -3px 0 #006fbf,inset 0 3px 0 #006fbf!important;}',
+    'td.atg-take-col{background-color:#eef6fd;}',
+    '@media print{.atg-scroll{max-height:none!important;overflow:visible!important;}.atg-opts,.atg-col{display:none!important;}}'
+  ].join('\n');
+
+  // Injected into D2L component shadow roots so the table scrolls in our box (both directions).
+  var SHADOW_CSS = [
+    ':host{overflow:visible!important;max-width:none!important;}',
+    '.d2l-scroll-wrapper-container,[class*="scroll-wrapper-container"],.wrapper,.d2l-table-wrapper{overflow:visible!important;max-width:none!important;}',
+    '.d2l-scroll-wrapper-actions,[class*="scroll-wrapper-actions"],.d2l-scroll-wrapper-button,[class*="scroll-wrapper-button"]{display:none!important;}'
+  ].join('\n');
+
+  var LS_TOTALS = 'atg.totalsFirst';
+  function lsGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
+  function ssGet(k) { try { return window.sessionStorage.getItem(k); } catch (e) { return null; } }
+  function ssSet(k, v) { try { if (v == null) window.sessionStorage.removeItem(k); else window.sessionStorage.setItem(k, v); } catch (e) {} }
+
+  function txt(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
+  function qp(href, name) { try { return new URL(href, location.href).searchParams.get(name) || ''; } catch (e) { return ''; } }
+  function qpi(href, name) { // case-insensitive param lookup
+    try {
+      var sp = new URL(href, location.href).searchParams, out = '';
+      sp.forEach(function (v, k) { if (!out && k.toLowerCase() === name.toLowerCase()) out = v; });
+      return out;
+    } catch (e) { return ''; }
+  }
+
+  function enhanceDataList(w, d) {
+    if (d.documentElement.getAttribute('data-atg')) return;
+    d.documentElement.setAttribute('data-atg', '1');
+
+    var style = d.createElement('style'); style.id = 'atg-style'; style.textContent = CSS;
+    (d.head || d.documentElement).appendChild(style);
+
+    var registerId = qpi(w.location.href, 'registerId');
+    var model = readModel(w, d);
+    if (!model) return;                      // no learners / unexpected page: leave D2L as-is
+
+    var state = {
+      w: w, d: d, model: model, registerId: registerId,
+      mode: 'standard', totalsFirst: lsGet(LS_TOTALS) === null ? !!SETTINGS.totalsFirstDefault : lsGet(LS_TOTALS) === '1',
+      changes: {}, undo: [], typeBuf: '', typeTimer: null
+    };
+    w.__atg = state;
+
+    buildScroller(state);
+    buildControls(state);
+    if (state.totalsFirst && F.totalsFirstOption) moveTotals(state, true);
+    if (F.frozenPanes) applySticky(state);
+    scrollToToday(state);
+    if (F.frozenPanes) buildTopbar(state);
+    resetLeft(state);
+    if (F.atRiskFlags) loadAtRisk(state);
+
+    var relayout = debounce(function () { flattenShadows(state); sizeScroller(state); applySticky(state); sizeTopbar(state); }, 120);
+    w.addEventListener('resize', relayout);
+    if (w.ResizeObserver) { try { new w.ResizeObserver(relayout).observe(model.table); } catch (e) {} }
+    [250, 800, 2000].forEach(function (t) { setTimeout(relayout, t); });
+    // D2L/browser scroll restoration can push the table to the far right after load: put it back at the start.
+    [0, 300, 900, 1800].forEach(function (t) { setTimeout(function () { if (!state.userScrolled) resetLeft(state); }, t); });
+    ['wheel', 'pointerdown', 'keydown', 'touchstart'].forEach(function (ev) {
+      state.scroller.addEventListener(ev, function () { state.userScrolled = true; }, { passive: true });
+      if (state.topbar) state.topbar.addEventListener(ev, function () { state.userScrolled = true; }, { passive: true });
+    });
+
+    w.addEventListener('beforeunload', function (e) {
+      if (state.mode === 'sheet' && changeCount(state) > 0 && !state.saving) { e.preventDefault(); e.returnValue = ''; return ''; }
+    });
+    d.addEventListener('keydown', function (e) {
+      if (state.mode === 'sheet' && (e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+        if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+        e.preventDefault(); undo(state);
+      }
+    });
+
+    if (F.spreadsheetView && ssGet('atg.sheet.' + registerId) === '1') enterSheet(state);
+  }
+
+  /* ---------- Read the native grid ---------- */
+  function readModel(w, d) {
+    var tables = d.querySelectorAll('table');
+    var table = null;
+    for (var i = 0; i < tables.length; i++) {
+      var t = tables[i];
+      if (t.querySelector('a[href*="data_edit.d2l"]') && t.querySelector('th[scope="row"], th.d_ich')) { table = t; break; }
+    }
+    if (!table) return null;
+
+    var rows = Array.prototype.slice.call(table.rows);
+    var headRows = rows.filter(function (r) { return r.hasAttribute('header') || r.classList.contains('d_gh'); });
+    var bodyRows = rows.filter(function (r) { return headRows.indexOf(r) === -1 && r.querySelector('th[scope="row"], th.d_ich'); });
+    if (!headRows.length || !bodyRows.length) return null;
+
+    var sessRow = null;
+    headRows.forEach(function (r) { if (!sessRow && r.querySelector('a[href*="data_edit.d2l"]')) sessRow = r; });
+    var groupRow = headRows[0] !== sessRow ? headRows[0] : null;
+
+    var sessions = [];
+    Array.prototype.forEach.call(sessRow.cells, function (c) {
+      var a = c.querySelector('a[href*="data_edit.d2l"]');
+      if (!a) return;
+      var sortBtn = c.querySelector('d2l-table-col-sort-button');
+      sessions.push({ th: c, id: qpi(a.href, 'SessionId'), name: txt(sortBtn) || txt(c) });
+    });
+    if (!sessions.length) return null;
+
+    // Status list (id -> symbol) from D2L's own search-options dropdowns or the totals headers
+    var statuses = [];
+    var sel = d.querySelector('select[name="status"]') || d.querySelector('select[name="statusTotal"]');
+    if (sel) {
+      Array.prototype.forEach.call(sel.options, function (o) {
+        if (o.value !== '-1' && o.value !== '' && txt(o)) statuses.push({ id: String(o.value), sym: txt(o) });
+      });
+    }
+    if (!statuses.length) {
+      Array.prototype.forEach.call(sessRow.querySelectorAll('[data-fieldname^="Symbol_"]'), function (b) {
+        statuses.push({ id: b.getAttribute('data-fieldname').replace('Symbol_', ''), sym: txt(b) });
+      });
+    }
+    var symToId = {}; statuses.forEach(function (s) { symToId[s.sym] = s.id; });
+
+    var nS = sessions.length;
+    var learners = bodyRows.map(function (r) {
+      var th = r.querySelector('th[scope="row"], th.d_ich');
+      var link = th.querySelector('a[href]');
+      var uid = link ? qpi(link.href, 'userId') : '';
+      if (!uid) { var cb = r.querySelector('input[type=checkbox][value]'); if (cb) uid = (cb.value.split('_')[1] || ''); }
+      var first = r.cells[0] !== th ? r.cells[0] : null;
+      var after = [], seen = false;
+      Array.prototype.forEach.call(r.cells, function (c) { if (seen) after.push(c); if (c === th) seen = true; });
+      return { row: r, th: th, cbCell: first, uid: uid, name: txt(link || th), sessionCells: after.slice(0, nS), totalCells: after.slice(nS) };
+    });
+
+    // header cells around the sessions
+    var gCells = groupRow ? Array.prototype.slice.call(groupRow.cells) : [];
+    var learnerHead = null, sessGroupHead = null, totalsGroupHeads = [], headCb = null;
+    if (groupRow) {
+      gCells.forEach(function (c) {
+        if (!learnerHead && c.querySelector('d2l-table-col-sort-button[data-haschildren], d2l-table-col-sort-button-item')) learnerHead = c;
+      });
+      if (!learnerHead) learnerHead = gCells.filter(function (c) { return /learner/i.test(txt(c)); })[0] || gCells[1];
+      headCb = gCells[0] !== learnerHead ? gCells[0] : null;
+      var li = gCells.indexOf(learnerHead);
+      sessGroupHead = gCells[li + 1] || null;
+      totalsGroupHeads = gCells.slice(li + 2);
+    }
+    var sCells = Array.prototype.slice.call(sessRow.cells);
+    var lastSessIdx = sCells.indexOf(sessions[nS - 1].th);
+    var totalsHeads = sCells.slice(lastSessIdx + 1);
+    if (!groupRow) { // single header row layout
+      learnerHead = sCells.filter(function (c) { return /learner/i.test(txt(c)); })[0] || null;
+      headCb = sCells[0] !== learnerHead ? sCells[0] : null;
+    }
+
+    return {
+      table: table, wrapper: table.closest('d2l-table-wrapper') || null,
+      groupRow: groupRow, sessRow: sessRow, headRows: headRows,
+      headCb: headCb, learnerHead: learnerHead, sessGroupHead: sessGroupHead,
+      totalsGroupHeads: totalsGroupHeads, totalsHeads: totalsHeads,
+      sessions: sessions, statuses: statuses, symToId: symToId, learners: learners
+    };
+  }
+
+  /* ---------- Frozen panes ---------- */
+  function buildScroller(state) {
+    var d = state.d, m = state.model;
+    var box = m.wrapper || m.table;
+    var sc = d.createElement('div');
+    sc.className = 'atg-scroll';
+    sc.setAttribute('role', 'region');
+    sc.setAttribute('aria-label', 'Attendance table (scrolls both ways)');
+    sc.tabIndex = 0;
+    if (!m.wrapper) { var wr = d.createElement('div'); wr.className = 'atg-wrap'; box.parentNode.insertBefore(sc, box); sc.appendChild(wr); wr.appendChild(box); }
+    else { box.parentNode.insertBefore(sc, box); sc.appendChild(box); }
+    state.scroller = sc;
+    flattenShadows(state);
+    sizeScroller(state);
+  }
+
+  function flattenShadows(state) {
+    var root = state.model.wrapper;
+    if (!root) return;
+    (function walk(host) {
+      var sr = host.shadowRoot;
+      if (sr) {
+        if (!sr.querySelector('style[data-atg]')) {
+          var s = state.d.createElement('style'); s.setAttribute('data-atg', ''); s.textContent = SHADOW_CSS; sr.appendChild(s);
+        }
+        Array.prototype.forEach.call(sr.querySelectorAll('*'), function (el) {
+          var cs = state.w.getComputedStyle(el);
+          if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY) && el.tagName !== 'STYLE') {
+            el.style.setProperty('overflow', 'visible', 'important');
+          }
+          if (el.shadowRoot) walk(el);
+        });
+      }
+      Array.prototype.forEach.call(host.children || [], function (c) { if (c.shadowRoot && c !== state.model.table) walk(c); });
+    })(root);
+  }
+
+  function sizeScroller(state) {
+    if (!F.frozenPanes) { state.scroller.style.overflow = 'visible'; return; }
+    var w = state.w, d = state.d;
+    var fb = d.querySelector('d2l-floating-buttons');
+    var fbH = fb ? Math.max(fb.offsetHeight || 0, 64) : 0;
+    var h = Math.max(320, w.innerHeight - fbH - 20);
+    state.scroller.style.maxHeight = h + 'px';
+  }
+
+  function bgOf(w, el, fallback) {
+    var c = w.getComputedStyle(el).backgroundColor;
+    if (!c || c === 'transparent' || /rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(c)) {
+      var p = el.parentElement;
+      if (p && p.tagName === 'TR') {
+        var pc = w.getComputedStyle(p).backgroundColor;
+        if (pc && pc !== 'transparent' && !/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(pc)) return pc;
+      }
+      return fallback;
+    }
+    return c;
+  }
+
+  function clearSticky(el) {
+    el.classList.remove('atg-st', 'atg-sl', 'atg-edge', 'atg-hshadow');
+    el.style.removeProperty('top'); el.style.removeProperty('left'); el.style.removeProperty('background-color');
+  }
+
+  function applySticky(state) {
+    if (!F.frozenPanes) return;
+    var w = state.w, m = state.model;
+    Array.prototype.forEach.call(m.table.querySelectorAll('.atg-st,.atg-sl'), clearSticky);
+
+    // columns to freeze: checkbox + Learner (header and body)
+    var cbW = m.headCb ? m.headCb.offsetWidth : (m.learners[0].cbCell ? m.learners[0].cbCell.offsetWidth : 0);
+    var leftFor = function (isCb) { return isCb ? 0 : cbW; };
+
+    // header rows
+    var top = 0;
+    m.headRows.forEach(function (r, idx) {
+      var rowTop = top;
+      Array.prototype.forEach.call(r.cells, function (c) {
+        c.classList.add('atg-st');
+        // a rowspan cell in the first header row sits at 0
+        c.style.top = (idx === 0 ? 0 : rowTop) + 'px';
+        c.style.backgroundColor = bgOf(w, c, '#f9fbff');
+        if (idx === m.headRows.length - 1 || (c.rowSpan || 1) > 1) c.classList.add('atg-hshadow');
+      });
+      var next = m.headRows[idx + 1];
+      top += next ? (next.offsetTop - r.offsetTop) || r.offsetHeight : r.offsetHeight;
+    });
+
+    var freezeHead = function (c, isCb) {
+      if (!c) return;
+      c.classList.add('atg-sl'); c.style.left = leftFor(isCb) + 'px';
+      if (!isCb) c.classList.add('atg-edge');
+    };
+    freezeHead(m.headCb, true); freezeHead(m.learnerHead, false);
+
+    m.learners.forEach(function (L) {
+      var bg = bgOf(w, L.th, '#ffffff');
+      if (L.cbCell) { L.cbCell.classList.add('atg-sl'); L.cbCell.style.left = '0px'; L.cbCell.style.backgroundColor = bgOf(w, L.cbCell, bg); }
+      L.th.classList.add('atg-sl', 'atg-edge'); L.th.style.left = cbW + 'px'; L.th.style.backgroundColor = bg;
+    });
+  }
+
+  function scrollToToday(state) {
+    var m = state.model, today = new Date(); today.setHours(0, 0, 0, 0);
+    var hit = null, past = null;
+    m.sessions.forEach(function (s) {
+      var t = Date.parse(s.name.replace(/(\d+)(st|nd|rd|th)/, '$1'));
+      if (isNaN(t)) return;
+      var dt = new Date(t); dt.setHours(0, 0, 0, 0);
+      if (dt.getTime() === today.getTime() && !s.th.querySelector('.atg-today-sr')) {
+        s.th.classList.add('atg-today-h');
+        var sr = state.d.createElement('span'); sr.className = 'atg-sr atg-today-sr'; sr.textContent = ' (today)';
+        var sb = s.th.querySelector('d2l-table-col-sort-button'); (sb && sb.nextSibling ? s.th.insertBefore(sr, sb.nextSibling) : s.th.appendChild(sr));
+      }
+      if (dt <= today) past = s;
+      if (!hit && dt >= today) hit = s;
+    });
+    // Table always opens at the left edge (today's session is only highlighted).
+  }
+
+  function resetLeft(state) {
+    state.scroller.scrollLeft = 0;
+    if (state.topbar) state.topbar.scrollLeft = 0;
+  }
+
+  // Second horizontal scrollbar above the table, kept in sync with the table's own.
+  function buildTopbar(state) {
+    var d = state.d;
+    var bar = d.createElement('div'); bar.className = 'atg-topbar';
+    bar.setAttribute('aria-hidden', 'true');
+    bar.tabIndex = -1;
+    var inner = d.createElement('div'); inner.className = 'atg-topbar-inner';
+    bar.appendChild(inner);
+    state.scroller.parentNode.insertBefore(bar, state.scroller);
+    state.topbar = bar; state.topbarInner = inner;
+    var lock = false;
+    bar.addEventListener('scroll', function () { if (lock) { lock = false; return; } lock = true; state.scroller.scrollLeft = bar.scrollLeft; });
+    state.scroller.addEventListener('scroll', function () { if (lock) { lock = false; return; } lock = true; bar.scrollLeft = state.scroller.scrollLeft; });
+    sizeTopbar(state);
+  }
+
+  function sizeTopbar(state) {
+    if (!state.topbar) return;
+    var sc = state.scroller;
+    state.topbarInner.style.width = sc.scrollWidth + 'px';
+    state.topbar.style.width = sc.clientWidth + 'px';
+    state.topbar.style.display = sc.scrollWidth > sc.clientWidth + 1 ? '' : 'none';
+    state.topbar.scrollLeft = sc.scrollLeft;
+  }
+
+  /* ---------- Totals at the front ---------- */
+  function moveTotals(state, first) {
+    var m = state.model;
+    if (!m.totalsHeads.length && !m.totalsGroupHeads.length) return;
+    var put = function (cells, beforeEl, parent) {
+      cells.forEach(function (c) { if (first) parent.insertBefore(c, beforeEl); else parent.appendChild(c); });
+    };
+    if (m.groupRow && m.sessGroupHead) put(m.totalsGroupHeads, m.sessGroupHead, m.groupRow);
+    put(m.totalsHeads, m.sessions[0].th, m.sessRow);
+    m.learners.forEach(function (L) {
+      if (L.sessionCells.length) put(L.totalCells, L.sessionCells[0], L.row);
+    });
+    // keep D2L's first/last cell styling hooks correct
+    [m.groupRow, m.sessRow].concat(m.learners.map(function (L) { return L.row; })).forEach(function (r) {
+      if (!r) return;
+      Array.prototype.forEach.call(r.cells, function (c, i) { c.classList.toggle('d2l-table-cell-last', i === r.cells.length - 1); });
+    });
+    state.totalsFirst = first;
+  }
+
+  /* ---------- Buttons and option row ---------- */
+  function buildControls(state) {
+    var d = state.d, m = state.model;
+
+    // "Switch to Spreadsheet View" to the right of Email All Users
+    var list = d.querySelector('.d2l-action-buttons-list');
+    var btn = d.createElement('button');
+    btn.type = 'button'; btn.className = 'd2l-button'; btn.textContent = LBL.spreadsheet;
+    btn.addEventListener('click', function () { if (state.mode === 'sheet') leaveSheet(state); else enterSheet(state); });
+    state.modeBtn = btn;
+    var take = null;
+    if (F.takeAttendance && F.spreadsheetView) {
+      take = d.createElement('button');
+      take.type = 'button'; take.className = 'd2l-button'; take.textContent = LBL.takeAttendance;
+      take.addEventListener('click', function () { openTakeDialog(state, take); });
+      state.takeBtn = take;
+    }
+    if (list) {
+      var emailLi = null;
+      Array.prototype.forEach.call(list.children, function (x) { if (/email all users/i.test(txt(x))) emailLi = x; });
+      var after = emailLi;
+      [F.spreadsheetView ? btn : null, take].forEach(function (b) {
+        if (!b) return;
+        var li = d.createElement('li'); li.className = 'd2l-action-buttons-item'; li.appendChild(b);
+        if (after && after.nextSibling) list.insertBefore(li, after.nextSibling); else list.appendChild(li);
+        after = li;
+      });
+    } else if (F.spreadsheetView) {
+      m.table.parentNode.insertBefore(btn, m.table);
+    }
+
+    // Option row: below the search box, above the grid's Email action
+    var opts = d.createElement('div'); opts.className = 'atg-opts';
+    opts.innerHTML =
+      (F.totalsFirstOption ? '<label><input type="checkbox" class="d2l-checkbox atg-tf"> ' + escapeHtml(LBL.totalsFirst) + '</label>' : '') +
+      '<span class="atg-risk" hidden></span>' +
+      '<span class="atg-bar">' +
+        '<span class="atg-count">No unsaved changes</span>' +
+        '<button type="button" class="atg-link atg-undo" disabled>Undo</button>' +
+        '<button type="button" class="atg-link atg-all" hidden></button>' +
+        '<span class="atg-tip" id="atg-sheet-tip">Type a symbol (' + m.statuses.slice(0, 4).map(function (s) { return s.sym; }).join(', ') + (m.statuses.length > 4 ? '…' : '') + ') to mark and move down · arrow keys move · Ctrl+Z undoes</span>' +
+      '</span>';
+    var tf = opts.querySelector('.atg-tf') || d.createElement('input');
+    tf.checked = state.totalsFirst;
+    tf.addEventListener('change', function () {
+      lsSet(LS_TOTALS, tf.checked ? '1' : '0');
+      moveTotals(state, tf.checked);
+      applySticky(state);
+      sizeTopbar(state);
+    });
+    opts.querySelector('.atg-undo').addEventListener('click', function () { undo(state); });
+    state.opts = opts;
+
+    // D2L pages this grid (e.g. 20 per page). Offer one-click "all on one page" using D2L's own setting.
+    var pgSel = d.querySelector('select[name$="_sl_pg1"]');
+    var sizeSel = d.querySelector('select[name$="_sl_pgS1"]');
+    var allBtn = opts.querySelector('.atg-all');
+    state.multiPage = !!(pgSel && pgSel.options.length > 1);
+    if (pgSel && sizeSel && pgSel.options.length > 1) {
+      var biggest = null;
+      Array.prototype.forEach.call(sizeSel.options, function (o) { var v = parseInt(o.value, 10); if (!isNaN(v) && (!biggest || v > parseInt(biggest.value, 10))) biggest = o; });
+      if (biggest && biggest.value !== sizeSel.value) {
+        allBtn.hidden = false;
+        allBtn.textContent = 'Page ' + (pgSel.selectedIndex + 1) + ' of ' + pgSel.options.length + ' — show all learners on one page';
+        allBtn.addEventListener('click', function () {
+          if (changeCount(state) && !state.w.confirm('Save first? Changing pages discards unsaved changes. Click OK to discard and continue.')) return;
+          state.changes = {}; updateBar(state);
+          setPageSizeNow(state.w, state.d, sizeSel, biggest.value);
+        });
+      }
+    }
+
+    var gridActs = d.querySelector('.d2l-grid-actions-container');
+    var anchor = gridActs ? (gridActs.closest('table.d_gact') || gridActs) : state.scroller;
+    // the outer d_gact table is the one directly before the grid
+    var outer = anchor;
+    while (outer && outer.parentElement && outer.parentElement.closest && outer.parentElement.closest('table.d_gact')) outer = outer.parentElement.closest('table.d_gact');
+    outer.parentNode.insertBefore(opts, outer);
+
+    // Floating bar: our Save sits where Done is
+    var fb = d.querySelector('d2l-floating-buttons');
+    if (fb) {
+      var done = null;
+      Array.prototype.forEach.call(fb.querySelectorAll('button'), function (b) { if (!done && /done/i.test(txt(b))) done = b; });
+      if (!done) done = fb.querySelector('button');
+      var save = d.createElement('button');
+      save.type = 'button'; save.className = 'd2l-button'; save.setAttribute('primary', '');
+      save.style.cssText = 'float:left;display:none;';
+      save.textContent = LBL.save;
+      save.addEventListener('click', function () { saveAll(state); });
+      if (done) done.parentNode.insertBefore(save, done); else fb.insertBefore(save, fb.firstChild);
+      state.doneBtn = done; state.saveBtn = save;
+    } else {
+      var save2 = d.createElement('button');
+      save2.type = 'button'; save2.className = 'd2l-button'; save2.setAttribute('primary', ''); save2.textContent = 'Save';
+      save2.style.cssText = 'position:fixed;left:20px;bottom:16px;z-index:50;display:none;';
+      save2.addEventListener('click', function () { saveAll(state); });
+      d.body.appendChild(save2); state.saveBtn = save2;
+    }
+  }
+
+  /* ---------- Spreadsheet view ---------- */
+  function key(uid, sid) { return uid + '|' + sid; }
+  function changeCount(state) { return Object.keys(state.changes).length; }
+
+  function enterSheet(state) {
+    if (state.mode === 'sheet' || state.entering) return;
+    var need = F.showMostLearnersPerPage ? maxSizeNeeded(state.d) : null;
+    var guard = 'atg.size.list.' + state.registerId;
+    var last = parseInt(ssGet(guard) || '0', 10);
+    if (need && Date.now() - last >= 20000) {
+      state.entering = true;
+      ssSet('atg.sheet.' + state.registerId, '1');            // come back in Spreadsheet View after D2L reloads
+      toast(state, 'Showing all learners on one page…');
+      applyMaxSize(state.w, state.d, need, guard).then(function () {
+        // if D2L didn't reload, carry on with the learners we have
+        setTimeout(function () { if (state.d.defaultView && state.mode !== 'sheet') { state.entering = false; buildSheet(state); } }, 4000);
+      });
+      return;
+    }
+    buildSheet(state);
+  }
+
+  function buildSheet(state) {
+    if (state.mode === 'sheet') return;
+    state.entering = false;
+    var d = state.d, m = state.model;
+    state.mode = 'sheet';
+    state.changes = {}; state.undo = [];
+    d.body.classList.add('atg-sheet');
+    ssSet('atg.sheet.' + state.registerId, '1');
+
+    m.learners.forEach(function (L, r) {
+      L.sessionCells.forEach(function (cell, c) {
+        var label = cell.querySelector('label') || cell;
+        var shown = txt(label);
+        var orig = shown === '-' || shown === '' ? '0' : (m.symToId[shown] || ('?' + shown));
+        cell.setAttribute('data-atg-orig', orig);
+        var sel = d.createElement('select');
+        sel.className = 'atg-sel';
+        sel.setAttribute('aria-label', L.name + ', ' + m.sessions[c].name);
+        sel.setAttribute('data-r', r); sel.setAttribute('data-c', c);
+        var html = '<option value="0">–</option>';
+        m.statuses.forEach(function (s) { html += '<option value="' + s.id + '">' + escapeHtml(s.sym) + '</option>'; });
+        if (orig.charAt(0) === '?') html += '<option value="' + escapeHtml(orig) + '">' + escapeHtml(shown) + '</option>';
+        sel.innerHTML = html;
+        sel.value = orig;
+        if (label !== cell) label.style.display = 'none';
+        cell.appendChild(sel);
+        sel.addEventListener('change', function () { setCell(state, r, c, sel.value, true); });
+        sel.addEventListener('keydown', function (e) { onCellKey(state, e, r, c); });
+        sel.addEventListener('focus', function () { revealCell(state, sel); });
+      });
+    });
+
+    m.sessions.forEach(function (s, c) {
+      var groups = [
+        { label: 'Set everyone to', items: m.statuses.map(function (st) { return { value: 's:' + st.id, text: st.sym, label: 'Set everyone to ' + st.sym }; })
+            .concat([{ value: 's:0', text: '– (none)', label: 'Set everyone to no status' }]) },
+        { label: 'Fill blanks only with', items: m.statuses.map(function (st) { return { value: 'f:' + st.id, text: st.sym, label: 'Fill blanks only with ' + st.sym }; }) }
+      ];
+      if (c > 0) groups.push({ label: 'Other', items: [{ value: 'copy', text: 'Copy previous session' }] });
+      var col = menuButton(d, 'Set column', 'Set column for ' + s.name, groups, function (v) { columnAction(state, c, v); }, 'atg-col');
+      s.th.appendChild(col);
+    });
+
+    if (F.attendanceByGrades) addGradeButtons(state);
+    state.scroller.setAttribute('aria-describedby', 'atg-sheet-tip');
+    announce(d, 'Spreadsheet View. Each attendance cell is a dropdown. Type a symbol to mark and move down, use arrow keys to move, and Save when done.');
+    state.modeBtn.textContent = LBL.standard;
+    if (state.doneBtn) state.doneBtn.style.display = 'none';
+    if (state.saveBtn) state.saveBtn.style.display = '';
+    state.mode = 'sheet';
+    updateBar(state, true);
+    applySticky(state);
+    sizeTopbar(state);
+    offerDraft(state, function () { runPendingTake(state); });
+  }
+
+  function leaveSheet(state, force) {
+    if (state.mode !== 'sheet') return;
+    var n = changeCount(state);
+    if (n && !force && !state.w.confirm('You have ' + n + ' unsaved change' + (n === 1 ? '' : 's') + '. Switch to Standard View and discard them?')) return;
+    var d = state.d, m = state.model;
+    m.learners.forEach(function (L) {
+      L.sessionCells.forEach(function (cell) {
+        var sel = cell.querySelector('.atg-sel'); if (sel) sel.remove();
+        var label = cell.querySelector('label'); if (label) label.style.display = '';
+        cell.classList.remove('atg-dirty', 'atg-fail');
+        cell.removeAttribute('data-atg-orig');
+      });
+    });
+    Array.prototype.forEach.call(m.table.querySelectorAll('.atg-col, .atg-gbtn'), function (x) { x.remove(); });
+    state.mode = 'standard'; state.changes = {}; state.undo = [];
+    clearDraft(state);
+    d.body.classList.remove('atg-sheet');
+    ssSet('atg.sheet.' + state.registerId, null);
+    state.modeBtn.textContent = LBL.spreadsheet;
+    state.scroller.removeAttribute('aria-describedby');
+    announce(d, 'Standard View.');
+    if (state.doneBtn) state.doneBtn.style.display = '';
+    if (state.saveBtn) state.saveBtn.style.display = 'none';
+    applySticky(state);
+    sizeTopbar(state);
+  }
+
+  function cellSel(state, r, c) {
+    var L = state.model.learners[r]; if (!L) return null;
+    var cell = L.sessionCells[c]; return cell ? cell.querySelector('.atg-sel') : null;
+  }
+
+  // returns previous value
+  function setCell(state, r, c, val, record) {
+    var m = state.model, L = m.learners[r], cell = L.sessionCells[c], sel = cell.querySelector('.atg-sel');
+    var orig = cell.getAttribute('data-atg-orig');
+    var k = key(L.uid, m.sessions[c].id);
+    var prev = state.changes[k] ? state.changes[k].val : orig;
+    if (sel.value !== String(val)) sel.value = String(val);
+    if (String(val) === orig) { delete state.changes[k]; cell.classList.remove('atg-dirty'); }
+    else { state.changes[k] = { r: r, c: c, uid: L.uid, sid: m.sessions[c].id, val: String(val) }; cell.classList.add('atg-dirty'); }
+    cell.classList.remove('atg-fail');
+    describeCell(state, cell);
+    if (record && prev !== String(val)) { state.undo.push([{ r: r, c: c, prev: prev }]); }
+    updateBar(state);
+    return prev;
+  }
+
+  // Screen readers hear "unsaved change" / "not saved" on a cell, not just a color.
+  function describeCell(state, cell) {
+    var d = state.d, sel = cell.querySelector('.atg-sel'); if (!sel) return;
+    ['atg-desc-dirty', 'atg-desc-fail'].forEach(function (id, i) {
+      if (!d.getElementById(id)) {
+        var el = d.createElement('span'); el.id = id; el.className = 'atg-sr';
+        el.textContent = i ? 'Not saved. Try Save again.' : 'Unsaved change.'; d.body.appendChild(el);
+      }
+    });
+    var ids = [];
+    if (cell.classList.contains('atg-fail')) ids.push('atg-desc-fail');
+    else if (cell.classList.contains('atg-dirty')) ids.push('atg-desc-dirty');
+    if (ids.length) sel.setAttribute('aria-describedby', ids.join(' ')); else sel.removeAttribute('aria-describedby');
+  }
+
+  // Keep a focused cell from hiding under the frozen Learner column or headings.
+  function revealCell(state, el) {
+    var sc = state.scroller, m = state.model; if (!sc || !el) return;
+    var cell = el.closest('td,th') || el;
+    var frozenL = (m.headCb ? m.headCb.offsetWidth : 0) + (m.learnerHead ? m.learnerHead.offsetWidth : 0);
+    var headH = 0; m.headRows.forEach(function (r) { headH += r.offsetHeight; });
+    var sr = sc.getBoundingClientRect(), cr = cell.getBoundingClientRect();
+    if (cr.left < sr.left + frozenL) sc.scrollLeft -= (sr.left + frozenL - cr.left) + 8;
+    else if (cr.right > sr.right) sc.scrollLeft += (cr.right - sr.right) + 8;
+    if (cr.top < sr.top + headH) sc.scrollTop -= (sr.top + headH - cr.top) + 4;
+    else if (cr.bottom > sr.bottom) sc.scrollTop += (cr.bottom - sr.bottom) + 4;
+  }
+
+  function columnAction(state, c, action) {
+    if (!action) return;
+    var m = state.model, batch = [];
+    m.learners.forEach(function (L, r) {
+      if (L.row.offsetParent === null && L.row.style.display === 'none') return; // hidden rows untouched
+      var sel = L.sessionCells[c].querySelector('.atg-sel');
+      var cur = sel.value, next = null;
+      if (action.indexOf('s:') === 0) next = action.slice(2);
+      else if (action.indexOf('f:') === 0) { if (cur === '0') next = action.slice(2); }
+      else if (action === 'copy') {
+        var ps = L.sessionCells[c - 1].querySelector('.atg-sel');
+        if (ps && ps.value.charAt(0) !== '?') next = ps.value;
+      }
+      if (next !== null && next !== cur) { batch.push({ r: r, c: c, prev: setCell(state, r, c, next, false) }); }
+    });
+    if (batch.length) state.undo.push(batch);
+    toast(state, batch.length ? (batch.length + ' cell' + (batch.length === 1 ? '' : 's') + ' changed in ' + m.sessions[c].name + (state.multiPage ? ' (this page of learners)' : '') + '. Click Save to keep them.') : 'Nothing to change in that column.');
+    updateBar(state);
+  }
+
+  function undo(state) {
+    var batch = state.undo.pop();
+    if (!batch) return;
+    for (var i = batch.length - 1; i >= 0; i--) setCell(state, batch[i].r, batch[i].c, batch[i].prev, false);
+    var s = cellSel(state, batch[0].r, batch[0].c); if (s) s.focus();
+    updateBar(state);
+  }
+
+  function updateBar(state, skipDraft) {
+    if (state.mode === 'sheet' && !skipDraft && !state.draftPending) saveDraft(state);
+    if (!state.opts) return;
+    var n = changeCount(state);
+    var cnt = state.opts.querySelector('.atg-count');
+    cnt.textContent = n ? (n + ' unsaved change' + (n === 1 ? '' : 's')) : 'No unsaved changes';
+    cnt.classList.toggle('atg-has', n > 0);
+    state.opts.querySelector('.atg-undo').disabled = !state.undo.length;
+  }
+
+  function onCellKey(state, e, r, c) {
+    var m = state.model;
+    var move = function (dr, dc) {
+      var nr = r + dr, nc = c + dc;
+      if (nr < 0 || nc < 0 || nr >= m.learners.length || nc >= m.sessions.length) return;
+      var s = cellSel(state, nr, nc); if (s) s.focus();
+    };
+    if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) return;     // native dropdown
+    if (e.ctrlKey || e.metaKey) return;
+    switch (e.key) {
+      case 'ArrowDown': case 'Enter': e.preventDefault(); move(1, 0); return;
+      case 'ArrowUp': e.preventDefault(); move(-1, 0); return;
+      case 'ArrowLeft': e.preventDefault(); move(0, -1); return;
+      case 'ArrowRight': e.preventDefault(); move(0, 1); return;
+      case 'Delete': case 'Backspace': case '-': e.preventDefault(); setCell(state, r, c, '0', true); return;
+      case 'Tab': return;
+    }
+    if (e.key && e.key.length === 1 && /\S/.test(e.key)) {
+      e.preventDefault();
+      clearTimeout(state.typeTimer);
+      var buf = (state.typeBuf + e.key).toLowerCase();
+      var cands = m.statuses.filter(function (s) { return s.sym.toLowerCase().indexOf(buf) === 0; });
+      if (!cands.length) { buf = e.key.toLowerCase(); cands = m.statuses.filter(function (s) { return s.sym.toLowerCase().indexOf(buf) === 0; }); }
+      if (!cands.length) { state.typeBuf = ''; return; }
+      var exact = cands.filter(function (s) { return s.sym.toLowerCase() === buf; })[0];
+      var commit = function (s) { state.typeBuf = ''; setCell(state, r, c, s.id, true); move(1, 0); };
+      if (cands.length === 1) { commit(cands[0]); return; }
+      state.typeBuf = buf;
+      if (exact) state.typeTimer = setTimeout(function () { commit(exact); }, 650);
+      else state.typeTimer = setTimeout(function () { state.typeBuf = ''; }, 900);
+    }
+  }
+
+  /* ---------- Save through D2L's own Set Attendance Data page ---------- */
+  function saveAll(state) {
+    if (state.saving) return;
+    var m = state.model, list = Object.keys(state.changes).map(function (k) { return state.changes[k]; });
+    if (!list.length) { toast(state, 'No changes to save.'); return; }
+
+    var bySession = [];
+    m.sessions.forEach(function (s) {
+      var items = list.filter(function (x) { return x.sid === s.id; });
+      if (items.length) bySession.push({ session: s, items: items });
+    });
+
+    state.saving = true;
+    state.returnFocus = state.saveBtn;
+    var ui = modal(state, '<h2 id="atg-save-title">Saving attendance…</h2><div class="atg-msg" role="status" aria-live="polite"></div>' +
+      '<div class="atg-prog" role="progressbar" aria-labelledby="atg-save-title" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div></div></div>', 'atg-save-title');
+    var msg = ui.querySelector('.atg-msg'), bar = ui.querySelector('.atg-prog > div'), pb = ui.querySelector('.atg-prog');
+    var setPct = function (pct) { bar.style.width = pct + '%'; pb.setAttribute('aria-valuenow', String(pct)); };
+    var failed = [], i = 0;
+
+    (function next() {
+      if (i >= bySession.length) return finish();
+      var job = bySession[i];
+      msg.textContent = 'Session ' + (i + 1) + ' of ' + bySession.length + ': ' + job.session.name + ' (' + job.items.length + ' change' + (job.items.length === 1 ? '' : 's') + ')';
+      setPct(Math.round(i / bySession.length * 100));
+      saveSession(job.session.id, job.items, function (n, count) {
+        msg.textContent = job.session.name + ': D2L didn\'t take ' + count + ' change' + (count === 1 ? '' : 's') + ' — trying again (attempt ' + n + ' of ' + SETTINGS.saveAttempts + ')…';
+      }).then(function (res) {
+        res.failed.forEach(function (f) { failed.push(f); });
+        i++; next();
+      }, function (err) {
+        job.items.forEach(function (x) { failed.push({ item: x, why: (err && err.message) || 'Save did not complete' }); });
+        i++; next();
+      });
+    })();
+
+    function finish() {
+      setPct(100);
+      state.saving = false;
+      var okCount = list.length - failed.length;
+      if (!failed.length) {
+        closeModal(state);
+        state.changes = {};
+        clearDraft(state);
+        toast(state, 'Saved ' + okCount + ' change' + (okCount === 1 ? '' : 's') + '. Refreshing…');
+        setTimeout(function () { refreshPage(state); }, 450);   // stays in Spreadsheet View
+        return;
+      }
+      // Keep only the failed ones as unsaved; mark them
+      var keep = {};
+      failed.forEach(function (f) { keep[key(f.item.uid, f.item.sid)] = true; });
+      list.forEach(function (x) {
+        var k = key(x.uid, x.sid), cell = m.learners[x.r].sessionCells[x.c];
+        if (keep[k]) { cell.classList.add('atg-fail'); }
+        else { cell.setAttribute('data-atg-orig', x.val); cell.classList.remove('atg-dirty'); delete state.changes[k]; }
+        describeCell(state, cell);
+      });
+      state.undo = [];
+      updateBar(state);
+      var lis = failed.slice(0, 40).map(function (f) {
+        return '<li>' + escapeHtml(m.learners[f.item.r].name) + ' – ' + escapeHtml(m.sessions[f.item.c].name) + ': ' + escapeHtml(f.why) + '</li>';
+      }).join('');
+      ui.setAttribute('role', 'alertdialog');
+      ui.setAttribute('aria-describedby', 'atg-fail-desc');
+      ui.innerHTML = '<h2 id="atg-save-title">' + okCount + ' saved, ' + failed.length + ' not saved</h2>' +
+        '<div id="atg-fail-desc">D2L didn\'t keep these after 3 tries. They\'re still marked in the table. Click Save to try again, or use that session\'s Edit Data button.</div><ul>' + lis + '</ul>' +
+        '<div class="atg-btnrow"><button type="button" class="d2l-button atg-copy">Copy details</button><button type="button" class="d2l-button atg-ok" primary>OK</button></div>';
+      var okBtn = ui.querySelector('.atg-ok');
+      okBtn.addEventListener('click', function () { closeModal(state); });
+      ui.querySelector('.atg-copy').addEventListener('click', function () {
+        copyText(state.d, diagnostics(state, failed, okCount), function (ok) {
+          announce(state.d, ok ? 'Details copied. Paste them into your help desk ticket.' : 'Could not copy. Select the list and copy it instead.');
+          toast(state, ok ? 'Details copied — paste them into a help desk ticket.' : 'Could not copy automatically.', !ok);
+        });
+      });
+      okBtn.focus();
+    }
+  }
+
+  // Save one session through D2L's own Set Attendance Data page, retrying on its own.
+  // Resolves { failed: [{ item, why }] } — never rejects.
+  function saveSession(sessionId, items, onRetry) {
+    var attempt = 1, hard = [];
+    function run(list) {
+      return saveOnce(sessionId, list).then(function (res) {
+        res.failed.forEach(function (f) { if (!f.retry) hard.push(f); });
+        var again = res.failed.filter(function (f) { return f.retry; });
+        if (again.length && attempt < SETTINGS.saveAttempts) {
+          attempt++;
+          if (onRetry) onRetry(attempt, again.length);
+          return sleep(800 * attempt).then(function () { return run(again.map(function (f) { return f.item; })); });
+        }
+        return { failed: hard.concat(again) };
+      });
+    }
+    return run(items);
+  }
+
+  function saveOnce(sessionId, items) {
+    var url = SETTINGS.attendanceRoot + 'attendance/data_edit.d2l?SessionId=' + encodeURIComponent(sessionId) + '&ou=' + encodeURIComponent(OU);
+    var f = document.createElement('iframe');
+    f.className = 'atg-hidden-frame';
+    f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+    document.body.appendChild(f);
+    var all = function (why) { return { failed: items.map(function (x) { return { item: x, why: why, retry: true }; }) }; };
+    var hard = [], pending = [];
+
+    return loadInto(f, url)
+      .then(function (ew) { return whenD2LReady(ew).then(function () { return ew; }); })
+      .then(function (ew) {
+        // 1. set the values (D2L's control, then the element, then a change event like a real pick)
+        var ed = ew.document;
+        items.forEach(function (x) {
+          var sel = ed.querySelector('select[name="SL_Status_' + x.uid + '"]');
+          if (!sel) { hard.push({ item: x, why: 'learner not on the Set Attendance Data page (check its section filter)' }); return; }
+          if (!Array.prototype.some.call(sel.options, function (o) { return o.value === x.val; })) { hard.push({ item: x, why: 'status not in this session\'s scheme' }); return; }
+          setD2LSelect(ew, sel, x.val);
+          pending.push({ item: x, sel: sel });
+        });
+        if (!pending.length) return null;
+        // 2. let D2L settle, then re-check and re-apply anything D2L put back
+        return sleep(350).then(function () {
+          pending.forEach(function (p) { if (p.sel.value !== p.item.val) setD2LSelect(ew, p.sel, p.item.val); });
+          pending = pending.filter(function (p) {
+            if (p.sel.value === p.item.val) return true;
+            hard.push({ item: p.item, why: 'D2L would not accept the value', retry: true }); return false;
+          });
+          if (!pending.length) return null;
+          // 3. make sure D2L sends every one of these, even if it thinks nothing changed
+          pending.forEach(function (p) { forceInclude(ew, p.sel); });
+          return submitD2L(ew, f);
+        });
+      })
+      .then(function (ok) {
+        if (ok === null) return { failed: hard };
+        if (!ok) return { failed: hard.concat(pending.map(function (p) { return { item: p.item, why: 'D2L reported a problem while saving', retry: true }; })) };
+        // 4. open the page fresh and confirm D2L kept every change
+        return loadInto(f, url).then(function (vw) {
+          return waitFor(function () { return vw.document.querySelector('select[name^="SL_Status_"]'); }, 15000).then(function () {
+            var notKept = [];
+            pending.forEach(function (p) {
+              var sel = vw.document.querySelector('select[name="SL_Status_' + p.item.uid + '"]');
+              if (!sel || sel.value !== p.item.val) notKept.push({ item: p.item, why: 'D2L did not keep the change', retry: true });
+            });
+            return { failed: hard.concat(notKept) };
+          });
+        });
+      })
+      .catch(function (err) { return all((err && err.message) || 'Save did not complete'); })
+      .then(function (res) { setTimeout(function () { f.remove(); }, 0); return res; });
+  }
+
+  // Navigate a hidden frame and resolve with its window once a real (non-blank) page has loaded.
+  function loadInto(f, url) {
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () { f.removeEventListener('load', onLoad); reject(new Error('D2L did not respond in time')); }, SETTINGS.readyTimeoutMs);
+      function onLoad() {
+        var w; try { w = f.contentWindow; void w.location.href; } catch (e) { return; }
+        if (w.location.href === 'about:blank') return;
+        clearTimeout(timer); f.removeEventListener('load', onLoad); resolve(w);
+      }
+      f.addEventListener('load', onLoad);
+      var full = url + (url.indexOf('?') === -1 ? '?' : '&') + 'atg=' + Date.now();   // always a fresh GET
+      f.src = full;
+    });
+  }
+
+  // D2L sets its dropdowns up after the page loads; values set before that are ignored.
+  // Wait for that setup to finish: page complete, web components ready, and the grid
+  // (registered after every dropdown) known to D2L.
+  function whenD2LReady(ew) {
+    return waitFor(function () {
+      var ed = ew.document;
+      return ed.readyState === 'complete' && ew.UI && typeof ew.UI.GetByName === 'function' &&
+             ed.querySelector('select[name^="SL_Status_"]') && ew.UI.GetByName('GRID_data') &&
+             ew.UI.GetByName(ed.querySelector('select[name^="SL_Status_"]').name) &&
+             ((ew.D2L && ew.D2L.Rpc && typeof ew.D2L.Rpc.CreatePost === 'function') || typeof ew.callForUpdate === 'function');
+    }, SETTINGS.readyTimeoutMs).then(function () {
+      var wcr = ew.D2L && ew.D2L.WebComponentsReady;
+      var ready = wcr && typeof wcr.then === 'function' ? wcr : Promise.resolve();
+      return Promise.race([ready, sleep(5000)]);
+    }).then(function () { return sleep(400); });
+  }
+
+  function setD2LSelect(ew, sel, val) {
+    var ctl = null; try { ctl = ew.UI.GetByName(sel.name); } catch (e) {}
+    try { if (ctl && typeof ctl.SelectOptionByKey === 'function') ctl.SelectOptionByKey(val, true); } catch (e) {}
+    if (sel.value !== val) sel.value = val;
+    try { sel.dispatchEvent(new ew.Event('change', { bubbles: true })); } catch (e) {}
+  }
+
+  // Tell D2L's change tracker to send this dropdown even if its "original value" looks the same.
+  function forceInclude(ew, sel) {
+    try {
+      var mgr = ew.D2L && ew.D2L.MultiEdit && ew.D2L.MultiEdit.GetManager && ew.D2L.MultiEdit.GetManager();
+      var list = mgr && mgr.m_controls; if (!list) return false;
+      var ctl = null; try { ctl = ew.UI.GetByName(sel.name); } catch (e) {}
+      var hit = false;
+      Object.keys(list).forEach(function (k) {
+        var mc = list[k]; if (!mc || typeof mc.GetControl !== 'function') return;
+        var c = null; try { c = mc.GetControl(); } catch (e) {}
+        var node = null; try { node = c && c.GetDomNode && c.GetDomNode(); } catch (e) {}
+        if (c && (c === ctl || node === sel) && typeof mc.SetIncludeWhenUnchanged === 'function') { mc.SetIncludeWhenUnchanged(true); hit = true; }
+      });
+      return hit;
+    } catch (e) { return false; }
+  }
+
+  // Run D2L's Save (the same server call its Save button makes) and report whether D2L said it worked.
+  function submitD2L(ew, f) {
+    return new Promise(function (resolve) {
+      var settled = false;
+      var finish = function (v) { if (!settled) { settled = true; clearTimeout(t); resolve(v); } };
+      var t = setTimeout(function () { finish(false); }, SETTINGS.saveTimeoutMs);
+      try { ew.onbeforeunload = null; } catch (e) {}
+      if (ew.D2L && ew.D2L.Rpc && typeof ew.D2L.Rpc.CreatePost === 'function') {
+        try {
+          ew.D2L.Rpc.CreatePost('RaiseUpdateEvent', function (resp) {
+            var okType = ew.D2L.Rpc.ResponseType ? ew.D2L.Rpc.ResponseType.Success : 0;
+            var type = resp && typeof resp.GetResponseType === 'function' ? resp.GetResponseType() : (resp && resp.GetType ? resp.GetType() : -1);
+            finish(type === okType);
+          }).Call();
+          return;
+        } catch (e) { /* fall through to the page's own function */ }
+      }
+      // Fallback: the page's own Save, which reloads the page when it succeeds
+      var onLoad = function () { f.removeEventListener('load', onLoad); finish(true); };
+      f.addEventListener('load', onLoad);
+      try { ew.callForUpdate(); } catch (e) { finish(false); }
+    });
+  }
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  // Reload the register page without the browser's "Resend" warning.
+  // D2L pages are often reached by a form POST; location.reload() would re-POST.
+  function refreshPage(state) {
+    var w = state.w;
+    try {
+      if (w.Nav && typeof w.Nav.Go === 'function' && w.D2L && w.D2L.NavInfo) { w.Nav.Go(new w.D2L.NavInfo()); return; }
+    } catch (e) {}
+    w.location.href = SETTINGS.attendanceRoot + 'attendance/data_list.d2l?registerId=' + encodeURIComponent(state.registerId) + '&ou=' + encodeURIComponent(OU);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Set Attendance Data page (D2L's own page) — adds "Take Attendance by Grades"
+   * ------------------------------------------------------------------ */
+  function ensureStyle(d) {
+    if (d.getElementById('atg-style')) return;
+    var st = d.createElement('style'); st.id = 'atg-style'; st.textContent = CSS;
+    (d.head || d.documentElement).appendChild(st);
+  }
+
+  function enhanceDataEdit(w, d) {
+    if (d.documentElement.getAttribute('data-atg')) return;
+    d.documentElement.setAttribute('data-atg', '1');
+    ensureStyle(d);
+    var list = d.querySelector('.d2l-action-buttons-list');
+    if (!list || !d.querySelector('select[name^="SL_Status_"]')) return;
+    if (!F.attendanceByGrades) { if (F.showMostLearnersPerPage) { var ne = maxSizeNeeded(d); if (ne) applyMaxSize(w, d, ne, 'atg.size.edit.' + qpi(w.location.href, 'SessionId')); } return; }
+    var needEdit = F.showMostLearnersPerPage ? maxSizeNeeded(d) : null;
+    if (needEdit) applyMaxSize(w, d, needEdit, 'atg.size.edit.' + qpi(w.location.href, 'SessionId'));
+
+    var btn = d.createElement('button');
+    btn.type = 'button'; btn.className = 'd2l-button'; btn.textContent = LBL.byGrades;
+    var li = d.createElement('li'); li.className = 'd2l-action-buttons-item'; li.appendChild(btn);
+    var emailLi = null;
+    Array.prototype.forEach.call(list.children, function (x) { if (/email all users/i.test(txt(x))) emailLi = x; });
+    if (emailLi && emailLi.nextSibling) list.insertBefore(li, emailLi.nextSibling); else list.appendChild(li);
+
+    btn.addEventListener('click', function () {
+      var sels = Array.prototype.slice.call(d.querySelectorAll('select[name^="SL_Status_"]'));
+      var learners = sels.map(function (sel) {
+        var row = sel.closest('tr');
+        var link = row && row.querySelector('th[scope="row"] a, th.d_ich a');
+        var nm = link ? txt(link) : (sel.getAttribute('title') || '').replace(/^Status for\s+/i, '');
+        return { uid: sel.name.replace('SL_Status_', ''), name: nm };
+      });
+      var statuses = Array.prototype.filter.call(sels[0].options, function (o) { return o.value !== '0'; })
+        .map(function (o) { return { id: o.value, sym: txt(o) }; });
+      var sessionId = qpi(w.location.href, 'SessionId');
+      openGradesDialog({
+        opener: btn, w: w, d: d, sessionId: sessionId,
+        sessionName: txt(d.querySelector('#d_content_r_p .ds_f, .ds_f')) || 'this session',
+        learners: learners, statuses: statuses,
+        current: function (uid) { var s = d.querySelector('select[name="SL_Status_' + uid + '"]'); return s ? s.value : '0'; },
+        actions: [
+          { label: 'Apply to page', primary: false, save: false },
+          { label: 'Apply and Save', primary: true, save: true }
+        ],
+        apply: function (map, save) {
+          var n = 0;
+          Object.keys(map).forEach(function (uid) {
+            var s = d.querySelector('select[name="SL_Status_' + uid + '"]');
+            if (s && s.value !== map[uid]) { setD2LSelect(w, s, map[uid]); n++; }
+          });
+          if (save) {
+            var saveBtn = null;
+            Array.prototype.forEach.call(d.querySelectorAll('d2l-floating-buttons button, .d2l-floating-buttons button'), function (b) { if (!saveBtn && /^save$/i.test(txt(b))) saveBtn = b; });
+            if (saveBtn) { setTimeout(function () { saveBtn.click(); }, 150); return; }
+          }
+          toastDoc(d, n ? (n + ' status' + (n === 1 ? '' : 'es') + ' set from grades. Click Save to keep them.') : 'Everyone already had those statuses.');
+        }
+      });
+    });
+  }
+
+  /* ---------- Take Attendance by Grades (shared by both pages) ----------
+   * Based on code from "D2L Attendance From Participation" by Henry Ecker.
+   * Updated and revamped code to work inside any D2L instance without extra pages and plugins by Jonathan Sorrenti.
+   * For each learner, look at the chosen grade items:
+   *   scored above 0 on every item -> "All"     (default P)
+   *   scored above 0 on some items -> "Some"    (default T)
+   *   scored 0 on every item       -> "None"    (default A)
+   *   any item not graded yet      -> "Ungraded"(default – / no status)
+   * Exempt counts as scored above 0. Uses the session's own attendance scheme.
+   * ------------------------------------------------------------------ */
+  var LS_RULES = 'atg.gradeRules';
+  var leVersionP = null;
+  function leVersion() {
+    if (!leVersionP) {
+      leVersionP = fetch('/d2l/api/versions/', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (list) {
+          var le = (list || []).filter(function (p) { return (p.ProductCode || '').toLowerCase() === 'le'; })[0];
+          return (le && le.LatestVersion) || '1.72';
+        })
+        .catch(function () { return '1.72'; });
+    }
+    return leVersionP;
+  }
+  function apiGet(path) {
+    return fetch(path, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then(function (r) {
+      if (!r.ok) throw new Error('D2L returned ' + r.status + ' for ' + path.replace(/\?.*$/, ''));
+      return r.json();
+    });
+  }
+  function apiGetAllPages(path) {
+    var out = [];
+    function page(url) {
+      return apiGet(url).then(function (res) {
+        (res.Objects || []).forEach(function (o) { out.push(o); });
+        if (res.Next) {
+          var next; try { var u = new URL(res.Next, location.href); next = u.pathname + u.search; } catch (e) { next = res.Next; }
+          return page(next);
+        }
+        return out;
+      });
+    }
+    return page(path);
+  }
+
+  function loadGradeGroups() {
+    return leVersion().then(function (v) {
+      var base = '/d2l/api/le/' + v + '/' + OU + '/grades/';
+      return Promise.all([apiGet(base + 'categories/'), apiGet(base)]).then(function (r) {
+        var groups = (r[0] || []).map(function (c) {
+          return { name: c.Name, items: (c.Grades || []).map(function (g) { return { id: String(g.Id), name: g.Name }; }) };
+        }).filter(function (g) { return g.items.length; });
+        var none = (r[1] || []).filter(function (g) { return g.CategoryId === 0 && g.GradeType !== 'Calculated'; })
+          .map(function (g) { return { id: String(g.Id), name: g.Name }; });
+        if (none.length) groups.push({ name: 'No Category', items: none });
+        return { v: v, groups: groups };
+      });
+    });
+  }
+
+  function readItemResults(v, item) {
+    var base = '/d2l/api/le/' + v + '/' + OU + '/grades/' + encodeURIComponent(item.id);
+    return Promise.all([apiGetAllPages(base + '/values/?pageSize=200'), apiGet(base + '/exemptions/').catch(function () { return []; })])
+      .then(function (r) {
+        var ex = {}; (r[1] || []).forEach(function (u) { ex[String(u.Identifier)] = true; });
+        var map = {};
+        r[0].forEach(function (o) {
+          var uid = String(o.User && o.User.Identifier);
+          var gv = o.GradeValue;
+          if (ex[uid]) map[uid] = { st: 'yes', text: 'Exempt' };
+          else if (gv && gv.PointsDenominator) {
+            var num = gv.PointsNumerator || 0;
+            map[uid] = { st: num > 0 ? 'yes' : 'no', text: (num / gv.PointsDenominator * 100).toFixed(2) + ' %' };
+          } else map[uid] = { st: 'un', text: 'Not graded' };
+        });
+        return map;
+      });
+  }
+
+  function openGradesDialog(ctx) {
+    var d = ctx.d;
+    ensureStyle(d);
+    var ov = d.createElement('div'); ov.className = 'atg-overlay';
+    var box = d.createElement('div'); box.className = 'atg-modal atg-gd';
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-labelledby', 'atg-gd-title');
+    box.innerHTML = '<div class="atg-gd-head"><h2 id="atg-gd-title">' + escapeHtml(LBL.byGrades) + '</h2>' +
+      '<div class="atg-gd-sub">' + escapeHtml(ctx.sessionName) + ' · ' + ctx.learners.length + ' learner' + (ctx.learners.length === 1 ? '' : 's') + '</div></div>' +
+      '<div class="atg-gd-body" tabindex="-1">Loading grade items…</div><div class="atg-gd-foot"></div>';
+    ov.appendChild(box); d.body.appendChild(ov);
+    var body = box.querySelector('.atg-gd-body'), foot = box.querySelector('.atg-gd-foot');
+    var release = holdFocus(d, box, ctx.opener);
+    var close = function () { d.removeEventListener('keydown', onEsc, true); ov.remove(); release(); };
+    var onEsc = function (e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+    d.addEventListener('keydown', onEsc, true);
+    body.setAttribute('aria-live', 'polite'); body.setAttribute('aria-busy', 'true');
+    box.setAttribute('aria-describedby', 'atg-gd-sub');
+    box.querySelector('.atg-gd-sub').id = 'atg-gd-sub';
+    body.focus();
+    var settle = function (focusEl, say) {             // after each step: stop "busy", move focus, announce
+      body.setAttribute('aria-busy', 'false'); body.removeAttribute('aria-live');
+      if (say) announce(d, say);
+      if (focusEl) setTimeout(function () { try { focusEl.focus(); } catch (e) {} }, 30);
+    };
+    var button = function (label, primary, fn) {
+      var b = d.createElement('button'); b.type = 'button'; b.className = 'd2l-button'; if (primary) b.setAttribute('primary', '');
+      b.textContent = label; b.addEventListener('click', fn); foot.appendChild(b); return b;
+    };
+
+    // rules (saved by symbol so they carry across registers/schemes)
+    var saved = {}; try { saved = JSON.parse(lsGet(LS_RULES) || '{}') || {}; } catch (e) {}
+    var bySym = function (sym) { var m = ctx.statuses.filter(function (s) { return s.sym.toLowerCase() === String(sym || '').toLowerCase(); })[0]; return m ? m.id : '0'; };
+    var GD = SETTINGS.gradeRuleDefaults || {};
+    var pick = function (k, def) { return saved.hasOwnProperty(k) ? saved[k] : def; };
+    var rules = {
+      all: bySym(pick('all', GD.all)), some: bySym(pick('some', GD.some)),
+      none: bySym(pick('none', GD.none)), un: bySym(pick('un', GD.ungraded))
+    };
+    var symOf = function (id) { if (id === '0') return '–'; var m = ctx.statuses.filter(function (s) { return s.id === id; })[0]; return m ? m.sym : '?'; };
+    var opts = function (sel) {
+      return '<option value="0"' + (sel === '0' ? ' selected' : '') + '>– (leave as is)</option>' +
+        ctx.statuses.map(function (s) { return '<option value="' + s.id + '"' + (s.id === sel ? ' selected' : '') + '>' + escapeHtml(s.sym) + '</option>'; }).join('');
+    };
+    var pickKey = 'atg.gradePicks.' + OU + '.' + (ctx.sessionId || '');
+    var data = null;
+
+    loadGradeGroups().then(function (res) { data = res; renderPicker(); }, function (err) {
+      body.innerHTML = '<p class="atg-gd-err" role="alert">Couldn\'t load the grade items: ' + escapeHtml(err.message) + '</p>';
+      foot.innerHTML = ''; settle(button('Close', true, close));
+    });
+
+    function renderPicker() {
+      foot.innerHTML = '';
+      if (!data.groups.length) {
+        body.innerHTML = '<p>This course has no grade items yet.</p>'; settle(button('Close', true, close), 'This course has no grade items yet.'); return;
+      }
+      var picks = {}; try { (JSON.parse(lsGet(pickKey) || '[]') || []).forEach(function (id) { picks[id] = true; }); } catch (e) {}
+      var html = '<div class="atg-gd-rules">' +
+        '<label>Scored above 0 on every item <select data-rule="all">' + opts(rules.all) + '</select></label>' +
+        '<label>Scored above 0 on some items <select data-rule="some">' + opts(rules.some) + '</select></label>' +
+        '<label>Scored 0 on every item <select data-rule="none">' + opts(rules.none) + '</select></label>' +
+        '<label>Any item not graded yet <select data-rule="un">' + opts(rules.un) + '</select></label></div>' +
+        '<input type="search" class="atg-gd-filter" placeholder="Filter grade items…" aria-label="Filter grade items">';
+      data.groups.forEach(function (g, gi) {
+        html += '<div class="atg-gd-cat" data-g="' + gi + '"><h3>' + escapeHtml(g.name) +
+          ' <button type="button" class="atg-link" data-all="' + gi + '" aria-label="Select all in ' + escapeHtml(g.name) + '">Select all</button></h3>';
+        g.items.forEach(function (it) {
+          html += '<label class="atg-gd-item"><input type="checkbox" value="' + escapeHtml(it.id) + '"' + (picks[it.id] ? ' checked' : '') + '> <span>' + escapeHtml(it.name) + '</span></label>';
+        });
+        html += '</div>';
+      });
+      body.innerHTML = html;
+      Array.prototype.forEach.call(body.querySelectorAll('select[data-rule]'), function (s) {
+        s.addEventListener('change', function () { rules[s.getAttribute('data-rule')] = s.value; });
+      });
+      body.querySelector('.atg-gd-filter').addEventListener('input', function (e) {
+        var q = e.target.value.trim().toLowerCase();
+        Array.prototype.forEach.call(body.querySelectorAll('.atg-gd-cat'), function (cat) {
+          var any = false;
+          Array.prototype.forEach.call(cat.querySelectorAll('.atg-gd-item'), function (l) {
+            var show = !q || txt(l).toLowerCase().indexOf(q) !== -1; l.style.display = show ? '' : 'none'; if (show) any = true;
+          });
+          cat.style.display = any ? '' : 'none';
+        });
+      });
+      Array.prototype.forEach.call(body.querySelectorAll('[data-all]'), function (b) {
+        b.addEventListener('click', function () {
+          var boxes = b.closest('.atg-gd-cat').querySelectorAll('.atg-gd-item input');
+          var every = Array.prototype.every.call(boxes, function (c) { return c.checked; });
+          Array.prototype.forEach.call(boxes, function (c) { c.checked = !every; });
+          sync();
+        });
+      });
+      button('Cancel', false, close);
+      var go = button('Compute Attendance', true, function () {
+        var chosen = [];
+        data.groups.forEach(function (g) { g.items.forEach(function (it) {
+          var c = body.querySelector('.atg-gd-item input[value="' + it.id.replace(/"/g, '') + '"]'); if (c && c.checked) chosen.push(it);
+        }); });
+        lsSet(pickKey, JSON.stringify(chosen.map(function (x) { return x.id; })));
+        var keep = {}; ['all', 'some', 'none', 'un'].forEach(function (k) { keep[k] = rules[k] === '0' ? '' : symOf(rules[k]); });
+        lsSet(LS_RULES, JSON.stringify(keep));
+        compute(chosen);
+      });
+      var sync = function () { go.disabled = !body.querySelector('.atg-gd-item input:checked'); };
+      body.addEventListener('change', sync); sync();
+      settle(body.querySelector('.atg-gd-filter'), 'Choose the grade items for this session, then Compute Attendance.');
+    }
+
+    function compute(items) {
+      foot.innerHTML = '';
+      body.setAttribute('aria-busy', 'true'); body.setAttribute('aria-live', 'polite');
+      body.innerHTML = '<p role="status">Reading grades for ' + items.length + ' item' + (items.length === 1 ? '' : 's') + '…</p>';
+      body.focus();
+      Promise.all(items.map(function (it) { return readItemResults(data.v, it); })).then(function (maps) {
+        renderResults(items, maps);
+      }, function (err) {
+        body.innerHTML = '<p class="atg-gd-err" role="alert">Couldn\'t read the grades: ' + escapeHtml(err.message) + '</p>';
+        button('Back', false, renderPicker); settle(button('Close', true, close));
+      });
+    }
+
+    function renderResults(items, maps) {
+      foot.innerHTML = '';
+      var rows = ctx.learners.map(function (L) {
+        var cells = maps.map(function (m) { return m[L.uid] || { st: 'un', text: '—' }; });
+        var yes = cells.filter(function (c) { return c.st === 'yes'; }).length;
+        var out = cells.some(function (c) { return c.st === 'un'; }) ? rules.un
+          : yes === cells.length ? rules.all : yes > 0 ? rules.some : rules.none;
+        return { L: L, cells: cells, out: out };
+      });
+      var html = '<p class="atg-gd-sum" aria-live="polite"></p><table class="atg-gd-res"><caption class="atg-sr">Suggested attendance from grades for ' + escapeHtml(ctx.sessionName) + '</caption><thead><tr>' +
+        '<th scope="col"><label class="atg-gd-name"><input type="checkbox" class="atg-gd-all" aria-label="Select all learners"> Learner</label></th>' +
+        items.map(function (it) { return '<th scope="col">' + escapeHtml(it.name) + '</th>'; }).join('') +
+        '<th scope="col" class="atg-gd-att">Attendance<br><span class="atg-gd-sethost"></span></th></tr></thead><tbody>';
+      rows.forEach(function (r, i) {
+        html += '<tr><th scope="row"><label class="atg-gd-name"><input type="checkbox" class="atg-gd-pick" data-i="' + i + '" aria-label="Select ' + escapeHtml(r.L.name) + '"> ' + escapeHtml(r.L.name) + '</label></th>' +
+          r.cells.map(function (c) { return '<td class="atg-g-' + c.st + '">' + escapeHtml(c.text) + '</td>'; }).join('') +
+          '<td><select data-i="' + i + '" aria-label="Attendance for ' + escapeHtml(r.L.name) + '">' + opts(r.out) + '</select></td></tr>';
+      });
+      body.innerHTML = html + '</tbody></table>';
+
+      var picks = function () { return Array.prototype.slice.call(body.querySelectorAll('.atg-gd-pick')); };
+      var all = body.querySelector('.atg-gd-all');
+      var refresh = function () {
+        var counts = {};
+        Array.prototype.forEach.call(body.querySelectorAll('select[data-i]'), function (s) { counts[s.value] = (counts[s.value] || 0) + 1; });
+        var n = picks().filter(function (c) { return c.checked; }).length;
+        body.querySelector('.atg-gd-sum').innerHTML = 'Attendance to apply: ' +
+          Object.keys(counts).map(function (k) { return '<b>' + escapeHtml(symOf(k)) + '</b> ' + counts[k]; }).join(' · ') +
+          '. Change any row, or tick learners and use <b>Set selected to…</b>. Rows set to – keep their current mark.' +
+          (n ? ' <b>' + n + ' selected.</b>' : '');
+        all.checked = n > 0 && n === picks().length;
+        all.indeterminate = n > 0 && n < picks().length;
+      };
+      var lastPick = null;
+      picks().forEach(function (c, idx) {
+        c.addEventListener('click', function (e) {
+          if (e.shiftKey && lastPick !== null) {             // shift-click selects a range
+            var a = Math.min(lastPick, idx), b = Math.max(lastPick, idx);
+            picks().slice(a, b + 1).forEach(function (x) { x.checked = c.checked; });
+          }
+          lastPick = idx; refresh();
+        });
+      });
+      all.addEventListener('change', function () { picks().forEach(function (c) { c.checked = all.checked; }); refresh(); });
+      var setBtn = menuButton(d, 'Set selected to', 'Set selected learners to',
+        [{ label: '', items: ctx.statuses.map(function (st) { return { value: st.id, text: st.sym }; }).concat([{ value: '0', text: '– (leave as is)' }]) }],
+        function (v) {
+        var chosen = picks().filter(function (c) { return c.checked; });
+        if (!chosen.length) { toastDoc(d, 'Select at least one learner first.'); return; }
+        chosen.forEach(function (c) { var s = body.querySelector('select[data-i="' + c.getAttribute('data-i') + '"]'); if (s) s.value = v; });
+        toastDoc(d, chosen.length + ' learner' + (chosen.length === 1 ? '' : 's') + ' set to ' + symOf(v) + '.');
+        refresh();
+      }, 'atg-gd-set');
+      body.querySelector('.atg-gd-sethost').appendChild(setBtn);
+      body.addEventListener('change', function (e) { if (e.target.matches && e.target.matches('select[data-i]')) refresh(); });
+      refresh();
+      settle(body.querySelector('.atg-gd-set'), 'Suggested attendance is ready for ' + rows.length + ' learners. Review it, then apply.');
+
+      button('Back', false, renderPicker);
+      button('Cancel', false, close);
+      ctx.actions.forEach(function (a) {
+        button(a.label, a.primary, function () {
+          var map = {};
+          Array.prototype.forEach.call(body.querySelectorAll('select[data-i]'), function (s) {
+            var r = rows[+s.getAttribute('data-i')];
+            if (r && s.value !== '0') map[r.L.uid] = s.value;   // "–" leaves the learner's current mark alone
+          });
+          close();
+          ctx.apply(map, a.save);
+        });
+      });
+    }
+  }
+
+  // The grade-item symbol used on each session in Spreadsheet View
+  var GRADE_ICON = '<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false"><rect x="2.5" y="1.5" width="13" height="15" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 5.5h7M5.5 8.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M8.2 13.2l1.6 1.5 3.2-3.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  function addGradeButtons(state) {
+    var d = state.d, m = state.model;
+    m.sessions.forEach(function (s, c) {
+      var b = d.createElement('button');
+      b.type = 'button'; b.className = 'atg-gbtn';
+      b.title = LBL.byGrades;
+      b.setAttribute('aria-label', LBL.byGrades + ' for ' + s.name);
+      b.innerHTML = GRADE_ICON;
+      b.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); gradesForColumn(state, c, b); });
+      var edit = s.th.querySelector('a[href*="data_edit.d2l"]');
+      if (edit && edit.nextSibling) s.th.insertBefore(b, edit.nextSibling); else if (edit) s.th.appendChild(b); else s.th.insertBefore(b, s.th.firstChild);
+    });
+  }
+
+  function gradesForColumn(state, c, opener) {
+    var m = state.model, s = m.sessions[c];
+    openGradesDialog({
+      opener: opener,
+      w: state.w, d: state.d, sessionId: s.id, sessionName: s.name + (state.multiPage ? ' (learners on this page)' : ''),
+      learners: m.learners.map(function (L) { return { uid: L.uid, name: L.name }; }),
+      statuses: m.statuses,
+      current: function (uid) {
+        var L = m.learners.filter(function (x) { return x.uid === uid; })[0];
+        var sel = L && L.sessionCells[c].querySelector('.atg-sel'); return sel ? sel.value : '0';
+      },
+      actions: [
+        { label: 'Apply to column', primary: false, save: false },
+        { label: 'Apply and Save', primary: true, save: true }
+      ],
+      apply: function (map, save) {
+        var batch = [];
+        m.learners.forEach(function (L, r) {
+          if (!(L.uid in map)) return;
+          var sel = L.sessionCells[c].querySelector('.atg-sel');
+          if (sel && sel.value !== map[L.uid]) batch.push({ r: r, c: c, prev: setCell(state, r, c, map[L.uid], false) });
+        });
+        if (batch.length) state.undo.push(batch);
+        updateBar(state);
+        if (save) { saveAll(state); return; }
+        toast(state, batch.length ? (batch.length + ' cell' + (batch.length === 1 ? '' : 's') + ' set from grades in ' + s.name + '. Click Save to keep them.') : 'Everyone already had those statuses.');
+      }
+    });
+  }
+
+  /* ---------- Existing bookmarklets keep working ----------
+   * A bookmarklet clicked on this page runs here, not on the D2L page shown inside.
+   * When one adds a <script src> (e.g. the attendance-from-participation opener),
+   * run the same script inside the D2L page too, and hide its "wrong page" alert here.
+   * ------------------------------------------------------------------ */
+  function passBookmarkletsThrough() {
+    var hushUntil = 0, origAlert = window.alert;
+    window.alert = function (msg) {
+      if (Date.now() < hushUntil) { console.info('[Attendance Plus] bookmarklet ran inside the D2L page instead; hid this message here:', msg); return; }
+      return origAlert.apply(window, arguments);
+    };
+    var mo = new MutationObserver(function (muts) {
+      muts.forEach(function (mu) {
+        Array.prototype.forEach.call(mu.addedNodes, function (n) {
+          if (!n || n.tagName !== 'SCRIPT' || !n.src || n.hasAttribute('data-atg')) return;
+          var fw, fd;
+          try { fw = frame.contentWindow; fd = fw.document; void fw.location.href; } catch (e) { return; }
+          if (!fd || !fd.body) return;
+          hushUntil = Date.now() + 10000;
+          // window.open from inside a frame can be blocked as a popup; open from here (where the click was) on its behalf
+          var origOpen = fw.open;
+          fw.open = function (u, name, feats) {
+            var p = window.open(u, name, feats);
+            if (p) { try { Object.defineProperty(p, 'opener', { value: fw, configurable: true, writable: true }); } catch (e) { try { p.opener = fw; } catch (e2) {} } }
+            return p;
+          };
+          setTimeout(function () { try { fw.open = origOpen; } catch (e) {} }, 10000);
+          var copy = fd.createElement('script'); copy.src = n.src; copy.setAttribute('data-atg', 'bookmarklet');
+          fd.body.appendChild(copy);
+        });
+      });
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function toastDoc(d, text) {
+    var old = d.querySelector('.atg-toast'); if (old) old.remove();
+    var t = d.createElement('div'); t.className = 'atg-toast'; t.setAttribute('aria-hidden', 'true'); t.textContent = text;
+    d.body.appendChild(t); announce(d, text); setTimeout(function () { t.remove(); }, 4500);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  At-risk flags (register's Cause for Concern %)
+   * ------------------------------------------------------------------ */
+  function loadAtRisk(state) {
+    var m = state.model;
+    var pctHead = m.table.querySelector('[data-fieldname="PercentAttendance"]');
+    if (!pctHead) return;                                   // totals collapsed / no % column
+    fetch(SETTINGS.attendanceRoot + 'registers/registers_list.d2l?ou=' + encodeURIComponent(OU), { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .catch(function () { return ''; })
+      .then(function (html) {
+        var pct = NaN;
+        if (html) {
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          var head = null, col = -1;
+          Array.prototype.forEach.call(doc.querySelectorAll('tr'), function (tr) {
+            if (head) return;
+            Array.prototype.forEach.call(tr.cells, function (c, i) { if (/cause for concern/i.test(txt(c))) { head = tr; col = i; } });
+          });
+          if (head) {
+            Array.prototype.forEach.call(doc.querySelectorAll('a[href*="data_list.d2l"]'), function (a) {
+              if (qpi(a.getAttribute('href'), 'registerId') !== String(state.registerId)) return;
+              var tr = a.closest('tr'); if (tr && tr.cells[col]) pct = parseFloat(txt(tr.cells[col]).replace('%', ''));
+            });
+          }
+        }
+        if (isNaN(pct) && typeof SETTINGS.atRiskDefaultPercent === 'number') pct = SETTINGS.atRiskDefaultPercent;
+        if (!isNaN(pct) && state.d.defaultView) applyAtRisk(state, pct);
+      });
+  }
+
+  function applyAtRisk(state, pct) {
+    var d = state.d, m = state.model, risky = [];
+    m.learners.forEach(function (L) {
+      var cell = L.totalCells[L.totalCells.length - 1];
+      var v = cell ? parseFloat(txt(cell)) : NaN;
+      if (isNaN(v) || v >= pct) return;
+      risky.push(L);
+      L.row.classList.add('atg-risky');
+      cell.classList.add('atg-risk-pct');
+      if (!L.th.querySelector('.atg-risk-badge')) {
+        var b = d.createElement('span'); b.className = 'atg-risk-badge'; b.textContent = 'Below ' + pct + '%';
+        L.th.appendChild(b);
+      }
+    });
+    state.risky = risky;
+    var box = state.opts && state.opts.querySelector('.atg-risk'); if (!box) return;
+    box.hidden = false;
+    if (!risky.length) { box.innerHTML = '<span class="atg-tip">No learners below the ' + pct + '% Cause for Concern.</span>'; return; }
+    box.innerHTML = '<label><input type="checkbox" class="d2l-checkbox atg-risk-only"> Show only learners below Cause for Concern (' + pct + '%) — ' +
+      risky.length + '</label> <button type="button" class="atg-link atg-risk-sel">Select them for Email</button>';
+    box.querySelector('.atg-risk-only').addEventListener('change', function (e) {
+      var only = e.target.checked;
+      m.learners.forEach(function (L) { L.row.style.display = only && risky.indexOf(L) === -1 ? 'none' : ''; });
+      announce(d, only ? 'Showing ' + risky.length + ' learners below ' + pct + ' percent.' : 'Showing all learners.');
+      applySticky(state); sizeTopbar(state);
+    });
+    box.querySelector('.atg-risk-sel').addEventListener('click', function () {
+      var n = 0;
+      risky.forEach(function (L) { var cb = L.cbCell && L.cbCell.querySelector('input[type=checkbox]'); if (cb && !cb.checked) { cb.click(); n++; } });
+      toast(state, risky.length + ' learner' + (risky.length === 1 ? '' : 's') + ' selected. Use Email above the table to message them.');
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Unsaved-mark recovery
+   * ------------------------------------------------------------------ */
+  function draftKey(state) { return 'atg.draft.' + OU + '.' + state.registerId; }
+  function saveDraft(state) {
+    if (!F.draftRecovery) return;
+    var items = Object.keys(state.changes).map(function (k) { var x = state.changes[k]; return { uid: x.uid, sid: x.sid, val: x.val }; });
+    if (!items.length) { clearDraft(state); return; }
+    lsSet(draftKey(state), JSON.stringify({ t: Date.now(), v: VERSION, items: items }));
+  }
+  function clearDraft(state) { try { window.localStorage.removeItem(draftKey(state)); } catch (e) {} }
+  function offerDraft(state, then) {
+    var done = function () { state.draftPending = false; if (then) then(); };
+    if (!F.draftRecovery || changeCount(state)) return done();
+    var dr = null; try { dr = JSON.parse(lsGet(draftKey(state)) || 'null'); } catch (e) {}
+    if (!dr || !dr.items || !dr.items.length) return done();
+    if (Date.now() - dr.t > (SETTINGS.draftKeepDays || 7) * 864e5) { clearDraft(state); return done(); }
+    state.draftPending = true;
+    var when = new Date(dr.t);
+    var ui = modal(state, '<h2 id="atg-draft-title">Unsaved marks found</h2>' +
+      '<p id="atg-draft-desc">' + dr.items.length + ' mark' + (dr.items.length === 1 ? '' : 's') + ' from ' + escapeHtml(when.toLocaleString()) +
+      ' were never saved. Put them back so you can review and Save them?</p>' +
+      '<div class="atg-btnrow"><button type="button" class="d2l-button atg-discard">Discard</button><button type="button" class="d2l-button atg-restore" primary>Restore marks</button></div>', 'atg-draft-title');
+    ui.setAttribute('aria-describedby', 'atg-draft-desc');
+    ui.querySelector('.atg-restore').addEventListener('click', function () {
+      closeModal(state);
+      var m = state.model, batch = [], missing = 0;
+      dr.items.forEach(function (x) {
+        var c = -1; m.sessions.forEach(function (s, i) { if (s.id === x.sid) c = i; });
+        var r = -1; m.learners.forEach(function (L, i) { if (L.uid === x.uid) r = i; });
+        var sel = r > -1 && c > -1 ? m.learners[r].sessionCells[c].querySelector('.atg-sel') : null;
+        if (!sel || !Array.prototype.some.call(sel.options, function (o) { return o.value === x.val; })) { missing++; return; }
+        batch.push({ r: r, c: c, prev: setCell(state, r, c, x.val, false) });
+      });
+      if (batch.length) state.undo.push(batch);
+      state.draftPending = false;
+      updateBar(state);
+      toast(state, batch.length + ' mark' + (batch.length === 1 ? '' : 's') + ' restored' + (missing ? ' (' + missing + ' no longer match this page)' : '') + '. Click Save to keep them.');
+      if (then) then();
+    });
+    ui.querySelector('.atg-discard').addEventListener('click', function () {
+      closeModal(state); clearDraft(state); toast(state, 'Unsaved marks discarded.'); done();
+    });
+    ui.querySelector('.atg-restore').focus();
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Take Attendance — pick ANY session (date names, "Week 1 Class 2", "Lab 3"…)
+   *  Suggests one, but never assumes today's date is the session being entered.
+   * ------------------------------------------------------------------ */
+  function sessionMarks(state, c) {
+    var m = state.model, marked = 0, total = 0;
+    m.learners.forEach(function (L) {
+      var cell = L.sessionCells[c]; if (!cell) return;
+      total++;
+      var sel = cell.querySelector('.atg-sel');
+      var v = sel ? sel.value : txt(cell.querySelector('label') || cell);
+      if (v && v !== '0' && v !== '-' && v !== '–') marked++;
+    });
+    return { marked: marked, total: total };
+  }
+  function parseSessionDate(name) {
+    var t = Date.parse(String(name).replace(/(\d+)(st|nd|rd|th)\b/gi, '$1'));
+    if (isNaN(t)) { var mm = String(name).match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/); if (mm) { var y = mm[3] ? (+mm[3] < 100 ? 2000 + +mm[3] : +mm[3]) : new Date().getFullYear(); t = new Date(y, +mm[1] - 1, +mm[2]).getTime(); } }
+    if (isNaN(t)) return null;
+    var dt = new Date(t); dt.setHours(0, 0, 0, 0); return dt;
+  }
+  function suggestSession(state) {
+    var m = state.model, today = new Date(); today.setHours(0, 0, 0, 0);
+    var info = m.sessions.map(function (s, c) { var k = sessionMarks(state, c); return { c: c, date: parseSessionDate(s.name), marked: k.marked, total: k.total }; });
+    var last = lsGet('atg.lastTake.' + OU + '.' + state.registerId);
+    var dated = info.filter(function (x) { return x.date; }).length >= Math.ceil(info.length / 2);
+    var open = function (x) { return x.marked < x.total; };
+    if (dated) {
+      var past = info.filter(function (x) { return x.date && x.date <= today; });
+      var lastOpen = past.filter(open).pop();
+      if (lastOpen) return { c: lastOpen.c, why: 'the most recent session on or before today that isn\'t fully marked' };
+    }
+    var firstEmpty = info.filter(function (x) { return x.marked === 0; })[0];
+    if (firstEmpty) return { c: firstEmpty.c, why: 'the first session with no marks yet' };
+    var firstOpen = info.filter(open)[0];
+    if (firstOpen) return { c: firstOpen.c, why: 'the first session that isn\'t fully marked' };
+    var li = -1; m.sessions.forEach(function (s, i) { if (s.id === last) li = i; });
+    return { c: li > -1 ? li : info.length - 1, why: li > -1 ? 'the session you used last time' : 'the last session' };
+  }
+
+  function openTakeDialog(state, opener) {
+    var d = state.d, m = state.model;
+    var sug = suggestSession(state);
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var startSym = SETTINGS.takeAttendanceStartWith || '';
+    var startId = (m.statuses.filter(function (s) { return s.sym.toLowerCase() === startSym.toLowerCase(); })[0] || {}).id || '';
+    var rows = m.sessions.map(function (s, c) {
+      var k = sessionMarks(state, c), dt = parseSessionDate(s.name);
+      var tag = k.marked === 0 ? 'No marks yet' : k.marked >= k.total ? 'All ' + k.total + ' marked' : k.marked + ' of ' + k.total + ' marked';
+      if (dt && dt.getTime() === today.getTime()) tag += ' · Today';
+      return '<label class="atg-take-row"><input type="radio" name="atg-take-s" value="' + c + '"' + (c === sug.c ? ' checked' : '') + '> ' +
+        '<span class="atg-take-name">' + escapeHtml(s.name) + '</span><span class="atg-take-tag">' + escapeHtml(tag) + '</span></label>';
+    }).join('');
+    state.returnFocus = opener;
+    var ui = modal(state,
+      '<h2 id="atg-take-title">' + escapeHtml(LBL.takeAttendance) + '</h2>' +
+      '<fieldset class="atg-take-fs"><legend>Which session are you taking attendance for?</legend>' +
+      '<p class="atg-tip" id="atg-take-why">Suggested: ' + escapeHtml(sug.why) + '. Pick any session — the date you enter it doesn\'t have to match.</p>' +
+      (m.sessions.length > 8 ? '<input type="search" class="atg-gd-filter atg-take-filter" placeholder="Find a session…" aria-label="Find a session">' : '') +
+      '<div class="atg-take-list">' + rows + '</div></fieldset>' +
+      '<fieldset class="atg-take-fs"><legend>Start learners who have no mark as</legend><div class="atg-take-start">' +
+        '<label><input type="radio" name="atg-take-f" value=""' + (startId ? '' : ' checked') + '> Leave blank (mark each learner)</label>' +
+        m.statuses.map(function (s) { return '<label><input type="radio" name="atg-take-f" value="' + s.id + '"' + (s.id === startId ? ' checked' : '') + '> ' + escapeHtml(s.sym) + '</label>'; }).join('') +
+      '</div><p class="atg-tip">Marks already entered are never changed. Then fix the exceptions and Save.</p></fieldset>' +
+      '<div class="atg-btnrow"><button type="button" class="d2l-button atg-take-cancel">Cancel</button>' +
+      (F.attendanceByGrades ? '<button type="button" class="d2l-button atg-take-grades">Use grades instead</button>' : '') +
+      '<button type="button" class="d2l-button atg-take-go" primary>Start</button></div>', 'atg-take-title');
+    ui.classList.add('atg-take');
+    var chosen = function () { var r = ui.querySelector('input[name="atg-take-s"]:checked'); return r ? +r.value : sug.c; };
+    var fill = function () { var r = ui.querySelector('input[name="atg-take-f"]:checked'); return r ? r.value : ''; };
+    var onEsc = function (e) { if (e.key === 'Escape') { e.preventDefault(); finish(); } };
+    var finish = function () { d.removeEventListener('keydown', onEsc, true); closeModal(state); };
+    d.addEventListener('keydown', onEsc, true);
+    var flt = ui.querySelector('.atg-take-filter');
+    if (flt) flt.addEventListener('input', function () {
+      var q = flt.value.trim().toLowerCase();
+      Array.prototype.forEach.call(ui.querySelectorAll('.atg-take-row'), function (l) { l.style.display = !q || txt(l).toLowerCase().indexOf(q) !== -1 ? '' : 'none'; });
+    });
+    var go = function (grades) {
+      var c = chosen(), pending = { sid: m.sessions[c].id, fill: grades ? '' : fill(), grades: !!grades };
+      lsSet('atg.lastTake.' + OU + '.' + state.registerId, pending.sid);
+      finish();
+      if (state.mode === 'sheet') { runTake(state, pending); return; }
+      ssSet('atg.take.' + state.registerId, JSON.stringify(pending));
+      enterSheet(state);
+    };
+    ui.querySelector('.atg-take-cancel').addEventListener('click', finish);
+    ui.querySelector('.atg-take-go').addEventListener('click', function () { go(false); });
+    var gb = ui.querySelector('.atg-take-grades'); if (gb) gb.addEventListener('click', function () { go(true); });
+    var sel = ui.querySelector('input[name="atg-take-s"]:checked');
+    if (sel) { sel.focus(); var row = sel.closest('.atg-take-row'); if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  function runPendingTake(state) {
+    var raw = ssGet('atg.take.' + state.registerId);
+    if (!raw) return;
+    ssSet('atg.take.' + state.registerId, null);
+    var p = null; try { p = JSON.parse(raw); } catch (e) {}
+    if (p) runTake(state, p);
+  }
+
+  function runTake(state, p) {
+    var m = state.model, d = state.d, c = -1;
+    m.sessions.forEach(function (s, i) { if (s.id === p.sid) c = i; });
+    if (c < 0) { toast(state, 'That session isn\'t on this page.', true); return; }
+    Array.prototype.forEach.call(m.table.querySelectorAll('.atg-take-col'), function (x) { x.classList.remove('atg-take-col'); });
+    Array.prototype.forEach.call(m.table.querySelectorAll('.atg-take-sr'), function (x) { x.remove(); });
+    var s = m.sessions[c];
+    s.th.classList.add('atg-take-col');
+    var sr = d.createElement('span'); sr.className = 'atg-sr atg-take-sr'; sr.textContent = ' (taking attendance)'; s.th.appendChild(sr);
+    m.learners.forEach(function (L) { if (L.sessionCells[c]) L.sessionCells[c].classList.add('atg-take-col'); });
+    // bring the column into view next to the frozen Learner column
+    state.userScrolled = true;
+    var frozen = (m.headCb ? m.headCb.offsetWidth : 0) + (m.learnerHead ? m.learnerHead.offsetWidth : 0);
+    state.scroller.scrollLeft = Math.max(0, s.th.offsetLeft - frozen - 12);
+    if (p.grades) { gradesForColumn(state, c, state.takeBtn); return; }
+    var n = 0;
+    if (p.fill) {
+      var batch = [];
+      m.learners.forEach(function (L, r) {
+        if (L.row.style.display === 'none') return;
+        var sel = L.sessionCells[c].querySelector('.atg-sel');
+        if (sel && sel.value === '0') batch.push({ r: r, c: c, prev: setCell(state, r, c, p.fill, false) });
+      });
+      if (batch.length) state.undo.push(batch);
+      n = batch.length; updateBar(state);
+    }
+    var sym = (m.statuses.filter(function (x) { return x.id === p.fill; })[0] || {}).sym;
+    toast(state, 'Taking attendance for ' + s.name + '. ' + (p.fill ? n + ' learner' + (n === 1 ? '' : 's') + ' with no mark set to ' + sym + '. ' : '') + 'Change the exceptions, then Save.');
+    var first = null;
+    m.learners.forEach(function (L) { if (!first && L.row.style.display !== 'none') first = L.sessionCells[c].querySelector('.atg-sel'); });
+    if (first) setTimeout(function () { first.focus(); }, 60);
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Copy details (for help desk tickets)
+   * ------------------------------------------------------------------ */
+  function diagnostics(state, failed, okCount) {
+    var m = state.model, lines = [
+      'Attendance Plus ' + VERSION + ' — save problem report',
+      'When: ' + new Date().toString(),
+      'Page: ' + state.w.location.href,
+      'Course org unit: ' + OU + '   Register: ' + state.registerId,
+      'Saved: ' + okCount + '   Not saved: ' + failed.length,
+      'Browser: ' + navigator.userAgent,
+      ''
+    ];
+    failed.forEach(function (f) {
+      var L = m.learners[f.item.r], s = m.sessions[f.item.c];
+      var sym = (m.statuses.filter(function (x) { return x.id === f.item.val; })[0] || {}).sym || f.item.val;
+      lines.push('- ' + (L ? L.name : '?') + ' (user ' + f.item.uid + ') | ' + (s ? s.name : '?') + ' (session ' + f.item.sid + ') | wanted ' + sym + ' | ' + f.why);
+    });
+    return lines.join('\n');
+  }
+  function copyText(d, text, cb) {
+    var nav = d.defaultView && d.defaultView.navigator;
+    var fallback = function () {
+      var ta = d.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+      d.body.appendChild(ta); ta.select(); var ok = false; try { ok = d.execCommand('copy'); } catch (e) {} ta.remove(); cb(ok);
+    };
+    if (nav && nav.clipboard && nav.clipboard.writeText) nav.clipboard.writeText(text).then(function () { cb(true); }, fallback);
+    else fallback();
+  }
+
+  /* ---------- Show the most learners per page D2L allows ---------- */
+  // Returns the biggest "per page" option when the page isn't already using it, else null.
+  function maxSizeNeeded(d) {
+    var sizeSel = d.querySelector('select[name$="_sl_pgS1"]');
+    if (!sizeSel) return null;
+    var biggest = null;
+    Array.prototype.forEach.call(sizeSel.options, function (o) {
+      var v = parseInt(o.value, 10); if (!isNaN(v) && (!biggest || v > parseInt(biggest.value, 10))) biggest = o;
+    });
+    return biggest && biggest.value !== sizeSel.value ? { sel: sizeSel, value: biggest.value } : null;
+  }
+  // Switch D2L's own "Results Per Page" to the biggest option (D2L reloads the page).
+  // Guarded so a page that refuses can never loop.
+  function applyMaxSize(w, d, need, guardKey) {
+    var last = parseInt(ssGet(guardKey) || '0', 10);
+    if (Date.now() - last < 20000) return Promise.resolve(false);
+    ssSet(guardKey, String(Date.now()));
+    return waitFor(function () { return d.readyState === 'complete' && w.UI && (w.UI.GC || w.UI.GetByName); }, 8000)
+      .catch(function () {})
+      .then(function () { return d.defaultView ? setPageSizeNow(w, d, need.sel, need.value) : true; });
+  }
+
+  // D2L's "per page" dropdown runs  UI.GC('<grid id>').SetPageSize(value, true)  — that is what
+  // reloads the list. Changing the dropdown's value alone does nothing, so call the grid directly.
+  function setPageSizeNow(w, d, sel, value) {
+    var grid = (sel && sel.closest && sel.closest('.d2l-grid-container') && sel.closest('.d2l-grid-container').querySelector('table.d2l-grid[id]')) ||
+               d.querySelector('table.d2l-grid[id]');
+    try {
+      var g = grid && w.UI && typeof w.UI.GC === 'function' ? w.UI.GC(grid.id) : null;
+      if (g && typeof g.SetPageSize === 'function') { sel.value = value; g.SetPageSize(value, true); return true; }
+    } catch (e) {}
+    // Fallback: run the dropdown's own D2L handler
+    try {
+      var ctl = w.UI && w.UI.GetByName ? w.UI.GetByName(sel.name) : null;
+      if (ctl && typeof ctl.SelectOptionByKey === 'function') ctl.SelectOptionByKey(value, true);
+    } catch (e) {}
+    if (sel.value !== value) sel.value = value;
+    try { sel.dispatchEvent(new w.Event('change', { bubbles: true })); } catch (e) {}
+    return false;
+  }
+
+  /* ---------- Accessible menu button (WAI-ARIA menu button pattern) ----------
+   * groups: [{ label, items: [{ value, text }] }]; onPick(value)
+   * ------------------------------------------------------------------ */
+  var menuSeq = 0;
+  function menuButton(d, text, ariaLabel, groups, onPick, extraClass) {
+    var id = 'atg-menu-' + (++menuSeq);
+    var btn = d.createElement('button');
+    btn.type = 'button'; btn.className = 'atg-mb' + (extraClass ? ' ' + extraClass : '');
+    btn.setAttribute('aria-haspopup', 'menu'); btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-controls', id);
+    if (ariaLabel) btn.setAttribute('aria-label', ariaLabel);
+    btn.innerHTML = escapeHtml(text) + ' <span aria-hidden="true">▾</span>';
+    var menu = null;
+    var items = function () { return menu ? Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]')) : []; };
+    function close(refocus) {
+      if (!menu) return;
+      menu.remove(); menu = null;
+      btn.setAttribute('aria-expanded', 'false');
+      d.removeEventListener('mousedown', outside, true);
+      d.defaultView && d.defaultView.removeEventListener('scroll', onScroll, true);
+      if (refocus) btn.focus();
+    }
+    function outside(e) { if (menu && !menu.contains(e.target) && e.target !== btn && !btn.contains(e.target)) close(false); }
+    function onScroll(e) { if (menu && !menu.contains(e.target)) close(false); }
+    function open(focusLast) {
+      if (menu) return;
+      menu = d.createElement('ul'); menu.id = id; menu.className = 'atg-menu'; menu.setAttribute('role', 'menu');
+      menu.setAttribute('aria-label', ariaLabel || text);
+      groups.forEach(function (g, gi) {
+        if (gi > 0) { var sep = d.createElement('li'); sep.setAttribute('role', 'separator'); sep.className = 'atg-menu-sep'; menu.appendChild(sep); }
+        var host = menu;
+        if (g.label) {
+          var gli = d.createElement('li'); gli.setAttribute('role', 'none');
+          var gh = d.createElement('div'); gh.className = 'atg-menu-gh'; gh.id = id + '-g' + gi; gh.textContent = g.label; gh.setAttribute('aria-hidden', 'true');
+          var gul = d.createElement('ul'); gul.setAttribute('role', 'group'); gul.setAttribute('aria-label', g.label);
+          gli.appendChild(gh); gli.appendChild(gul); menu.appendChild(gli); host = gul;
+        }
+        g.items.forEach(function (it) {
+          var li = d.createElement('li'); li.setAttribute('role', 'menuitem'); li.tabIndex = -1;
+          li.setAttribute('data-value', it.value); li.textContent = it.text;
+          if (it.label) li.setAttribute('aria-label', it.label);
+          li.addEventListener('click', function (e) { e.stopPropagation(); close(true); onPick(it.value); });
+          host.appendChild(li);
+        });
+      });
+      d.body.appendChild(menu);
+      var r = btn.getBoundingClientRect(), vw = d.documentElement.clientWidth || 800, vh = d.documentElement.clientHeight || 600;
+      menu.style.left = Math.max(4, Math.min(r.left, vw - menu.offsetWidth - 8)) + 'px';
+      var top = r.bottom + 2;
+      if (top + menu.offsetHeight > vh - 8 && r.top - menu.offsetHeight - 2 > 4) top = r.top - menu.offsetHeight - 2;
+      menu.style.top = top + 'px';
+      btn.setAttribute('aria-expanded', 'true');
+      d.addEventListener('mousedown', outside, true);
+      d.defaultView && d.defaultView.addEventListener('scroll', onScroll, true);
+      menu.addEventListener('keydown', onMenuKey);
+      var list = items(); if (list.length) (focusLast ? list[list.length - 1] : list[0]).focus();
+    }
+    var typed = '', typedT;
+    function onMenuKey(e) {
+      var list = items(), i = list.indexOf(d.activeElement);
+      switch (e.key) {
+        case 'ArrowDown': e.preventDefault(); list[(i + 1) % list.length].focus(); return;
+        case 'ArrowUp': e.preventDefault(); list[(i - 1 + list.length) % list.length].focus(); return;
+        case 'Home': e.preventDefault(); list[0].focus(); return;
+        case 'End': e.preventDefault(); list[list.length - 1].focus(); return;
+        case 'Escape': e.preventDefault(); e.stopPropagation(); close(true); return;
+        case 'Tab': close(false); return;
+        case 'Enter': case ' ': e.preventDefault(); if (i >= 0) list[i].click(); return;
+      }
+      if (e.key.length === 1 && /\S/.test(e.key)) {          // type-ahead
+        clearTimeout(typedT); typed += e.key.toLowerCase(); typedT = setTimeout(function () { typed = ''; }, 600);
+        var hit = list.filter(function (x) { return x.textContent.toLowerCase().indexOf(typed) === 0; })[0];
+        if (hit) hit.focus();
+      }
+    }
+    btn.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); if (menu) close(true); else open(false); });
+    btn.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(false); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); open(true); }
+    });
+    btn.__atgOpen = open; btn.__atgClose = close;
+    return btn;
+  }
+
+  /* ---------- small helpers ---------- */
+  function waitFor(test, timeout) {
+    return new Promise(function (resolve, reject) {
+      var t0 = Date.now();
+      (function poll() {
+        var ok = false; try { ok = !!test(); } catch (e) {}
+        if (ok) return resolve();
+        if (Date.now() - t0 > timeout) return reject(new Error('timeout'));
+        setTimeout(poll, 150);
+      })();
+    });
+  }
+  function debounce(fn, ms) { var t; return function () { clearTimeout(t); t = setTimeout(fn, ms); }; }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; }); }
+
+  function toast(state, text, isErr) {
+    var d = state.d;
+    var old = d.querySelector('.atg-toast'); if (old) old.remove();
+    var t = d.createElement('div'); t.className = 'atg-toast' + (isErr ? ' atg-err' : ''); t.setAttribute('aria-hidden', 'true'); t.textContent = text;
+    d.body.appendChild(t);
+    announce(d, text, isErr);
+    setTimeout(function () { t.remove(); }, 4500);
+  }
+  function modal(state, html, labelId) {
+    var d = state.d;
+    closeModal(state);
+    var o = d.createElement('div'); o.className = 'atg-overlay';
+    var box = d.createElement('div'); box.className = 'atg-modal'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    if (labelId) box.setAttribute('aria-labelledby', labelId);
+    box.tabIndex = -1;
+    box.innerHTML = html; o.appendChild(box); d.body.appendChild(o);
+    o.__atgRelease = holdFocus(d, box, state.returnFocus);
+    state.returnFocus = null;
+    box.focus();
+    return box;
+  }
+  function closeModal(state) {
+    var o = state.d.querySelector('.atg-overlay');
+    if (o) { if (o.__atgRelease) o.__atgRelease(); o.remove(); }
+  }
+  // Keep Tab inside a dialog and hand focus back where it was when the dialog closes.
+  function holdFocus(d, box, returnTo) {
+    var before = returnTo || d.activeElement;
+    var onKey = function (e) {
+      if (e.key !== 'Tab') return;
+      var f = Array.prototype.filter.call(box.querySelectorAll('button,select,input,a[href],textarea,[tabindex]:not([tabindex="-1"])'), function (el) {
+        return !el.disabled && el.offsetParent !== null || el === d.activeElement;
+      });
+      if (!f.length) { e.preventDefault(); box.focus(); return; }
+      var first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && (d.activeElement === first || d.activeElement === box)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && d.activeElement === last) { e.preventDefault(); first.focus(); }
+      else if (!box.contains(d.activeElement)) { e.preventDefault(); first.focus(); }
+    };
+    d.addEventListener('keydown', onKey, true);
+    return function () {
+      d.removeEventListener('keydown', onKey, true);
+      try { if (before && before.focus && d.contains(before)) before.focus(); } catch (e) {}
+    };
+  }
+  // One polite live region per page so every message is announced reliably.
+  function announce(d, text, urgent) {
+    var id = urgent ? 'atg-live-alert' : 'atg-live';
+    var el = d.getElementById(id);
+    if (!el) {
+      el = d.createElement('div'); el.id = id; el.className = 'atg-sr';
+      el.setAttribute('role', urgent ? 'alert' : 'status'); el.setAttribute('aria-live', urgent ? 'assertive' : 'polite');
+      d.body.appendChild(el);
+    }
+    el.textContent = '';
+    setTimeout(function () { el.textContent = text; }, 60);
+  }
+
+  // exposed for testing
+  window.__ATG_TEST__ = { diagnostics: diagnostics, enhanceDataEdit: enhanceDataEdit, openGradesDialog: openGradesDialog, saveSession: saveSession, readModel: readModel, enhanceDataList: enhanceDataList, setOU: function (v) { OU = v; } };
+})();
+</script>
+</body>
+</html>
