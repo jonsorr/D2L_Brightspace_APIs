@@ -13,8 +13,9 @@
   Licensed under the MIT License. Free to use, modify, and share.
   If this tool saves you time, please consider sponsoring:
   https://github.com/sponsors/jonsorr
-  "Take Attendance by Grades" is based on code from "D2L Attendance From
-  Participation" by Henry Ecker.
+  "Take Attendance by Grades" and "Create Sessions from Date Range" are based
+  on code from Henry Ecker's "D2L Attendance From Participation" and
+  "D2L Attendance Register Generator".
   D2L and Brightspace are trademarks of D2L Corporation. This is an
   independent community project, not affiliated with or endorsed by D2L.
   -----------------------------------------------------------------------
@@ -43,6 +44,9 @@
   SETTINGS are at the top of the script below (features on/off, wording, defaults).
 
   VERSION HISTORY
+    1.6.0  New/Edit Register: Create Sessions from Date Range (from Henry Ecker's generator),
+           pre-filled with the course's Start/End Date; a date picker beside every session name;
+           standard date-name check on Save
     1.5.0  Take Attendance (any session, dates or names), at-risk flags from Cause for Concern,
            unsaved-mark recovery, Copy details on save problems, settings block, per-page fix
     1.4.0  Accessibility pass (WCAG 2.2 AA): menu buttons, dialog focus, announcements, contrast
@@ -81,7 +85,7 @@
    *  SETTINGS — the only part most schools ever need to touch.
    *  Every value below is the default behavior; change it, save, re-upload.
    * ================================================================== */
-  var VERSION = '1.5.0';
+  var VERSION = '1.6.0';
   var SETTINGS = {
     // ---- Features (true = on, false = off) ----
     features: {
@@ -93,6 +97,9 @@
       atRiskFlags:            true,   // flag learners below the register's Cause for Concern %
       draftRecovery:          true,   // keep unsaved spreadsheet marks in the browser until they're saved
       showMostLearnersPerPage: true,  // Spreadsheet View / Set Attendance Data switch to D2L's biggest "per page"
+      sessionsFromDates:      true,   // New/Edit Register: "Create Sessions from Date Range" button
+      sessionDatePickers:     true,   // New/Edit Register: a date picker beside every Session Name
+      prefillCourseDates:     true,   // Create Sessions from Date Range starts with the course offering's Start/End Date
       bookmarkletPassThrough: true    // older bookmarklets clicked on this page run on the D2L page inside it
     },
 
@@ -103,7 +110,8 @@
       takeAttendance: 'Take Attendance',
       byGrades:       'Take Attendance by Grades',
       totalsFirst:    'Display Totals at the front of the table',
-      save:           'Save'
+      save:           'Save',
+      sessionsFromDates: 'Create Sessions from Date Range'
     },
 
     // ---- Defaults ----
@@ -117,6 +125,18 @@
     },
     atRiskDefaultPercent: null,         // used only when a register has no Cause for Concern % (null = no flags for those registers)
     draftKeepDays: 7,                   // how long unsaved spreadsheet marks are offered back
+
+    // ---- Session names on New/Edit Register ----
+    // One date format for every session name, so attendance can be matched by date
+    // (e.g. by a student information system). Tokens: dddd ddd MMMM MMM MM M DD D YYYY YY
+    sessionNames: {
+      format: 'MMMM D, YYYY',           // August 28, 2026 (matches D2L's long date)
+      autoFormat: true,                 // turn typed dates like 8/28/26 into the format above when the field is left
+      check: 'warn'                     // on Save, names that aren't dates in that format: 'off' | 'warn' (can Save anyway) | 'require' (must fix)
+    },
+    // Dates every register skips (college holidays). Pre-filled, and removable, in Create Sessions from Date Range.
+    // e.g. [{ from: '2026-11-25', to: '2026-11-27', label: 'Thanksgiving break' }, { from: '2026-11-03', label: 'Election Day' }]
+    skipDates: [],
 
     // ---- Technical (rarely changed) ----
     attendanceRoot: '/d2l/lms/attendance/',
@@ -206,6 +226,8 @@
       try { enhanceDataList(w, d); } catch (err) { console.error('[Attendance Plus]', err); }
     } else if (/\/attendance\/attendance\/data_edit\.d2l$/i.test(loc.pathname)) {
       try { enhanceDataEdit(w, d); } catch (err) { console.error('[Attendance Plus]', err); }
+    } else if (/\/attendance\/registers\/registers_newedit\.d2l$/i.test(loc.pathname)) {
+      try { enhanceRegisterEdit(w, d); } catch (err) { console.error('[Attendance Plus]', err); }
     }
   }
 
@@ -330,6 +352,34 @@
     '.atg-take input:focus-visible{outline:2px solid #006fbf;outline-offset:2px;}',
     'th.atg-take-col{box-shadow:inset 0 -3px 0 #006fbf,inset 0 3px 0 #006fbf!important;}',
     'td.atg-take-col{background-color:#eef6fd;}',
+    '.atg-gen-open{margin:6px 0 12px;}',
+    '.atg-gen{width:min(720px,94vw);max-width:none;max-height:90vh;overflow:auto;}',
+    '.atg-gen fieldset{border:1px solid #e3e9f1;border-radius:6px;margin:0 0 12px;padding:10px 12px;}',
+    '.atg-gen legend{font-weight:700;padding:0 4px;}',
+    '.atg-gen-dates{display:flex;flex-wrap:wrap;gap:12px 24px;}',
+    '.atg-gen-dates label,.atg-gen-skip label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;font-weight:700;}',
+    '.atg-gen input[type=date]{font:inherit;font-weight:400;min-height:32px;padding:3px 6px;border:1px solid #6e7477;border-radius:4px;}',
+    '.atg-gen input[aria-invalid="true"]{border:2px solid #cd2026;}',
+    '.atg-gen-days{display:flex;flex-wrap:wrap;gap:6px 8px;}',
+    '.atg-gen-days label{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:2px 10px;border:1px solid #6e7477;border-radius:16px;cursor:pointer;}',
+    '.atg-gen-days input:checked + span{font-weight:700;}',
+    '.atg-gen-days label:has(input:checked){background:#e8f8ff;border-color:#006fbf;}',
+    '.atg-gen-skip{display:flex;flex-direction:column;gap:8px;}',
+    '.atg-gen-skiprow{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;}',
+    '.atg-gen-skiprow input[type=text]{font:inherit;font-weight:400;min-height:32px;padding:3px 6px;border:1px solid #6e7477;border-radius:4px;width:12rem;}',
+    '.atg-gen-prev{max-height:32vh;overflow:auto;border:1px solid #e3e9f1;border-radius:6px;margin:6px 0 0;padding:4px 0;list-style:none;}',
+    '.atg-gen-prev li label{display:flex;align-items:center;gap:10px;padding:5px 10px;cursor:pointer;}',
+    '.atg-gen-prev li label:hover{background:#f1f5fb;}',
+    '.atg-gen-prev .atg-gen-dup{color:#494c4e;font-size:.75rem;margin-left:auto;}',
+    '.atg-gen-count{font-weight:700;color:#202122;}',
+    '.atg-gen-errs{color:#a3141b;font-weight:700;margin:0 0 10px;}',
+    '.atg-gen-errs:empty{display:none;}',
+    '.atg-gen input:focus-visible,.atg-gen button:focus-visible{outline:2px solid #006fbf;outline-offset:2px;}',
+    '.atg-rowdate{display:inline-block;margin-left:8px;font:inherit;font-size:.8rem;min-height:28px;padding:2px 4px;border:1px solid #6e7477;border-radius:4px;vertical-align:middle;max-width:10.5rem;}',
+    '.atg-rowdate:focus-visible{outline:2px solid #006fbf;outline-offset:1px;}',
+    '.atg-name-err{display:block;margin-top:4px;color:#a3141b;font-size:.75rem;font-weight:700;}',
+    '.atg-name-err:empty{display:none;}',
+    '.atg-name-bad{outline:2px solid #cd2026!important;outline-offset:1px;}',
     '@media print{.atg-scroll{max-height:none!important;overflow:visible!important;}.atg-opts,.atg-col{display:none!important;}}'
   ].join('\n');
 
@@ -1932,6 +1982,561 @@
     else fallback();
   }
 
+  /* ------------------------------------------------------------------ *
+   *  New / Edit Register — Create Sessions from Date Range, date pickers, date-name check
+   * ------------------------------------------------------------------
+   * Based on code from "D2L Attendance Register Generator" by Henry Ecker.
+   * Updated and revamped code to work inside any D2L instance without extra pages and plugins by Jonathan Sorrenti.
+   * ------------------------------------------------------------------ */
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var SN = SETTINGS.sessionNames || { format: 'MMMM D, YYYY', autoFormat: true, check: 'warn' };
+
+  function fmtDate(dt, fmt) {
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return String(fmt || SN.format).replace(/dddd|ddd|MMMM|MMM|MM|M|DD|D|YYYY|YY/g, function (t) {
+      switch (t) {
+        case 'dddd': return WEEKDAYS[dt.getDay()];
+        case 'ddd': return WEEKDAYS[dt.getDay()].slice(0, 3);
+        case 'MMMM': return MONTHS[dt.getMonth()];
+        case 'MMM': return MONTHS[dt.getMonth()].slice(0, 3);
+        case 'MM': return pad(dt.getMonth() + 1);
+        case 'M': return String(dt.getMonth() + 1);
+        case 'DD': return pad(dt.getDate());
+        case 'D': return String(dt.getDate());
+        case 'YYYY': return String(dt.getFullYear());
+        case 'YY': return String(dt.getFullYear()).slice(2);
+      }
+      return t;
+    });
+  }
+  function isoOf(dt) { return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2); }
+  function fromIso(v) { var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v || ''); return m ? mkDate(+m[1], +m[2], +m[3]) : null; }
+  function mkDate(y, mo, da) { var dt = new Date(y, mo - 1, da); return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === da ? dt : null; }
+  function monthIdx(word) { var w = String(word).slice(0, 3).toLowerCase(); for (var i = 0; i < 12; i++) if (MONTHS[i].slice(0, 3).toLowerCase() === w) return i + 1; return 0; }
+  // Reads the common ways people type a date. A year is required, so "Lab 3" or "Aug 28" are never guessed.
+  function parseLooseDate(str) {
+    var s = String(str || '').trim().replace(/\s+/g, ' ').replace(/^(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?,? /i, '');
+    var m;
+    if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s))) return mkDate(+m[1], +m[2], +m[3]);
+    if ((m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/.exec(s))) return mkDate(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[1], +m[2]);
+    if ((m = /^([A-Za-z]{3,9})\.? (\d{1,2})(?:st|nd|rd|th)?,? (\d{4})$/.exec(s)) && monthIdx(m[1])) return mkDate(+m[3], monthIdx(m[1]), +m[2]);
+    if ((m = /^(\d{1,2})(?:st|nd|rd|th)? ([A-Za-z]{3,9})\.?,? (\d{4})$/.exec(s)) && monthIdx(m[2])) return mkDate(+m[3], monthIdx(m[2]), +m[1]);
+    return null;
+  }
+  function isStandardName(v) { var dt = parseLooseDate(v); return !!dt && fmtDate(dt) === String(v).trim(); }
+
+  // ---- reading D2L's sessions table (found by its "Session Name" heading, not its position) ----
+  function regSessionTable(d) {
+    var tables = d.querySelectorAll('table');
+    for (var i = 0; i < tables.length; i++) {
+      var heads = tables[i].querySelectorAll('th');
+      for (var j = 0; j < heads.length; j++) if (/session name/i.test(txt(heads[j]))) return tables[i];
+    }
+    return null;
+  }
+  function regNameCol(table) {
+    var hr = null, col = -1;
+    Array.prototype.forEach.call(table.rows, function (r) {
+      if (hr) return;
+      Array.prototype.forEach.call(r.cells, function (c, i) { if (/session name/i.test(txt(c))) { hr = r; col = i; } });
+    });
+    return col;
+  }
+  function textField(cell) {
+    if (!cell) return null;
+    return cell.querySelector('input[type="text"], input:not([type]), d2l-input-text, textarea');
+  }
+  function regRows(d) {
+    var t = regSessionTable(d); if (!t) return [];
+    var col = regNameCol(t);
+    return Array.prototype.filter.call(t.rows, function (r) { return !r.querySelector('th[scope="col"]') && textField(col > -1 ? r.cells[col] : r); })
+      .map(function (r) { var inp = textField(col > -1 ? r.cells[col] : r) || textField(r); return { row: r, name: inp, cell: inp.closest('td,th') || r }; });
+  }
+  function rowControl(row, re) {
+    var els = row.querySelectorAll('a, button, d2l-button-icon, d2l-button-subtle, [role="button"]');
+    for (var i = 0; i < els.length; i++) {
+      var e = els[i];
+      var label = (e.getAttribute('title') || '') + ' ' + (e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('text') || '') + ' ' + txt(e);
+      if (re.test(label) && e.offsetParent !== null || (re.test(label) && !e.hidden && e.style.display !== 'none')) return e;
+    }
+    return null;
+  }
+  function rowDeleted(r) {
+    return !!rowControl(r.row, /restore/i) || !!(r.name.disabled || r.name.hasAttribute('disabled')) || r.row.classList.contains('d_deleted');
+  }
+  function getVal(el) { return el ? String(el.value == null ? '' : el.value) : ''; }
+  function setVal(w, el, v) {
+    if (!el) return;
+    var proto = el.tagName === 'TEXTAREA' ? w.HTMLTextAreaElement.prototype : w.HTMLInputElement.prototype;
+    var desc = el.tagName.indexOf('-') === -1 ? Object.getOwnPropertyDescriptor(proto, 'value') : null;
+    if (desc && desc.set) desc.set.call(el, v); else el.value = v;
+    ['input', 'change'].forEach(function (t) { try { el.dispatchEvent(new w.Event(t, { bubbles: true, composed: true })); } catch (e) {} });
+  }
+  function regAddControls(d) {
+    var els = d.querySelectorAll('a, button, d2l-button-subtle, d2l-button');
+    var add = null;
+    for (var i = 0; i < els.length; i++) {
+      var label = (els[i].getAttribute('text') || '') + ' ' + txt(els[i]) + ' ' + (els[i].getAttribute('title') || '');
+      if (/add sessions?/i.test(label) && !els[i].closest('.atg-modal')) { add = els[i]; break; }
+    }
+    if (!add) return null;
+    var num = null, n = add.nextElementSibling;
+    while (n && !num) { if (n.matches && n.matches('d2l-input-number, input[type="number"], input[type="text"]')) num = n; else if (n.querySelector) num = n.querySelector('d2l-input-number, input[type="number"]'); n = n.nextElementSibling; }
+    if (!num && add.parentElement) num = add.parentElement.querySelector('d2l-input-number, input[type="number"]');
+    return { add: add, num: num };
+  }
+
+  function enhanceRegisterEdit(w, d) {
+    if (d.documentElement.getAttribute('data-atg')) return;
+    d.documentElement.setAttribute('data-atg', '1');
+    ensureStyle(d);
+    var rs = { w: w, d: d, isEdit: !!qpi(w.location.href, 'registerId') };
+    w.__atgReg = rs;
+    if (!regSessionTable(d)) return;
+    if (F.sessionsFromDates) addGenerateButton(rs);
+    if (F.sessionDatePickers) addRowPickers(rs);
+    if (SN.autoFormat || SN.check !== 'off') watchNames(rs);
+    if (SN.check !== 'off') guardRegisterSave(rs);
+    // rows D2L adds or restores without a reload get pickers too
+    if (w.MutationObserver) {
+      var mo = new w.MutationObserver(debounce(function () { if (F.sessionDatePickers) addRowPickers(rs); }, 80));
+      mo.observe(regSessionTable(d), { childList: true, subtree: true });
+    }
+    resumeRegisterJob(rs);
+  }
+
+  function addGenerateButton(rs) {
+    var d = rs.d, head = null;
+    Array.prototype.forEach.call(d.querySelectorAll('h1,h2,h3,h4,.d2l-heading,[role="heading"]'), function (h) { if (!head && /^\s*sessions\s*$/i.test(txt(h))) head = h; });
+    var btn = d.createElement('button');
+    btn.type = 'button'; btn.className = 'd2l-button atg-gen-open'; btn.textContent = LBL.sessionsFromDates;
+    btn.addEventListener('click', function () { openGenerator(rs, btn); });
+    var wrap = d.createElement('div'); wrap.appendChild(btn);
+    var anchor = head;
+    if (head && head.nextElementSibling && /what are sessions/i.test(txt(head.nextElementSibling))) anchor = head.nextElementSibling;
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+    else { var t = regSessionTable(d); t.parentNode.insertBefore(wrap, t); }
+    rs.genBtn = btn;
+  }
+
+  function addRowPickers(rs) {
+    var d = rs.d;
+    regRows(d).forEach(function (r, i) {
+      if (r.cell.querySelector('.atg-rowdate')) return;
+      var dp = d.createElement('input');
+      dp.type = 'date'; dp.className = 'atg-rowdate';
+      dp.setAttribute('aria-label', 'Pick the date for session ' + (i + 1));
+      dp.title = 'Pick the date for this session';
+      var cur = parseLooseDate(getVal(r.name)); if (cur) dp.value = isoOf(cur);
+      dp.addEventListener('change', function () {
+        var dt = fromIso(dp.value); if (!dt) return;
+        setVal(rs.w, r.name, fmtDate(dt));
+        markName(rs, r.name, true);
+        announce(d, 'Session ' + (i + 1) + ' named ' + fmtDate(dt) + '.');
+      });
+      var err = d.createElement('span'); err.className = 'atg-name-err'; err.id = 'atg-name-err-' + i; err.setAttribute('aria-live', 'polite');
+      (r.name.nextSibling ? r.cell.insertBefore(dp, r.name.nextSibling) : r.cell.appendChild(dp));
+      r.cell.appendChild(err);
+    });
+  }
+
+  function markName(rs, input, ok, msg) {
+    var cell = input.closest('td,th') || input.parentNode;
+    var err = cell && cell.querySelector('.atg-name-err');
+    if (ok) {
+      input.classList.remove('atg-name-bad'); input.removeAttribute('aria-invalid');
+      if (err) { err.textContent = ''; var db = (input.getAttribute('aria-describedby') || '').replace(err.id, '').trim(); if (db) input.setAttribute('aria-describedby', db); else input.removeAttribute('aria-describedby'); }
+    } else {
+      input.classList.add('atg-name-bad'); input.setAttribute('aria-invalid', 'true');
+      if (err) {
+        err.textContent = msg;
+        var cur = input.getAttribute('aria-describedby') || '';
+        if (cur.indexOf(err.id) === -1) input.setAttribute('aria-describedby', (cur + ' ' + err.id).trim());
+      }
+    }
+    var dp = cell && cell.querySelector('.atg-rowdate');
+    var dt = parseLooseDate(getVal(input)); if (dp) dp.value = dt ? isoOf(dt) : '';
+  }
+
+  function exampleName() { return fmtDate(new Date()); }
+
+  function watchNames(rs) {
+    var d = rs.d, t = regSessionTable(d);
+    t.addEventListener('focusout', function (e) {
+      var r = regRows(d).filter(function (x) { return x.name === e.target || (e.target && x.name.contains && x.name.contains(e.target)); })[0];
+      if (!r) return;
+      var v = getVal(r.name).trim();
+      if (!v) { markName(rs, r.name, true); return; }
+      var dt = parseLooseDate(v);
+      if (dt && SN.autoFormat && fmtDate(dt) !== v) {
+        setVal(rs.w, r.name, fmtDate(dt));
+        announce(d, 'Changed to ' + fmtDate(dt) + '.');
+        v = fmtDate(dt);
+      }
+      if (SN.check === 'off' || isStandardName(v)) markName(rs, r.name, true);
+      else markName(rs, r.name, false, 'Use a date like ' + exampleName() + '.');
+    }, true);
+  }
+
+  function badNames(rs) {
+    return regRows(rs.d).map(function (r, i) { return { r: r, n: i + 1, v: getVal(r.name).trim() }; })
+      .filter(function (x) { return !rowDeleted(x.r) && x.v && !isStandardName(x.v); });
+  }
+
+  function guardRegisterSave(rs) {
+    var d = rs.d;
+    d.addEventListener('click', function (e) {
+      if (rs.bypass) return;
+      var path = e.composedPath ? e.composedPath() : [e.target], btn = null;
+      for (var i = 0; i < path.length; i++) {
+        var n = path[i];
+        if (!n || !n.tagName) continue;
+        if (n.closest && n.closest('.atg-modal')) return;
+        if (/^(BUTTON|D2L-BUTTON|A)$/.test(n.tagName) && /^\s*save\s*$/i.test((n.getAttribute && n.getAttribute('text')) || txt(n))) { btn = n; break; }
+      }
+      if (!btn) return;
+      var bad = badNames(rs);
+      if (!bad.length) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      bad.forEach(function (x) { markName(rs, x.r.name, false, 'Use a date like ' + exampleName() + '.'); });
+      var must = SN.check === 'require';
+      var lis = bad.slice(0, 30).map(function (x) { return '<li>Session ' + x.n + ': “' + escapeHtml(x.v) + '”</li>'; }).join('');
+      rs.returnFocus = btn;
+      var ui = modal(rs, '<h2 id="atg-names-title">' + bad.length + ' session name' + (bad.length === 1 ? ' isn\'t' : 's aren\'t') + ' a date</h2>' +
+        '<p id="atg-names-desc">Session names should be dates in this format: <b>' + escapeHtml(exampleName()) + '</b>. ' +
+        (must ? 'Fix these before saving.' : 'Attendance for these sessions may not match up by date.') + ' Use the date picker beside each name.</p><ul>' + lis + '</ul>' +
+        '<div class="atg-btnrow">' + (must ? '' : '<button type="button" class="d2l-button atg-names-anyway">Save anyway</button>') +
+        '<button type="button" class="d2l-button atg-names-fix" primary>Fix them</button></div>', 'atg-names-title');
+      ui.setAttribute('role', 'alertdialog'); ui.setAttribute('aria-describedby', 'atg-names-desc');
+      ui.querySelector('.atg-names-fix').addEventListener('click', function () {
+        rs.returnFocus = null; closeModal(rs);
+        var first = bad[0].r.cell.querySelector('.atg-rowdate') || bad[0].r.name;
+        setTimeout(function () { try { first.focus(); } catch (er) {} }, 30);
+      });
+      var any = ui.querySelector('.atg-names-anyway');
+      if (any) any.addEventListener('click', function () { closeModal(rs); rs.bypass = true; btn.click(); setTimeout(function () { rs.bypass = false; }, 1500); });
+      ui.querySelector('.atg-names-fix').focus();
+    }, true);
+  }
+
+  // ---- the dialog ----
+  function genDates(start, end, days, skips) {
+    var out = [], d0 = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    var skipped = function (dt) {
+      return skips.some(function (k) { var f = fromIso(k.from), t = fromIso(k.to) || f; return f && dt >= f && dt <= t; });
+    };
+    for (var guard = 0; d0 <= end && guard < 1500; guard++) {
+      if (days.indexOf(d0.getDay()) !== -1 && !skipped(d0)) out.push(new Date(d0));
+      d0.setDate(d0.getDate() + 1);
+    }
+    return out;
+  }
+
+  // The course offering's Start/End Date (as set in Course Offering Information), as local yyyy-mm-dd.
+  // Tries the course record first, then the user's own enrollment record, which carries the same dates.
+  var courseDatesP = null;
+  function lpVersion() {
+    return fetch('/d2l/api/versions/', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (list) { var lp = (list || []).filter(function (x) { return (x.ProductCode || '').toLowerCase() === 'lp'; })[0]; return (lp && lp.LatestVersion) || '1.46'; })
+      .catch(function () { return '1.46'; });
+  }
+  function localIso(stamp) { if (!stamp) return ''; var dt = new Date(stamp); return isNaN(dt) ? '' : isoOf(dt); }
+  function courseDates() {
+    if (!courseDatesP) {
+      courseDatesP = lpVersion().then(function (v) {
+        var fromEnrollment = function () {
+          return apiGet('/d2l/api/lp/' + v + '/enrollments/myenrollments/' + OU)
+            .then(function (m) { var a = (m && m.Access) || {}; return { start: localIso(a.StartDate), end: localIso(a.EndDate) }; });
+        };
+        return apiGet('/d2l/api/lp/' + v + '/courses/' + OU)
+          .then(function (c) {
+            var r = { start: localIso(c && c.StartDate), end: localIso(c && c.EndDate) };
+            return r.start || r.end ? r : fromEnrollment();
+          }, fromEnrollment);
+      }).catch(function () { return {}; });
+    }
+    return courseDatesP;
+  }
+
+  function openGenerator(rs, opener) {
+    var d = rs.d;
+    var last = {}; try { last = JSON.parse(lsGet('atg.gen.last') || '{}') || {}; } catch (e) {}
+    var mine = {}; try { mine = JSON.parse(lsGet('atg.gen.dates.' + OU) || '{}') || {}; } catch (e) {}   // dates this user chose for THIS course
+    var existing = regRows(d).filter(function (r) { return !rowDeleted(r) && getVal(r.name).trim(); }).map(function (r) { return getVal(r.name).trim(); });
+    var dayBoxes = WEEKDAYS.map(function (n, i) {
+      return '<label><input type="checkbox" name="atg-gen-day" value="' + i + '"' + ((last.days || []).indexOf(i) !== -1 ? ' checked' : '') + '><span>' + n + '</span></label>';
+    }).join('');
+    var mode = rs.isEdit ? 'append' : 'replace';   // a new register's blank rows are simply replaced
+    var modeHtml = '';
+    if (existing.length && !rs.isEdit) {
+      modeHtml = '<fieldset><legend>Session names already typed (' + existing.length + ')</legend>' +
+        '<label><input type="radio" name="atg-gen-mode" value="replace" checked> Replace them with the new dates</label><br>' +
+        '<label><input type="radio" name="atg-gen-mode" value="append"> Keep them and add the new dates after them</label></fieldset>';
+    } else if (existing.length) {
+      modeHtml = '<p class="atg-tip" id="atg-gen-editnote">This register already has ' + existing.length + ' session' + (existing.length === 1 ? '' : 's') +
+        '. New dates are added after them; existing sessions and their attendance are never renamed or removed, and dates already in the register are skipped.</p>';
+    }
+    rs.returnFocus = opener;
+    var ui = modal(rs,
+      '<h2 id="atg-gen-title">' + escapeHtml(LBL.sessionsFromDates) + '</h2>' +
+      '<p class="atg-tip" id="atg-gen-desc">Every session is named with its date, like <b>' + escapeHtml(exampleName()) + '</b>, so names are always correct and consistent.</p>' +
+      '<p class="atg-gen-errs" id="atg-gen-errs" role="alert"></p>' +
+      '<fieldset><legend>Class dates</legend><div class="atg-gen-dates">' +
+        '<label for="atg-gen-start">First day of class<input type="date" id="atg-gen-start" value="' + escapeHtml(mine.start || '') + '" aria-describedby="atg-gen-src atg-gen-errs"></label>' +
+        '<label for="atg-gen-end">Last day of class<input type="date" id="atg-gen-end" value="' + escapeHtml(mine.end || '') + '" aria-describedby="atg-gen-src atg-gen-errs"></label>' +
+      '</div><p class="atg-tip" id="atg-gen-src">' + (mine.start || mine.end ? 'Your dates from last time for this course. Change them if needed.' : (F.prefillCourseDates ? 'Looking up the course\'s start and end dates…' : '')) + '</p></fieldset>' +
+      '<fieldset id="atg-gen-daysfs"><legend>Class meets on</legend><div class="atg-gen-days">' + dayBoxes + '</div></fieldset>' +
+      '<fieldset><legend>Skip these dates (breaks and holidays)</legend><div class="atg-gen-skip"></div>' +
+        '<button type="button" class="atg-link atg-gen-addskip">+ Add dates to skip</button></fieldset>' +
+      modeHtml +
+      '<fieldset><legend>Sessions to create</legend><p class="atg-gen-count" id="atg-gen-count" aria-live="polite">Pick dates and days to see the sessions.</p>' +
+        '<ul class="atg-gen-prev" aria-labelledby="atg-gen-count"></ul></fieldset>' +
+      '<div class="atg-btnrow"><button type="button" class="d2l-button atg-gen-cancel">Cancel</button>' +
+      '<button type="button" class="d2l-button atg-gen-go" primary>Create sessions</button></div>', 'atg-gen-title');
+    ui.classList.add('atg-gen'); ui.setAttribute('aria-describedby', 'atg-gen-desc');
+    var $ = function (sel) { return ui.querySelector(sel); };
+    var skipBox = $('.atg-gen-skip'), skipSeq = 0;
+    var excluded = {};
+    var addSkip = function (k, focus) {
+      var id = ++skipSeq;
+      var row = d.createElement('div'); row.className = 'atg-gen-skiprow';
+      row.innerHTML = '<label for="atg-skf-' + id + '">From<input type="date" id="atg-skf-' + id + '" class="atg-sk-from" value="' + escapeHtml((k && k.from) || '') + '"></label>' +
+        '<label for="atg-skt-' + id + '">To (optional)<input type="date" id="atg-skt-' + id + '" class="atg-sk-to" value="' + escapeHtml((k && k.to) || '') + '"></label>' +
+        '<label for="atg-skl-' + id + '">Label (optional)<input type="text" id="atg-skl-' + id + '" class="atg-sk-label" value="' + escapeHtml((k && k.label) || '') + '"></label>' +
+        '<button type="button" class="atg-link atg-sk-del" aria-label="Remove skipped dates ' + id + '">Remove</button>';
+      skipBox.appendChild(row);
+      row.querySelector('.atg-sk-del').addEventListener('click', function () { row.remove(); refresh(); $('.atg-gen-addskip').focus(); });
+      if (focus) row.querySelector('.atg-sk-from').focus();
+    };
+    (SETTINGS.skipDates || []).concat(last.skips || []).forEach(function (k) { addSkip(k); });
+    $('.atg-gen-addskip').addEventListener('click', function () { addSkip(null, true); });
+
+    var readForm = function () {
+      var skips = Array.prototype.map.call(skipBox.querySelectorAll('.atg-gen-skiprow'), function (r) {
+        return { from: r.querySelector('.atg-sk-from').value, to: r.querySelector('.atg-sk-to').value, label: r.querySelector('.atg-sk-label').value };
+      }).filter(function (k) { return k.from; });
+      var days = Array.prototype.filter.call(ui.querySelectorAll('input[name="atg-gen-day"]'), function (c) { return c.checked; }).map(function (c) { return +c.value; });
+      var m = ui.querySelector('input[name="atg-gen-mode"]:checked');
+      return { start: fromIso($('#atg-gen-start').value), end: fromIso($('#atg-gen-end').value), startV: $('#atg-gen-start').value, endV: $('#atg-gen-end').value, days: days, skips: skips, mode: m ? m.value : mode };
+    };
+    var problems = function (f) {
+      var p = [];
+      $('#atg-gen-start').removeAttribute('aria-invalid'); $('#atg-gen-end').removeAttribute('aria-invalid');
+      if (!f.start) { p.push('Pick the first day of class.'); $('#atg-gen-start').setAttribute('aria-invalid', 'true'); }
+      if (!f.end) { p.push('Pick the last day of class.'); $('#atg-gen-end').setAttribute('aria-invalid', 'true'); }
+      if (f.start && f.end && f.end < f.start) { p.push('The last day is before the first day.'); $('#atg-gen-end').setAttribute('aria-invalid', 'true'); }
+      if (!f.days.length) p.push('Pick at least one day the class meets.');
+      return p;
+    };
+    var current = [];
+    var refresh = function () {
+      var f = readForm(), list = $('.atg-gen-prev'), count = $('#atg-gen-count');
+      list.innerHTML = ''; current = [];
+      if (!f.start || !f.end || !f.days.length || f.end < f.start) { count.textContent = 'Pick dates and days to see the sessions.'; $('.atg-gen-go').textContent = 'Create sessions'; return; }
+      var have = {}; existing.forEach(function (n) { var dt = parseLooseDate(n); if (dt) have[isoOf(dt)] = true; });
+      var appendMode = f.mode === 'append';
+      genDates(f.start, f.end, f.days, f.skips).forEach(function (dt) {
+        var iso = isoOf(dt), dup = appendMode && have[iso];
+        var li = d.createElement('li');
+        li.innerHTML = '<label><input type="checkbox" value="' + iso + '"' + (dup || excluded[iso] ? '' : ' checked') + (dup ? ' disabled' : '') + '> ' +
+          '<span>' + escapeHtml(WEEKDAYS[dt.getDay()]) + ' — ' + escapeHtml(fmtDate(dt)) + '</span>' + (dup ? '<span class="atg-gen-dup">Already in this register</span>' : '') + '</label>';
+        list.appendChild(li);
+        current.push({ iso: iso, dt: dt, dup: dup });
+      });
+      var n = current.filter(function (x) { return !x.dup && !excluded[x.iso]; }).length;
+      count.textContent = current.length ? n + ' session' + (n === 1 ? '' : 's') + ' will be created' + (n > 100 ? ' (D2L adds up to 100 at a time; this repeats automatically)' : '') + '. Untick any date to leave it out.' : 'No class days fall in those dates.';
+      $('.atg-gen-go').textContent = n ? 'Create ' + n + ' session' + (n === 1 ? '' : 's') : 'Create sessions';
+    };
+    ui.addEventListener('change', function (e) {
+      if (e.target.closest && e.target.closest('.atg-gen-prev')) { excluded[e.target.value] = !e.target.checked; refresh(); return; }
+      refresh();
+    });
+    ui.addEventListener('input', function (e) { if (e.target.type === 'date') refresh(); });
+    var onEsc = function (e) { if (e.key === 'Escape') { e.preventDefault(); done(); } };
+    var done = function () { d.removeEventListener('keydown', onEsc, true); closeModal(rs); };
+    d.addEventListener('keydown', onEsc, true);
+    $('.atg-gen-cancel').addEventListener('click', done);
+    $('.atg-gen-go').addEventListener('click', function () {
+      var f = readForm(), p = problems(f);
+      $('#atg-gen-errs').textContent = p.join(' ');
+      if (p.length) { (f.start ? (f.end && f.end >= f.start ? ui.querySelector('input[name="atg-gen-day"]') : $('#atg-gen-end')) : $('#atg-gen-start')).focus(); return; }
+      var names = current.filter(function (x) { return !x.dup && !excluded[x.iso]; }).map(function (x) { return fmtDate(x.dt); });
+      if (!names.length) { $('#atg-gen-errs').textContent = 'There are no sessions to create. Check the dates, days and skipped dates.'; return; }
+      lsSet('atg.gen.dates.' + OU, JSON.stringify({ start: f.startV, end: f.endV }));
+      lsSet('atg.gen.last', JSON.stringify({ days: f.days, skips: f.skips.filter(function (k) {
+        return !(SETTINGS.skipDates || []).some(function (s) { return s.from === k.from && (s.to || '') === (k.to || ''); });
+      }) }));
+      done();
+      runRegisterJob(rs, { names: names, mode: f.mode, rounds: 0 });
+    });
+    refresh();
+    setTimeout(function () { $('#atg-gen-start').focus(); }, 30);
+
+    // Start with the course offering's Start/End Date (unless this user already picked dates for this course)
+    if (F.prefillCourseDates && !(mine.start || mine.end)) {
+      var touched = { start: false, end: false };
+      $('#atg-gen-start').addEventListener('input', function () { touched.start = true; });
+      $('#atg-gen-end').addEventListener('input', function () { touched.end = true; });
+      courseDates().then(function (cd) {
+        if (!ui.isConnected) return;
+        var src = $('#atg-gen-src'), filled = [];
+        if (cd.start && !touched.start && !$('#atg-gen-start').value) { $('#atg-gen-start').value = cd.start; filled.push('start'); }
+        if (cd.end && !touched.end && !$('#atg-gen-end').value) { $('#atg-gen-end').value = cd.end; filled.push('end'); }
+        if (filled.length) {
+          src.textContent = 'Filled in from the course\'s ' + (filled.length === 2 ? 'start and end dates' : filled[0] + ' date') + '. Change them if your class meets on different dates.';
+          announce(d, 'First and last day of class filled in from the course dates.');
+          refresh();
+        } else {
+          src.textContent = cd.start || cd.end ? '' : 'This course has no start or end date set, so pick the dates.';
+        }
+      });
+    }
+  }
+
+  // ---- filling D2L's table (survives D2L's page reload when it adds rows) ----
+  function jobKey(rs) { return 'atg.genjob.' + OU + '.' + (qpi(rs.w.location.href, 'registerId') || 'new'); }
+  function resumeRegisterJob(rs) {
+    var raw = ssGet(jobKey(rs)); if (!raw) return;
+    ssSet(jobKey(rs), null);
+    var job = null; try { job = JSON.parse(raw); } catch (e) {}
+    if (!job) return;
+    setTimeout(function () {
+      if (job.snap) { try { restoreForm(rs, job.snap); } catch (e) {} }
+      runRegisterJob(rs, job);
+    }, 300);
+  }
+
+  function runRegisterJob(rs, job) {
+    var d = rs.d, w = rs.w;
+    var rows = regRows(d);
+    var names = job.names.slice();
+    if (job.mode === 'append') {
+      // never touch named rows; fill empty rows (restoring deleted empty ones), then add more
+      var empty = rows.filter(function (r) { return !getVal(r.name).trim(); });
+      var need = names.length - empty.length;
+      if (need > 0) return addMoreRows(rs, job, need, rows.length);
+      empty.forEach(function (r) {
+        if (names.length) { setRowDeleted(rs, r, false); setVal(w, r.name, names.shift()); }
+        else setRowDeleted(rs, r, true);                                // leftover blank rows are removed
+      });
+      return finishJob(rs, job.names.length, rows);
+    }
+    // replace: the first N rows get the dates, the rest are removed
+    if (rows.length < names.length) return addMoreRows(rs, job, names.length - rows.length, rows.length);
+    rows.forEach(function (r, i) {
+      if (i < names.length) { setRowDeleted(rs, r, false); setVal(w, r.name, names[i]); }
+      else setRowDeleted(rs, r, true);
+    });
+    finishJob(rs, names.length, rows);
+  }
+
+  function clickCtl(r, re) { var c = rowControl(r.row, re); if (c) c.click(); }
+  // D2L's Delete link is a toggle (DeleteSession(key)); its label stays "Delete Entry N" and the
+  // name box is disabled while deleted. Use D2L's own function, else the link.
+  function rowKey(r) { return (r.name.getAttribute('name') || '').replace(/^name_/, ''); }
+  function setRowDeleted(rs, r, wantDeleted) {
+    if (rowDeleted(r) === wantDeleted) return;
+    var key = rowKey(r);
+    if (key && typeof rs.w.DeleteSession === 'function') { try { rs.w.DeleteSession(key); } catch (e) {} }
+    if (rowDeleted(r) !== wantDeleted) clickCtl(r, /delete|restore|remove/i);
+  }
+
+  // D2L adds rows by reloading the page with a bigger row count, and the reload keeps nothing typed.
+  // So: copy the form, ask D2L for the rows exactly as its own Add Sessions does, then put it all back.
+  function snapshotForm(d) {
+    var snap = { fields: [], numbers: [] };
+    Array.prototype.forEach.call(d.querySelectorAll('input[name], textarea[name], select[name]'), function (el) {
+      var n = el.getAttribute('name');
+      if (!n || /^d2l_/.test(n) || n === 'sessionOrder_n' || el.type === 'hidden' || el.type === 'button' || el.type === 'submit' || el.closest('.atg-modal') || el.classList.contains('atg-rowdate')) return;
+      snap.fields.push({ n: n, type: el.type || el.tagName.toLowerCase(), value: el.value, checked: !!el.checked });
+    });
+    Array.prototype.forEach.call(d.querySelectorAll('d2l-input-number'), function (el) {
+      var label = el.getAttribute('label') || '';
+      if (/sessions to add/i.test(label) || el.value == null || el.value === '') return;
+      snap.numbers.push({ label: label, value: el.value });
+    });
+    return snap;
+  }
+  function restoreForm(rs, snap) {
+    var d = rs.d, w = rs.w;
+    (snap.fields || []).forEach(function (f) {
+      var els = Array.prototype.filter.call(d.getElementsByName(f.n), function (el) { return !el.closest('.atg-modal'); });
+      if (f.type === 'radio') { els.forEach(function (el) { if (el.value === f.value && f.checked && !el.checked) { el.checked = true; el.dispatchEvent(new w.Event('click', { bubbles: true })); el.dispatchEvent(new w.Event('change', { bubbles: true })); } }); return; }
+      var el = els[0]; if (!el) return;
+      if (f.type === 'checkbox') { if (el.checked !== f.checked) { el.checked = f.checked; el.dispatchEvent(new w.Event('change', { bubbles: true })); } return; }
+      if (el.tagName === 'SELECT') {
+        var ctl = null; try { ctl = w.UI && w.UI.GetByName && w.UI.GetByName(f.n); } catch (e) {}
+        try { if (ctl && typeof ctl.SelectOptionByKey === 'function') ctl.SelectOptionByKey(f.value, true); } catch (e) {}
+        if (el.value !== f.value) { el.value = f.value; el.dispatchEvent(new w.Event('change', { bubbles: true })); }
+        return;
+      }
+      if (getVal(el) !== f.value && f.value !== '') setVal(w, el, f.value);
+    });
+    (snap.numbers || []).forEach(function (nu) {
+      var el = Array.prototype.filter.call(d.querySelectorAll('d2l-input-number'), function (x) { return (x.getAttribute('label') || '') === nu.label; })[0];
+      if (el) { el.value = nu.value; ['input', 'change'].forEach(function (t) { try { el.dispatchEvent(new w.Event(t, { bubbles: true, composed: true })); } catch (e) {} }); }
+    });
+  }
+  function groupsChosen(d) {
+    var rb = d.querySelectorAll('input[type="radio"][name="RB_userOption"]');
+    return rb.length > 1 && rb[rb.length - 1].checked;
+  }
+
+  function addMoreRows(rs, job, need, haveRows) {
+    var w = rs.w, d = rs.d;
+    if (!job.groupsOk && job.rounds === 0 && groupsChosen(d)) {
+      var ui = modal(rs, '<h2 id="atg-grp-title">Groups and sections need to be picked again</h2>' +
+        '<p id="atg-grp-desc">Adding ' + need + ' more session row' + (need === 1 ? '' : 's') + ' reloads this page. Everything else you entered is put back, but the groups/sections you selected can\'t be. ' +
+        'You can continue and re-add them, or cancel, Save this register first, then come back and create the sessions.</p>' +
+        '<div class="atg-btnrow"><button type="button" class="d2l-button atg-grp-cancel">Cancel</button><button type="button" class="d2l-button atg-grp-go" primary>Continue</button></div>', 'atg-grp-title');
+      ui.setAttribute('role', 'alertdialog'); ui.setAttribute('aria-describedby', 'atg-grp-desc');
+      ui.querySelector('.atg-grp-cancel').addEventListener('click', function () { closeModal(rs); });
+      ui.querySelector('.atg-grp-go').addEventListener('click', function () { closeModal(rs); job.groupsOk = true; addMoreRows(rs, job, need, haveRows); });
+      ui.querySelector('.atg-grp-go').focus();
+      return;
+    }
+    if (job.rounds >= 6 || (job.lastRows === haveRows && job.rounds > 0)) {
+      toastDoc(d, 'D2L didn\'t add the extra session rows. Click Add Sessions to add ' + need + ' more, then run ' + LBL.sessionsFromDates + ' again.');
+      announce(d, 'Could not add session rows automatically.', true);
+      return;
+    }
+    var n = Math.min(100, need);                                  // D2L adds up to 100 at a time
+    var newRows = d.querySelectorAll('input[name^="name_new_"]').length;
+    var next = { names: job.names, mode: job.mode, rounds: job.rounds + 1, lastRows: haveRows, groupsOk: !!job.groupsOk, snap: job.snap || snapshotForm(d) };
+    if (w.D2L && typeof w.D2L.NavInfo === 'function' && w.Nav && typeof w.Nav.Go === 'function') {
+      ssSet(jobKey(rs), JSON.stringify(next));
+      toastDoc(d, 'Adding ' + n + ' session row' + (n === 1 ? '' : 's') + '…');
+      try { w.onbeforeunload = null; } catch (e) {}
+      var ni = new w.D2L.NavInfo();
+      ni.action = 'Update';
+      ni.actionParam = newRows + n;                                // same request D2L's Add Sessions makes
+      w.Nav.Go(ni, true);
+      return;
+    }
+    // Fallback: press D2L's own Add Sessions
+    var ctl = regAddControls(d);
+    if (!ctl) { toastDoc(d, 'Couldn\'t find Add Sessions. Add ' + need + ' rows, then run ' + LBL.sessionsFromDates + ' again.'); return; }
+    if (ctl.num) setVal(w, ctl.num, String(n));
+    ssSet(jobKey(rs), JSON.stringify(next));
+    toastDoc(d, 'Adding ' + n + ' session row' + (n === 1 ? '' : 's') + '…');
+    setTimeout(function () { ctl.add.click(); }, 80);
+  }
+
+  function finishJob(rs, n, rows) {
+    ssSet(jobKey(rs), null);
+    if (F.sessionDatePickers) {
+      Array.prototype.forEach.call(rs.d.querySelectorAll('.atg-rowdate'), function (x) { x.remove(); });
+      Array.prototype.forEach.call(rs.d.querySelectorAll('.atg-name-err'), function (x) { x.remove(); });
+      addRowPickers(rs);
+    }
+    regRows(rs.d).forEach(function (r) { markName(rs, r.name, true); });
+    toastDoc(rs.d, n + ' session' + (n === 1 ? '' : 's') + ' named with dates. Review them, then click Save.');
+    var first = regRows(rs.d).filter(function (r) { return !rowDeleted(r); })[0];
+    if (first) setTimeout(function () { try { first.name.focus(); } catch (e) {} }, 60);
+  }
+
   /* ---------- Show the most learners per page D2L allows ---------- */
   // Returns the biggest "per page" option when the page isn't already using it, else null.
   function maxSizeNeeded(d) {
@@ -2130,7 +2735,7 @@
   }
 
   // exposed for testing
-  window.__ATG_TEST__ = { diagnostics: diagnostics, enhanceDataEdit: enhanceDataEdit, openGradesDialog: openGradesDialog, saveSession: saveSession, readModel: readModel, enhanceDataList: enhanceDataList, setOU: function (v) { OU = v; } };
+  window.__ATG_TEST__ = { enhanceRegisterEdit: enhanceRegisterEdit, parseLooseDate: parseLooseDate, fmtDate: fmtDate, diagnostics: diagnostics, enhanceDataEdit: enhanceDataEdit, openGradesDialog: openGradesDialog, saveSession: saveSession, readModel: readModel, enhanceDataList: enhanceDataList, setOU: function (v) { OU = v; } };
 })();
 </script>
 </body>

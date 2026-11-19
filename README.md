@@ -17,7 +17,7 @@ Every tool in this repository is a **single, self-contained HTML file** that run
 
 **Jump to a folder:** [🔧 Admin Tools](Admin_Tools/) · [🏫 Department Tools](Department_Tools/) · [🏠 Homepage Widgets](Course_Homepages/) · [📄 Content Page Templates](Content_Templates/) · [🧩 Custom Apps](CustomApps/)
 
-> 🆕 **New: [Attendance Plus](CustomApps/README.md#attendance-plus).** Brightspace's Attendance tool, upgraded to work like the Gradebook: frozen learner and session headings, scrollbars at the top and bottom, a **Spreadsheet View** to take attendance right from the main page, **Totals on the left**, and **Take Attendance by Grades**. Every mark is still saved by D2L itself, so Data Hub and reports don't change.
+> 🆕 **New: [Attendance Plus](CustomApps/README.md#attendance-plus).** Brightspace's Attendance tool, upgraded to work like the Gradebook: frozen learner and session headings, scrollbars at the top and bottom, a **Spreadsheet View** to take attendance right from the main page, **Totals on the left**, **Take Attendance by Grades**, and now **Create Sessions from Date Range** to build a whole term of dated sessions in seconds. Every mark is still saved by D2L itself, so Data Hub and reports don't change.
 
 ---
 
@@ -130,8 +130,9 @@ These aren't experiments or demos. **Every tool listed below is running live in 
 4. 📝 **Switch to Spreadsheet View** to take attendance right from the main page: a dropdown in every cell, whole-column fills, Undo, and keyboard entry
 5. ☑️ **Display Totals at the front**: a checkbox that moves the totals to the left, so you don't have to scroll to the far right
 6. 📊 **Take Attendance by Grades** on the Set Attendance Data page and in Spreadsheet View: suggests P / T / A from the grade items you choose
+7. 🆕 📅 **Create Sessions from Date Range** on the New and Edit Register pages: pick the class days, skip breaks and holidays, and every session is created and named with its date. The course's start and end dates are filled in for you.
 
-**Plus:** a **Take Attendance** button for any session, **at-risk flags** from the register's Cause for Concern %, **safe saving** that confirms every mark and retries up to 3 times, and **recovery of unsaved marks**.
+**Plus:** a **date picker beside every session name** with consistent date formatting, a **Take Attendance** button for any session, **at-risk flags** from the register's Cause for Concern %, **safe saving** that confirms every mark and retries up to 3 times, and **recovery of unsaved marks**.
 
 ---
 
@@ -265,7 +266,7 @@ A few tools have **optional institution settings** in a clearly marked `CONFIG` 
 | Support center link | Student and Instructor Grade Widgets | The tutoring or support resource named in messages |
 | Pass/fail and gradebook-only courses | Grade widgets, Department Grades, Dashboard | Course codes graded Successful/Unsuccessful, or that should show only a Gradebook link |
 | Term dates | My Courses Widget | The date windows for Spring, Summer, and Fall |
-| Features, wording, and defaults | Attendance Plus | Turn each feature on or off, rename buttons, and set defaults such as the starting status and grade rules |
+| Features, wording, and defaults | Attendance Plus | Turn each feature on or off, rename buttons, and set defaults such as the starting status, grade rules, session-name date format, and college holidays to skip |
 
 Open the file in any text editor (Notepad, TextEdit, VS Code), change the values, save, and re-upload. Each folder's README lists the settings for every tool in that folder.
 
@@ -356,13 +357,13 @@ Replacing even **one** paid app saves more than a **full year** of the $150/mont
 
 Thank you to everyone who supports this work!
 
-<!-- sponsors -->*Be the first sponsor!*<!-- sponsors -->
+<!-- sponsors --><!-- sponsors -->
 
 ### 🏫 Institutional Partners
 
 Sponsors at the **$100/month** tier and above.
 
-<!-- partners -->*Your institution could be listed here.*<!-- partners -->
+<!-- partners --><!-- partners -->
 
 ---
 

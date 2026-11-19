@@ -40,7 +40,7 @@ Instructors need only their **usual permissions**. Nothing new is granted, and e
 
 ## Attendance Plus
 
-**File:** `attendance-plus.html` · **Version:** 1.5.0
+**File:** `attendance-plus.html` · **Version:** 1.6.0
 
 ![Attendance Plus in Spreadsheet View](screenshots/attendance-plus-spreadsheet.png)
 
@@ -52,6 +52,7 @@ Makes Brightspace's **Attendance** tool work like the **Gradebook** for instruct
 - Working comfortably with long class lists and semesters full of sessions
 - Filling attendance from participation grades instead of marking every learner by hand
 - Spotting learners whose attendance has dropped below your Cause for Concern %
+- Building a whole semester of sessions in seconds, each one named with its date
 
 ### ✨ What's new
 
@@ -97,6 +98,23 @@ You'll see a review table with each learner's score on each item. Change any row
 
 ![Take Attendance by Grades review table](screenshots/attendance-plus-by-grades.png)
 
+#### 7. 🆕 Create Sessions from Date Range
+On the **New Register** and **Edit Register** pages, a **Create Sessions from Date Range** button builds every session for the term at once, each named with its date (for example, **August 24, 2026**).
+
+![Create Sessions from Date Range](screenshots/create-sessions-date-range.png)
+
+- **Class dates:** the first and last day of class are **filled in from the course offering's Start and End Date**. Change them if your class meets on different dates. Next time, it remembers the dates you used for that course.
+- **Class meets on:** tick the days of the week the class meets.
+- **Skip these dates:** add breaks and holidays as a single date or a range, with an optional label such as "Thanksgiving Break." Your school can also pre-load its holidays for everyone (see `skipDates` in Settings).
+- **Sessions to create:** a live preview lists every date with a running count. Untick any date to leave it out, then click **Create _N_ sessions**.
+- **Any number of sessions:** D2L adds at most 100 session rows at a time, so Attendance Plus repeats that step automatically. Everything else you entered on the page is kept.
+- **Safe on existing registers:** on Edit Register, new dates are added *after* the existing sessions. Existing sessions and their attendance are never renamed or removed, and dates already in the register are skipped. On a new register where you've already typed names, you choose whether to replace them or keep them.
+
+Two more additions on the same pages:
+
+- **A date picker beside every session name.** Pick a date and the name is filled in using the standard format.
+- **Consistent date names.** Typed dates like `8/24/26` are turned into the standard format (for example, *August 24, 2026*) when you leave the box. On Save, any session name that isn't a date is flagged, with **Fix them** and **Save anyway** options. Consistent names make attendance easy to match by date, for example with a student information system. The format and how strict the check is are both settings.
+
 ### ➕ More add-ons
 
 | Add-on | What it does |
@@ -132,6 +150,9 @@ Everything is in the `SETTINGS` block at the top of the file's script. Change a 
 | `features.atRiskFlags` | `true` | Flags learners below the register's Cause for Concern % |
 | `features.draftRecovery` | `true` | Keeps unsaved Spreadsheet View marks in the browser until saved |
 | `features.showMostLearnersPerPage` | `true` | Uses D2L's biggest "per page" option in Spreadsheet View and on Set Attendance Data |
+| `features.sessionsFromDates` | `true` | The Create Sessions from Date Range button on New/Edit Register |
+| `features.sessionDatePickers` | `true` | A date picker beside every session name on New/Edit Register |
+| `features.prefillCourseDates` | `true` | Starts Create Sessions from Date Range with the course offering's Start and End Date |
 | `features.bookmarkletPassThrough` | `true` | Lets older bookmarklets run on the D2L page inside |
 | `labels.*` | English button names | The wording of every added button and checkbox |
 | `totalsFirstDefault` | `false` | Where the totals start for someone who has never changed it |
@@ -140,8 +161,12 @@ Everything is in the `SETTINGS` block at the top of the file's script. Change a 
 | `atRiskDefaultPercent` | `null` | Threshold for registers with no Cause for Concern % (`null` = no flags) |
 | `draftKeepDays` | `7` | How long unsaved marks are offered back |
 | `saveAttempts` | `3` | Automatic save tries per session before reporting a problem |
+| `sessionNames.format` | `'MMMM D, YYYY'` | The date format for session names (*August 24, 2026*). Tokens: `dddd ddd MMMM MMM MM M DD D YYYY YY` |
+| `sessionNames.autoFormat` | `true` | Turns typed dates like `8/24/26` into that format when you leave the box |
+| `sessionNames.check` | `'warn'` | On Save, flags names that aren't dates: `'off'`, `'warn'` (can Save anyway), or `'require'` (must fix) |
+| `skipDates` | `[]` | College-wide holidays pre-filled (and removable) in Create Sessions from Date Range, e.g. `[{ from: '2026-11-25', to: '2026-11-27', label: 'Thanksgiving Break' }]` |
 
-Each person's own choices (Totals position, grade rules, chosen grade items) are remembered in their browser and override these defaults for them.
+Each person's own choices (Totals position, grade rules, chosen grade items, class days, and skipped dates) are remembered in their browser and override these defaults for them.
 
 ### Test checklist
 Run these in a test course, in Chrome and Firefox, before turning it on for everyone:
@@ -157,6 +182,12 @@ Run these in a test course, in Chrome and Firefox, before turning it on for ever
 - [ ] Make a change, close the tab, and reopen the register: the unsaved marks are offered back.
 - [ ] Set a Cause for Concern % on the register: learners below it are flagged.
 - [ ] Sorting, search, the Sections filter, Export All Data, and Email still work.
+- [ ] On New Register, Create Sessions from Date Range fills in the course's start and end dates.
+- [ ] Pick class days and a skipped break: the preview leaves those dates out, and Create fills the session names.
+- [ ] Create more than 100 sessions on a test register: the extra rows are added automatically and the other fields are kept.
+- [ ] On Edit Register, new dates are added after the existing sessions, and dates already in the register are skipped.
+- [ ] Type `8/24/26` as a session name and leave the box: it changes to the standard format.
+- [ ] Save with a session name that isn't a date: you're offered Fix them or Save anyway.
 - [ ] The next day, the Attendance data sets in Data Hub show the test marks.
 
 ### Good to know
@@ -176,10 +207,14 @@ Run these in a test course, in Chrome and Firefox, before turning it on for ever
 | Spreadsheet View still shows page 1 of 2 | An older file version | Upload the latest file (1.5.0 or later) |
 | No at-risk flags | The register has no Cause for Concern %, or the totals are collapsed | Set the % on the register, expand the totals, or set `atRiskDefaultPercent` |
 | Grade items don't load | The person lacks Grades access in that course | Check the role's Grades permissions |
+| First and last day of class aren't filled in | The course offering has no Start or End Date set | Pick the dates in the dialog, or set them in Course Offering Information |
+| "D2L didn't add the extra session rows" | D2L didn't respond to the request for more rows | Click **Add Sessions** to add the rows shown, then run Create Sessions from Date Range again |
+| Groups/sections are cleared after creating sessions | Adding rows reloads the page, and D2L can't restore group selections | Re-add the groups, or Save the register first and then create the sessions (you're warned before this happens) |
 
 ### Credits
 - **Attendance Plus** by Jonathan Sorrenti.
 - **Take Attendance by Grades** is based on code from "D2L Attendance From Participation" by Henry Ecker, updated and revamped by Jonathan Sorrenti to work inside any D2L instance without extra pages or plugins.
+- **Create Sessions from Date Range** is based on code from "D2L Attendance Register Generator" by Henry Ecker, updated and revamped by Jonathan Sorrenti to work inside any D2L instance without extra pages or plugins.
 
 ---
 
